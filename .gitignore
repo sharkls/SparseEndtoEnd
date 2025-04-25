@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# C extensions
+*.so
+
+# Distribution / packaging
+build/
+*.egg-info/
+
+# Unit test / coverage reports
+.cache
+.pytest_cache/
+
+# Django stuff:
+*.log
+*.INFO
+LOG_*
+
+# dump file
+*.npy
+*.bin
+*.onnx
+*.engine
+*.json
+*.pkl
+*.swp
+*.pth
+*.pdf
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# PEP 582; used by e.g. github.com/David-OConnor/pyflow and github.com/pdm-project/pdm
+__pypackages__/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+
+# Rope project settings
+.ropeproject
+
+# pytype static type analyzer
+.pytype/
+
+# datas
+data/
+ckpt/
+docker/
+e2e_worklog/

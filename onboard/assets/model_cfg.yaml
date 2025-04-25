@@ -1,0 +1,85 @@
+# Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
+# Using vscode pluging : YAML:AML Language Support by Red Hat, with built-in Kubernetes syntax.
+OfflineOnboardBinFilePath:
+  - KmeansAnchorsPath: "/share/Code/SparseEnd2End/onboard/assets/bin_file/kmeans_anchors_900x11_float32.bin"
+  - Lidar2ImagePath: "/share/Code/SparseEnd2End/onboard/assets/bin_file/lidar2img_5*6*4*4_float32.bin"
+SparseE2E:
+  TaskCameraFrameID:
+    - CAM_FRONT
+    - CAM_FRONT_RIGHT
+    - CAM_FRONT_LEFT
+    - CAM_BACK
+    - CAM_BACK_LEFT
+    - CAM_BACK_RIGHT
+  ImgPreprocessor:
+    - RawImgShape_CHW: [3, 900, 1600]
+    - ModelInputImgShape_CHW: [3, 256, 704]
+  EmbedFeatDims: 256
+  Sparse4dExtractFeatTrtEngine:
+    - EnginePath: "/share/Code/SparseEnd2End/onboard/assets/trt_engine/sparse4dbackbone.engine"
+    - EngineInputNames: ["img"]
+    - EngineOutputNames: ["feature"]
+    - Sparse4dExtractFeatShape_LC: [89760, 256]
+    - Sparse4dExtractFeatSpatialShapes_LD: [64, 176, 32, 88, 16, 44, 8, 22]
+  MultiViewMultiScaleDeformableAttentionAggregationPath: "/share/Code/SparseEnd2End/onboard/assets/trt_engine/deformableAttentionAggr.so"
+  Sparse4dHeadFirstFrameEngine:
+    - EnginePath: "/share/Code/SparseEnd2End/onboard/assets/trt_engine/sparse4dhead1st.engine"
+    - EngineInputNames:
+        [
+          "feature",
+          "spatial_shapes",
+          "level_start_index",
+          "instance_feature",
+          "anchor",
+          "time_interval",
+          "image_wh",
+          "lidar2img",
+        ]
+    - EngineOutputNames:
+        [
+          "pred_instance_feature",
+          "pred_anchor",
+          "pred_class_score",
+          "pred_quality_score",
+        ]
+  Sparse4dHeadSecondFrameEngine:
+    - EnginePath: "/share/Code/SparseEnd2End/onboard/assets/trt_engine/sparse4dhead2nd.engine"
+    - EngineInputNames:
+        [
+          "feature",
+          "spatial_shapes",
+          "level_start_index",
+          "instance_feature",
+          "anchor",
+          "time_interval",
+          "temp_instance_feature",
+          "temp_anchor",
+          "mask",
+          "track_id",
+          "image_wh",
+          "lidar2img",
+        ]
+    - EngineOutputNames:
+        [
+          "tmp_outs0",
+          "pred_track_id",
+          "tmp_outs1",
+          "tmp_outs2",
+          "tmp_outs3",
+          "tmp_outs4",
+          "tmp_outs5",
+          "pred_instance_feature",
+          "pred_anchor",
+          "pred_class_score",
+          "pred_quality_score",
+        ]
+  InstanceBankParams:
+    - NumQuerys: 900
+    - QueryDims: 11
+    - TopKQuerys: 600
+    - MaxTimeInterval: 2.0
+    - DefaultTimeInterval: 0.5
+    - ConfidenceDecay: 0.6
+  PostProcess:
+    - PostProcessOutNums: 300
+    - PostProcessThreshold: 0.2
