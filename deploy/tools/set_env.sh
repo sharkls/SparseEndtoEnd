@@ -64,13 +64,13 @@ export LD_LIBRARY_PATH=$ENV_TensorRT_LIB:$ENV_CUDA_LIB:$ENV_cuDNN_LIB:$LD_LIBRAR
 export ENVTRTDIR=engine_ls
 export ENVTARGETPLUGIN=dfa_plugin/lib/deformableAttentionAggr.so
 
-export ENV_BACKBONE_ONNX=onnx_test/sparse4dbackbone.onnx
+export ENV_BACKBONE_ONNX=onnx/sparse4dbackbone.onnx
 export ENV_BACKBONE_ENGINE=${ENVTRTDIR}/sparse4dbackbone.engine
 
-export ENV_HEAD1_ONNX=onnx_test/sparse4dhead1st.onnx
+export ENV_HEAD1_ONNX=onnx/sparse4dhead1st.onnx
 export ENV_HEAD1_ENGINE=${ENVTRTDIR}/sparse4dhead1st.engine
 
-export ENV_HEAD2_ONNX=onnx_test/sparse4dhead2nd.onnx
+export ENV_HEAD2_ONNX=onnx/sparse4dhead2nd.onnx
 export ENV_HEAD2_ENGINE=${ENVTRTDIR}/sparse4dhead2nd.engine
 
 echo "===================================================================================================================="

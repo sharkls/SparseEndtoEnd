@@ -326,7 +326,7 @@ class Sparse4DHead2nd(nn.Module):
                         - self.instance_bank.num_temp_instances
                     )
                     cls = cls.max(dim=-1).values
-                    _, (selected_feature, selected_anchor) = topk(
+                    _, (selected_feature, selected_anchor),_ = topk(
                         cls, N, instance_feature, anchor
                     )
                     selected_feature = torch.cat(
