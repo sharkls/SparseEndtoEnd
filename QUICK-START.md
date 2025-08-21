@@ -104,7 +104,7 @@ wget https://download.pytorch.org/models/resnet50-19c8e357.pth -O ckpt/resnet50-
 ### Train&Val Pipeline Data Visualization
 train_pipeline or val_pipeline online/offline separately for visualization.
 ```bash
-python script/tutorial_task_nusc/001_nusc_dataset_visualization.py
+python3 script/tutorial/001nusc_dataset_visualization.py
 ```
 
 

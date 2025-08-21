@@ -218,17 +218,17 @@ def inference(
             bufferH.append(
                 np.zeros(
                     engine.get_binding_shape(lTensorName[i]),
-                    dtype=trt.nptype(engine.get_binding_dtype(lTensorName[i])),
+                    dtype=TRT_TO_NP[engine.get_binding_dtype(lTensorName[i])],
                 )
             )
 
         for i in range(nInput):
             logger.debug(
-                f"LoadEngine: Input{i}={lTensorName[i]}:\tshape:{engine.get_binding_shape}\ttype:{str(trt.nptype(engine.get_binding_dtype))} ."
+                f"LoadEngine: Input{i}={lTensorName[i]}:\tshape:{engine.get_binding_shape}\ttype:{str(TRT_TO_NP[engine.get_binding_dtype(lTensorName[i])])} ."
             )
         for i in range(nInput, nIO):
             logger.debug(
-                f"LoadEngine: Output{i}={lTensorName[i]}:\tshape:{engine.get_binding_shape}\ttype:{str(trt.nptype(engine.get_binding_dtype))} ."
+                f"LoadEngine: Output{i}={lTensorName[i]}:\tshape:{engine.get_binding_shape}\ttype:{str(TRT_TO_NP[engine.get_binding_dtype(lTensorName[i])])} ."
             )
 
     else:
@@ -243,17 +243,17 @@ def inference(
             bufferH.append(
                 np.zeros(
                     context.get_tensor_shape(lTensorName[i]),
-                    dtype=trt.nptype(engine.get_tensor_dtype(lTensorName[i])),
+                    dtype=TRT_TO_NP[engine.get_tensor_dtype(lTensorName[i])],
                 )
             )
 
         for i in range(nInput):
             logger.debug(
-                f"LoadEngine: BindingInput{i}={lTensorName[i]} :\tshape:{context.get_tensor_shape(lTensorName[i])},\ttype:{str(trt.nptype(engine.get_tensor_dtype(lTensorName[i])))}"
+                f"LoadEngine: BindingInput{i}={lTensorName[i]} :\tshape:{context.get_tensor_shape(lTensorName[i])},\ttype:{str(TRT_TO_NP[engine.get_tensor_dtype(lTensorName[i])])}"
             )
         for i in range(nInput, nIO):
             logger.debug(
-                f"LoadEngine: BindingOutput{i}={lTensorName[i]}:\tshape:{context.get_tensor_shape(lTensorName[i])},\ttype:{str(trt.nptype(engine.get_tensor_dtype(lTensorName[i])))}"
+                f"LoadEngine: BindingOutput{i}={lTensorName[i]}:\tshape:{context.get_tensor_shape(lTensorName[i])},\ttype:{str(TRT_TO_NP[engine.get_tensor_dtype(lTensorName[i])])}"
             )
 
     bufferD = []

@@ -62,6 +62,7 @@ Firstly, you need to set env for youself in set_env.sh, then run below:
 cd deploy
 . deploy/tools/set_env.sh
 cd deploy
+. tools/set_env.sh
 bash build_sparse4d_engine.sh
 ```
 trt log likes below:

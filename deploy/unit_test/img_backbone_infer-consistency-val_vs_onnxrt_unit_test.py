@@ -75,7 +75,7 @@ def inference(
             bufferH.append(
                 np.zeros(
                     engine.get_binding_shape(lTensorName[i]),
-                    dtype=trt.nptype(engine.get_binding_dtype(lTensorName[i])),
+                    dtype=TRT_TO_NP[engine.get_binding_dtype(lTensorName[i])],
                 )
             )
 
@@ -101,13 +101,13 @@ def inference(
             bufferH.append(
                 np.zeros(
                     context.get_tensor_shape(lTensorName[i]),
-                    dtype=trt.nptype(engine.get_tensor_dtype(lTensorName[i])),
+                    dtype=TRT_TO_NP[engine.get_tensor_dtype(lTensorName[i])],
                 )
             )
 
         for j in range(nIO):
             logger.debug(
-                f"Engine Binding name:{lTensorName[j]}, shape:{context.get_tensor_shape(lTensorName[j])}, type:{trt.nptype(engine.get_tensor_dtype(lTensorName[j]))} ."
+                f"Engine Binding name:{lTensorName[j]}, shape:{context.get_tensor_shape(lTensorName[j])}, type:{TRT_TO_NP[engine.get_tensor_dtype(lTensorName[j])]} ."
             )
             logger.debug(
                 f"Compared Input Data:{lTensorName[j]} shape:{bufferH[j].shape}, type:{bufferH[j].dtype} ."
