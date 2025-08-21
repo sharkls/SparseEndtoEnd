@@ -8,43 +8,46 @@ from typing import List
 from cuda import cudart
 from tool.utils.logger import logger_wrapper
 
+if not hasattr(np, 'bool'):
+    np.bool = np.bool_
+
 
 def read_bin(samples=1):
     data = list()
     for i in range(samples):
         shape1 = [1, 89760, 256]
         feature = np.fromfile(
-            f"deploy/dfa_plugin/asset/sample_{i}_rand_fetaure_1x89760x256_float32.bin",
+            f"deploy/dfa_plugin/asset/sample_{i}_rand_fetaure_1*89760*256_float32.bin",
             dtype=np.float32,
         ).reshape(shape1)
 
         shape2 = [6, 4, 2]
         spatial_shapes = np.fromfile(
-            f"deploy/dfa_plugin/asset/sample_{i}_rand_spatial_shapes_6x4x2_int32.bin",
+            f"deploy/dfa_plugin/asset/sample_{i}_rand_spatial_shapes_6*4*2_int32.bin",
             dtype=np.int32,
         ).reshape(shape2)
 
         shape3 = [6, 4]
         level_start_index = np.fromfile(
-            f"deploy/dfa_plugin/asset/sample_{i}_rand_level_start_index_6x4_int32.bin",
+            f"deploy/dfa_plugin/asset/sample_{i}_rand_level_start_index_6*4_int32.bin",
             dtype=np.int32,
         ).reshape(shape3)
 
         shape4 = [1, 900, 13, 6, 2]
         sample_loc = np.fromfile(
-            f"deploy/dfa_plugin/asset/sample_{i}_rand_sampling_loc_1x900x13x6x2_float32.bin",
+            f"deploy/dfa_plugin/asset/sample_{i}_rand_sampling_loc_1*900*13*6*2_float32.bin",
             dtype=np.float32,
         ).reshape(shape4)
 
         shape5 = [1, 900, 13, 6, 4, 8]
         weights = np.fromfile(
-            f"deploy/dfa_plugin/asset/sample_{i}_rand_weights_1x900x13x6x4x8_float32.bin",
+            f"deploy/dfa_plugin/asset/sample_{i}_rand_weights_1*900*13*6*4*8_float32.bin",
             dtype=np.float32,
         ).reshape(shape5)
 
         shape6 = [1, 900, 256]
         output = np.fromfile(
-            f"deploy/dfa_plugin/asset/sample_{i}_output_1x900x256_float32.bin",
+            f"deploy/dfa_plugin/asset/sample_{i}_output_1*900*256_float32.bin",
             dtype=np.float32,
         ).reshape(shape6)
 
@@ -65,6 +68,7 @@ def build_network(trtFile):
     logger = trt.Logger(trt.Logger.INFO)
     trt.init_libnvinfer_plugins(logger, "")
 
+    engine = None
     if os.path.isfile(trtFile):
         with open(trtFile, "rb") as f:
             engine = trt.Runtime(logger).deserialize_cuda_engine(f.read())

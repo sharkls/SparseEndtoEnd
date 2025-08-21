@@ -39,7 +39,8 @@ struct CudaWrapper;
 
 // CudaWrapper 的实现
 template <class T>
-class CudaWrapper<T, typename std::enable_if_t<std::is_trivial<T>::value && std::is_standard_layout<T>::value, void>> {
+class CudaWrapper<T, typename std::enable_if_t<std::is_trivial<T>::value && std::is_standard_layout<T>::value, void>> 
+{
  public:
   /// @brief Delete default copy constructor.
   CudaWrapper(const CudaWrapper &cudaWrapper) = delete;

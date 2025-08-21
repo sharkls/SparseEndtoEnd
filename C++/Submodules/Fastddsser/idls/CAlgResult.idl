@@ -1,0 +1,42 @@
+/*******************************************************
+ 文件：CAlgResult.idl
+ 作者：sharkls
+ 描述：描述所有算法结果的统一结构
+ 版本：v1.0
+ 日期：2025-04-18
+ *******************************************************/
+
+#include "CDataBase.idl"
+
+// 本帧中所有目标的信息
+struct CObjectResult {
+    // 融合感知结果信息
+    string                   strClass;       // 目标类型
+    octet                    ucSource;       // 数据来源，0无数据，1图像，2激光雷达，3毫米波，4图像和激光雷达融合，5三者融合
+    
+    // 目标位置和尺寸信息
+    float                    x;              // 目标中心X坐标
+    float                    y;              // 目标中心Y坐标
+    float                    z;              // 目标中心Z坐标
+    float                    w;              // 目标宽度
+    float                    l;              // 目标长度
+    float                    h;              // 目标高度
+    float                    yaw;            // 目标朝向角
+    float                    vx;             // 目标X方向速度
+    float                    vy;             // 目标Y方向速度
+    float                    vz;             // 目标Z方向速度
+    float                    confidence;     // 目标检测置信度
+    float                    fusioned_confidence; // 融合后置信度
+    octet                    label;          // 目标类别标签
+    long                     trackid;        // 目标跟踪ID
+};
+
+// 该传感器在该帧的信息，点云和融合是单帧结果，图像是单张图像的结果
+struct CFrameResult : CDataBase {
+    sequence<CObjectResult>  vecObjectResult;         // 该帧中所有的参与者信息
+};
+
+// 算法结果通用的结构体
+struct CAlgResult : CDataBase {
+    sequence<CFrameResult>   vecFrameResult;        // 表示该传感器在该帧所有的结果，点云和融合是单帧结果，图像是所有图像的结果
+};

@@ -59,7 +59,7 @@ make[1]: Leaving directory '/mnt/data/end2endlocal/tmp/SparseEnd2End/deploy/dfa_
 ## STEP3. BUILD Sparse4D Engine
 Firstly, you need to set env for youself in set_env.sh, then run below:
 ```bash
-cd -
+cd deploy
 . deploy/tools/set_env.sh
 cd deploy
 bash build_sparse4d_engine.sh

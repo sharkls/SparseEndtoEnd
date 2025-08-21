@@ -21,9 +21,14 @@ from cuda import cudart
 from tool.utils.logger import logger_wrapper
 from deploy.utils.utils import printArrayInformation
 
+if not hasattr(np, 'bool'):
+    np.bool = bool
+
 
 def read_bin(samples, logger):
     prefix = "script/tutorial/asset/"
+    # prefix = "C++/Output/val_bin/"
+
     inputs = list()
     outputs = list()
 
@@ -83,6 +88,23 @@ def read_bin(samples, logger):
         ).reshape(lidar2img_shape)
         printArrayInformation(lidar2img, logger, "lidar2img", "PyTorch")
 
+        # 读取tmp_outs数据
+        tmp_outs = []
+        for j in range(6):  # 假设有6个deformable模块
+            try:
+                tmp_out_shape = [1, 900, 512]
+                tmp_out = np.fromfile(
+                    f"{prefix}sample_{i}_tmp_outs{j}_1*900*512_float32.bin",
+                    dtype=np.float32,
+                ).reshape(tmp_out_shape)
+                tmp_outs.append(tmp_out)
+                printArrayInformation(tmp_out, logger, f"tmp_outs{j}", "PyTorch")
+            except FileNotFoundError:
+                # 如果文件不存在，创建一个零张量作为占位符
+                tmp_out = np.zeros((1, 900, 512), dtype=np.float32)
+                tmp_outs.append(tmp_out)
+                logger.warning(f"tmp_outs{j}文件不存在，使用零张量作为占位符")
+
         pred_instance_feature_shape = [1, 900, 256]
         pred_instance_feature = np.fromfile(
             f"{prefix}sample_{i}_pred_instance_feature_1*900*256_float32.bin",
@@ -129,7 +151,7 @@ def read_bin(samples, logger):
         )
 
         outputs.append(
-            [
+            tmp_outs + [  # 先添加tmp_outs
                 pred_instance_feature,
                 pred_anchor,
                 pred_class_score,
@@ -269,6 +291,7 @@ def inference(
 
 
 def inference_consistency_validatation(predicted_data, expected_data, output_names):
+    logger.info("=== 开始验证推理一致性 ===")
     for x, y, name in zip(predicted_data, expected_data, output_names):
         max_abs_distance = float((np.abs(x - y)).max())
         logger.info(f"[max(abs()) error] {name} = {max_abs_distance}")
@@ -277,6 +300,12 @@ def inference_consistency_validatation(predicted_data, expected_data, output_nam
             np.linalg.norm(x.flatten()) * np.linalg.norm(y.flatten())
         )
         logger.info(f"[cosine_distance ] {name} = {float(cosine_distance)}")
+        
+        # 为tmp_outs添加特殊标记
+        if name.startswith("tmp_outs"):
+            logger.info(f"  -> {name} 验证完成 (deformable模块输出)")
+    
+    logger.info("=== 推理一致性验证完成 ===")
 
 
 def main(
@@ -286,8 +315,8 @@ def main(
     logger,
     plugin_name="DeformableAttentionAggrPlugin",
     soFile="deploy/dfa_plugin/lib/deformableAttentionAggr.so",
-    trtFile="deploy/engine/sparse4dhead1st_polygraphy.engine",
-    # trtFile="deploy/engine/sparse4dhead1st.engine",
+    # trtFile="deploy/engine/sparse4dhead1st_polygraphy.engine",
+    trtFile="deploy/engine/sparse4dhead1st.engine",
 ):
     ctypes.cdll.LoadLibrary(soFile)
     plugin = getPlugin(plugin_name)
@@ -321,6 +350,10 @@ def main(
             trt_old,
             logger,
         )
+        
+        # 统计tmp_outs的数量
+        tmp_outs_count = len([name for name in y if isinstance(name, np.ndarray) and name.shape == (1, 900, 256)])
+        logger.info(f"检测到 {tmp_outs_count} 个tmp_outs张量 (deformable模块输出)")
 
         input_names = [
             "feature",
@@ -351,13 +384,16 @@ def main(
 
         for i, name in enumerate(input_names):
             printArrayInformation(bufferH[i], logger, info=f"{name}", prefix="TensorRT")
-        for i, name in enumerate(output_names[6:10]):
+        
+        # 打印所有输出张量的信息
+        for i, name in enumerate(output_names):
             printArrayInformation(
-                bufferH[i + nInput + 6], logger, info=f"{name}", prefix="TensorRT"
+                bufferH[i + nInput], logger, info=f"{name}", prefix="TensorRT"
             )
 
-        assert len(output_names[6:10]) == len(y)
-        inference_consistency_validatation(bufferH[nInput + 6 :], y, output_names[6:10])
+        # 验证所有输出，包括tmp_outs
+        assert len(output_names) == len(y)
+        inference_consistency_validatation(bufferH[nInput:], y, output_names)
 
 
 if __name__ == "__main__":
@@ -377,6 +413,8 @@ if __name__ == "__main__":
     np.set_printoptions(precision=4, linewidth=200, suppress=True)
 
     logger.info("Starting unit test...")
+    logger.info("注意：本测试将验证第一帧推理中tmp_outs*数据的一致性")
+    logger.info("tmp_outs*数据来自deformable模块的输出，用于特征融合")
     inputs, expected_outputs = read_bin(1, logger)
     main(inputs, expected_outputs, trt_old, logger)
     logger.info("All tests are passed!!!")

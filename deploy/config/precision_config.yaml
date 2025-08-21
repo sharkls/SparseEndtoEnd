@@ -1,0 +1,62 @@
+# Sparse4D Backbone 精度配置文件
+# Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
+
+# 高精度模式 (推荐用于一致性验证)
+high_precision:
+  workspace_size: 8192  # MB
+  precision: "fp32"
+  flags:
+    - "DIRECT_IO"
+    - "STRICT_TYPES"
+  optimization_level: 3
+  warmup_iterations: 500
+  test_iterations: 100
+  description: "最高精度模式，禁用所有量化，适合一致性验证"
+
+# 平衡模式 (推荐用于生产环境)
+balanced:
+  workspace_size: 4096  # MB
+  precision: "fp16"
+  flags:
+    - "FP16"
+    - "STRICT_TYPES"
+  optimization_level: 3
+  warmup_iterations: 200
+  test_iterations: 50
+  description: "平衡精度和性能，使用FP16量化"
+
+# 高性能模式 (适合实时推理)
+high_performance:
+  workspace_size: 2048  # MB
+  precision: "int8"
+  flags:
+    - "INT8"
+    - "STRICT_TYPES"
+  optimization_level: 5
+  warmup_iterations: 100
+  test_iterations: 20
+  description: "最高性能模式，使用INT8量化"
+
+# 一致性验证专用配置
+consistency_test:
+  workspace_size: 16384  # MB
+  precision: "fp32"
+  flags:
+    - "DIRECT_IO"
+    - "STRICT_TYPES"
+    - "DEBUG"
+  optimization_level: 1
+  warmup_iterations: 1000
+  test_iterations: 200
+  description: "专门用于一致性验证的配置，最大化精度"
+
+# 默认配置
+default: &default
+  workspace_size: 4096
+  precision: "fp32"
+  flags:
+    - "STRICT_TYPES"
+  optimization_level: 3
+  warmup_iterations: 200
+  test_iterations: 50
+  description: "默认配置，平衡精度和性能" 

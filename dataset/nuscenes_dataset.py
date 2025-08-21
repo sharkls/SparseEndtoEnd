@@ -555,7 +555,18 @@ def output_to_nusc_box(detection, threshold=None):
     scores = detection["scores_3d"].numpy()
     labels = detection["labels_3d"].numpy()
     if "track_ids" in detection:
-        ids = detection["track_ids"]  # numpy
+        # ids = detection["track_ids"]  # numpy  （原先版本，会导致评估跟踪指标时报错：PyTorch张量，当它被转换为字符串时，会包含设备信息（如tensor(691, device='cuda:0')）
+        
+        # 2025.7.24更改
+        # 确保track_ids是numpy数组，如果是张量则转换为numpy
+        if hasattr(detection["track_ids"], "numpy"):
+            # 如果是CUDA张量，先移动到CPU
+            if hasattr(detection["track_ids"], "cpu"):
+                ids = detection["track_ids"].cpu().numpy()
+            else:
+                ids = detection["track_ids"].numpy()
+        else:
+            ids = detection["track_ids"]
     if threshold is not None:
         if "cls_scores" in detection:
             mask = detection["cls_scores"].numpy() >= threshold

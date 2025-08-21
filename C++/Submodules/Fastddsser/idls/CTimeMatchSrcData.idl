@@ -1,0 +1,83 @@
+/*******************************************************
+ 文件：CTimeMatchData.idl
+ 作者：sharkls
+ 描述：描述多模态时间同步后的数据结构
+ 版本：v1.0
+ 日期：2025-06-18
+ *******************************************************/
+
+#include "CDataBase.idl"
+
+// 单路视频结果结构体
+struct CVideoSrcData : CDataBase
+{
+	octet 					ucCameraId;				// 相机编号
+	unsigned short 			usBmpLength;			// 图片长度
+	unsigned short 			usBmpWidth;				// 图片宽度
+	unsigned long 			unBmpBytes;				// 图片数据字节长度
+	sequence<octet> 		vecImageBuf;			// 获取的相机数据，是libav输出的图像数据，uinit8类型的数组，数组大小由图片宽高决定
+};
+
+// Ego pose信息结构体
+struct CEgoPoseInfo : CDataBase
+{
+    sequence<double>        ego2global_translation; // ego到global的平移 [x, y, z]
+    sequence<double>        ego2global_rotation;    // ego到global的旋转 [w, x, y, z] 四元数
+    string                  ego_pose_token;         // ego pose标识符
+};
+
+// 激光雷达到ego变换信息结构体
+struct CLidar2EgoInfo : CDataBase
+{
+    sequence<double>        lidar2ego_translation;  // 激光雷达到ego的平移 [x, y, z]
+    sequence<double>        lidar2ego_rotation;     // 激光雷达到ego的旋转 [w, x, y, z] 四元数
+    string                  calibrated_sensor_token; // 标定传感器标识符
+};
+
+// 变换矩阵信息结构体
+struct CTransformInfo : CDataBase
+{
+    sequence<double>        lidar2ego_matrix;       // 激光雷达到ego的4x4变换矩阵（16个元素）
+    sequence<double>        ego2global_matrix;      // ego到global的4x4变换矩阵（16个元素）
+    sequence<double>        lidar2global_matrix;    // 激光雷达到global的4x4变换矩阵（16个元素）
+    sequence<double>        global2lidar_matrix;    // global到激光雷达的4x4变换矩阵（16个元素）
+};
+
+// 点云数据结构体
+struct CLidarData : CDataBase
+{
+    unsigned long           num_points;             // 点云数量
+    sequence<float>         points;                 // 点云数据 [x, y, z, intensity, ring] * num_points
+};
+
+// 标定参数结构体
+struct CCalibrationData : CDataBase
+{
+    sequence<float>         lidar2img_matrices;     // 激光雷达到图像的变换矩阵 (6个相机 * 4x4矩阵 = 96个float)
+    unsigned long           num_cameras;            // 相机数量
+    unsigned long           matrix_size;            // 每个矩阵的大小（4x4=16）
+};
+
+// 测试数据源结构体
+struct CTestSrcData : CDataBase
+{
+    sequence<float>         expected_outputs;       // 期望输出数据
+    sequence<float>         preprocessed_imgs;      // 预处理后的图像数据，用于子模块验证
+    unsigned long           img_channels;           // 图像通道数
+    unsigned long           img_height;             // 图像高度
+    unsigned long           img_width;              // 图像宽度
+    string                  test_data_path;         // 测试数据路径
+    unsigned long           test_data_type;         // 测试数据类型
+};
+
+// 时间匹配好的多模态数据结构体
+struct CTimeMatchSrcData : CDataBase
+{   
+	sequence<CVideoSrcData>     vecVideoSrcData;        // 与时间匹配好的每一路相机数据
+	CEgoPoseInfo                ego_pose_info;          // Ego pose信息
+	CLidar2EgoInfo              lidar2ego_info;         // 激光雷达到ego变换信息
+	CTransformInfo              transform_info;         // 变换矩阵信息
+	CLidarData                  lidar_data;             // 激光雷达点云数据
+	CCalibrationData            calibration_data;       // 标定参数数据
+    CTestSrcData                test_data;              // 各子阶段期望数据
+};

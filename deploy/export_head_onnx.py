@@ -5,6 +5,10 @@ import copy
 import logging
 import argparse
 
+# 设置完全确定性环境
+os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+os.environ['PYTHONHASHSEED'] = '100'  # 与训练保持一致
+
 import onnx
 from onnxsim import simplify
 
@@ -12,14 +16,32 @@ import torch
 from torch import nn
 
 from modules.sparse4d_detector import *
-from modules.head.sparse4d_blocks.instance_bank import topk
+from modules.head.sparse4d_blocks.instance_bank import topk, topk_stable, topk_with_preprocessing, topk_for_onnx_export, verify_consistency
 from modules.ops import deformable_aggregation_function as DAF
 
 from tool.utils.config import read_cfg
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 
 from tool.utils.logger import set_logger
 
+# 设置PyTorch确定性
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True, warn_only=False)
+
+# 设置随机种子 - 与训练保持一致
+torch.manual_seed(100)
+torch.cuda.manual_seed(100)
+torch.cuda.manual_seed_all(100)
+
+# 设置numpy随机种子 - 与训练保持一致
+import numpy as np
+np.random.seed(100)
+
+# 设置CUDA确定性
+torch.cuda.empty_cache()
+
+# =========== 原有代码继续 ===========
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Deploy SparseEND2END Head!")
@@ -154,7 +176,7 @@ class Sparse4DHead1st(nn.Module):
                 output = self.layers[i].output_proj(features)
                 assert self.layers[i].residual_mode == "cat"
                 instance_feature = torch.cat([output, instance_feature], dim=-1)
-                tmp_outs.append(features)
+                tmp_outs.append(instance_feature)
             elif op == "refine":
                 anchor, cls, qt = self.layers[i](
                     instance_feature,
@@ -233,7 +255,7 @@ class Sparse4DHead2nd(nn.Module):
         anchor_embed = self.anchor_encoder(anchor)
         temp_anchor_embed = self.anchor_encoder(temp_anchor)
 
-        # DAF inputs
+        # DFA inputs
         metas = {
             "lidar2img": lidar2img,
             "image_wh": image_wh,
@@ -242,6 +264,11 @@ class Sparse4DHead2nd(nn.Module):
         feature_maps = [feature, spatial_shapes, level_start_index]
         prediction = []
         tmp_outs = []
+        # temp_gnn_output = None  # 添加temp_gnn输出缓存
+        # temp_gnn_count = 0  # 添加计数器来跟踪temp_gnn操作
+        # refine_outs = []  # 添加refine_outs缓存
+
+        attn_mask = None  # 第二帧不使用attn_mask
         for i, op in enumerate(self.operation_order):
             print("op:  ", op)
             if self.layers[i] is None:
@@ -254,13 +281,21 @@ class Sparse4DHead2nd(nn.Module):
                     temp_instance_feature,
                     query_pos=anchor_embed,
                     key_pos=temp_anchor_embed,
+                    attn_mask=attn_mask,
                 )
+                # # 只保存第一个temp_gnn模块的输出
+                # if temp_gnn_count == 0:  # 只在第一个temp_gnn时保存
+                #     temp_gnn_output = instance_feature.clone()
+                #     temp_gnn_count += 1
+                # else:
+                #     temp_gnn_count += 1  # 继续计数，但不保存
             elif op == "gnn":
                 instance_feature = self.graph_model(
                     i,
                     instance_feature,
                     value=instance_feature,
                     query_pos=anchor_embed,
+                    attn_mask=attn_mask,
                 )
             elif op == "norm" or op == "ffn":
                 instance_feature = self.layers[i](instance_feature)
@@ -305,7 +340,7 @@ class Sparse4DHead2nd(nn.Module):
                 output = self.layers[i].output_proj(features)
                 assert self.layers[i].residual_mode == "cat"
                 instance_feature = torch.cat([output, instance_feature], dim=-1)
-                tmp_outs.append(features)
+                tmp_outs.append(instance_feature)
             elif op == "refine":
                 anchor, cls, qt = self.layers[i](
                     instance_feature,
@@ -319,48 +354,109 @@ class Sparse4DHead2nd(nn.Module):
                 )
                 prediction.append(anchor)
 
-                # update in head refine
+                # 初始化update_comparison为None
+                update_comparison = None
+
+                # 修复：在第二帧的第一个refine后执行InstanceBank更新逻辑
                 if len(prediction) == self.num_single_frame_decoder:
-                    N = (
-                        self.instance_bank.num_anchor
-                        - self.instance_bank.num_temp_instances
+                    # 保存update前的状态
+                    instance_feature_before_update = instance_feature.clone()
+                    anchor_before_update = anchor.clone()
+                    
+                    # TopK选择新实例 - 使用优化的topk实现
+                    N = self.instance_bank.num_anchor - self.instance_bank.num_temp_instances
+                    
+                    # 使用优化的topk函数
+                    confidence = cls.max(dim=-1).values
+                    
+                    # 调用ONNX兼容的topk函数
+                    confidence_sorted, outputs, indices = topk_for_onnx_export(
+                        confidence, N, instance_feature, anchor
                     )
-                    cls = cls.max(dim=-1).values
-                    _, (selected_feature, selected_anchor) = topk(
-                        cls, N, instance_feature, anchor
-                    )
-                    selected_feature = torch.cat(
-                        [temp_instance_feature, selected_feature], dim=1
-                    )
+                    selected_feature, selected_anchor = outputs
+                    
+                    # # 验证一致性
+                    # verify_consistency(confidence, indices, N)
+                    
+                    # 融合历史实例和新实例
+                    selected_feature = torch.cat([temp_instance_feature, selected_feature], dim=1)
                     selected_anchor = torch.cat([temp_anchor, selected_anchor], dim=1)
+                    
+                    # 根据mask条件更新
                     instance_feature = torch.where(
                         mask[:, None, None], selected_feature, instance_feature
                     )
                     anchor = torch.where(mask[:, None, None], selected_anchor, anchor)
-                    track_id = torch.where(
-                        mask[:, None],
-                        track_id,
-                        track_id.new_tensor(-1),
-                    )
-
+                    
+                    # # 保存update前后的对比数据
+                    # update_comparison = {
+                    #     'instance_feature_before_update': instance_feature_before_update,
+                    #     'anchor_before_update': anchor_before_update,
+                    #     'temp_instance_feature': temp_instance_feature.clone(),
+                    #     'temp_anchor': temp_anchor.clone(),
+                    #     'confidence_sorted': confidence_sorted.clone(),      # 新增：confidence_sorted
+                    #     'indices': indices.clone(),                        # 新增：indices
+                    #     'selected_feature': selected_feature.clone(),
+                    #     'selected_anchor': selected_anchor.clone(),
+                    #     'instance_feature_after_update': instance_feature.clone(),
+                    #     'anchor_after_update': anchor.clone(),
+                    # }
+                    
                 if i != len(self.operation_order) - 1:
                     anchor_embed = self.anchor_encoder(anchor)
                 if len(prediction) > self.num_single_frame_decoder:
                     temp_anchor_embed = anchor_embed[
                         :, : self.instance_bank.num_temp_instances
                     ]
+
+                # # 保存refine模块的四个输出，以及update_comparison
+                # # 处理temp_anchor_embed，如果为None则创建零张量
+                # if temp_anchor_embed is not None:
+                #     temp_anchor_embed_np = temp_anchor_embed
+                # else:
+                #     # 创建一个与anchor_embed形状相同的零张量
+                #     temp_anchor_embed_np = torch.zeros_like(anchor_embed[
+                #         :, : self.instance_bank.num_temp_instances])
+                
+                # # 保存refine模块的四个输出，以及update_comparison
+                # refine_output = {
+                #     'anchor': anchor,
+                #     'instance_feature': instance_feature,
+                #     'anchor_embed': anchor_embed,
+                #     'temp_anchor_embed': temp_anchor_embed_np,
+                #     'update_comparison': update_comparison  # 添加update_comparison
+                # }
+                # refine_outs.append(refine_output)
+
         return (
             instance_feature,
             anchor,
             cls,
             qt,
             track_id,
+            # temp_gnn_output,  # 添加temp_gnn输出
             tmp_outs[0],
             tmp_outs[1],
             tmp_outs[2],
             tmp_outs[3],
             tmp_outs[4],
             tmp_outs[5],
+            # # 添加refine_outs输出
+            # refine_outs[0]['anchor'] if len(refine_outs) > 0 else torch.zeros_like(anchor),
+            # refine_outs[0]['instance_feature'] if len(refine_outs) > 0 else torch.zeros_like(instance_feature),
+            # refine_outs[0]['anchor_embed'] if len(refine_outs) > 0 else torch.zeros_like(anchor_embed),
+            # refine_outs[0]['temp_anchor_embed'] if len(refine_outs) > 0 else torch.zeros_like(temp_anchor_embed_np),
+            # # 添加update_comparison输出
+            # refine_outs[0]['update_comparison']['instance_feature_before_update'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(instance_feature),
+            # refine_outs[0]['update_comparison']['anchor_before_update'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(anchor),
+            # refine_outs[0]['update_comparison']['temp_instance_feature'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(temp_instance_feature),
+            # refine_outs[0]['update_comparison']['temp_anchor'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(temp_anchor),
+            # refine_outs[0]['update_comparison']['confidence_sorted'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(confidence[:, : N]),  # 新增：confidence_sorted
+            # refine_outs[0]['update_comparison']['indices'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(confidence[:, : N]),  # 新增：indices
+            # refine_outs[0]['update_comparison']['selected_feature'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(temp_instance_feature),
+            # refine_outs[0]['update_comparison']['selected_anchor'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(temp_anchor),
+            # refine_outs[0]['update_comparison']['instance_feature_after_update'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(instance_feature),
+            # refine_outs[0]['update_comparison']['anchor_after_update'] if len(refine_outs) > 0 and refine_outs[0]['update_comparison'] is not None else torch.zeros_like(anchor),
         )
 
     def forward(
@@ -385,12 +481,29 @@ class Sparse4DHead2nd(nn.Module):
             cls,
             qt,
             track_id,
+            # temp_gnn_output,  # 添加temp_gnn输出
             tmp_outs0,
             tmp_outs1,
             tmp_outs2,
             tmp_outs3,
             tmp_outs4,
             tmp_outs5,
+            # # 添加refine_outs输出
+            # refine_anchor,
+            # refine_instance_feature,
+            # refine_anchor_embed,
+            # refine_temp_anchor_embed,
+            # # 添加update_comparison输出
+            # refine_instance_feature_before_update,
+            # refine_anchor_before_update,
+            # refine_temp_instance_feature,  # 新增
+            # refine_temp_anchor,            # 新增
+            # refine_confidence_sorted,      # 新增：confidence_sorted
+            # refine_indices,                # 新增：indices
+            # refine_selected_feature,       # 新增：selected_feature
+            # refine_selected_anchor,        # 新增：selected_anchor
+            # refine_instance_feature_after_update,
+            # refine_anchor_after_update,
         ) = self.head_forward(
             head,
             feature,
@@ -412,12 +525,29 @@ class Sparse4DHead2nd(nn.Module):
             cls,
             qt,
             track_id,
+            # temp_gnn_output,  # 添加temp_gnn输出
             tmp_outs0,
             tmp_outs1,
             tmp_outs2,
             tmp_outs3,
             tmp_outs4,
             tmp_outs5,
+            # # 添加refine_outs输出
+            # refine_anchor,
+            # refine_instance_feature,
+            # refine_anchor_embed,
+            # refine_temp_anchor_embed,
+            # # 添加update_comparison输出
+            # refine_instance_feature_before_update,
+            # refine_anchor_before_update,
+            # refine_temp_instance_feature,  # 新增
+            # refine_temp_anchor,            # 新增
+            # refine_confidence_sorted,      # 新增：confidence_sorted
+            # refine_indices,                # 新增：indices
+            # refine_selected_feature,       # 新增：selected_feature
+            # refine_selected_anchor,        # 新增：selected_anchor
+            # refine_instance_feature_after_update,
+            # refine_anchor_after_update,
         )
 
 
@@ -692,12 +822,29 @@ if __name__ == "__main__":
                 "pred_class_score",
                 "pred_quality_score",
                 "pred_track_id",
+                # "temp_gnn_output",    # ✅ 添加这个输出名称
                 "tmp_outs0",
                 "tmp_outs1",
                 "tmp_outs2",
                 "tmp_outs3",
                 "tmp_outs4",
                 "tmp_outs5",
+                # # 添加refine_outs输出名称
+                # "refine_outs0_anchor",
+                # "refine_outs0_instance_feature",
+                # "refine_outs0_anchor_embed",
+                # "refine_outs0_temp_anchor_embed",
+                # # 添加update_comparison输出名称
+                # "refine_outs0_instance_feature_before_update",
+                # "refine_outs0_anchor_before_update",
+                # "refine_outs0_temp_instance_feature",  # 新增
+                # "refine_outs0_temp_anchor",            # 新增
+                # "refine_outs0_confidence_sorted",      # 新增：confidence_sorted
+                # "refine_outs0_indices",                # 新增：indices
+                # "refine_outs0_selected_feature",       # 新增：selected_feature
+                # "refine_outs0_selected_anchor",        # 新增：selected_anchor
+                # "refine_outs0_instance_feature_after_update",
+                # "refine_outs0_anchor_after_update",
             ],
             opset_version=15,
             do_constant_folding=True,

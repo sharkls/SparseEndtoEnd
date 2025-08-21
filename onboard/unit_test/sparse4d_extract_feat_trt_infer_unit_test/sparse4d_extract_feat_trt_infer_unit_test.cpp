@@ -109,6 +109,8 @@ TEST(Sparse4dExtractFeatTrtInferUnitTest, TrtInferConsistencyVerification) {
   const std::vector<std::tuple<std::string, std::string>> test_samples{
       {"/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_imgs_1*6*3*256*704_float32.bin",
        "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_feature_1*89760*256_float32.bin"},
+      // {"/share/Code/SparseEnd2End/C++/Output/val_bin/sample_0_imgs_1*6*3*256*704_float32.bin", 
+      // "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_feature_1*89760*256_float32.bin"},
       {"/share/Code/SparseEnd2End/script/tutorial/asset/sample_1_imgs_1*6*3*256*704_float32.bin",
        "/share/Code/SparseEnd2End/script/tutorial/asset/sample_1_feature_1*89760*256_float32.bin"},
       {"/share/Code/SparseEnd2End/script/tutorial/asset/sample_2_imgs_1*6*3*256*704_float32.bin",

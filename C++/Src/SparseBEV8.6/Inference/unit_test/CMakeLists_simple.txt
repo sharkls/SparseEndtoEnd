@@ -1,0 +1,55 @@
+# 简单的单元测试CMakeLists.txt（不依赖CUDA）
+
+# 使用项目中的GoogleTest
+set(GTEST_ROOT "${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/googletest")
+set(GTEST_INCLUDE_DIR "${GTEST_ROOT}/googletest/include")
+set(GTEST_LIB_DIR "${GTEST_ROOT}/build/lib")
+
+# 设置测试可执行文件
+set(TEST_EXECUTABLE_NAME "simple_unit_test")
+
+# 添加测试源文件
+set(TEST_SOURCES
+    simple_test.cpp
+)
+
+# 创建测试可执行文件
+add_executable(${TEST_EXECUTABLE_NAME} ${TEST_SOURCES})
+
+# 设置编译选项
+target_compile_features(${TEST_EXECUTABLE_NAME} PRIVATE cxx_std_14)
+
+# 设置包含目录
+target_include_directories(${TEST_EXECUTABLE_NAME} PRIVATE
+    ${GTEST_INCLUDE_DIR}
+)
+
+# 链接库
+target_link_libraries(${TEST_EXECUTABLE_NAME} PRIVATE
+    # GoogleTest库
+    ${GTEST_LIB_DIR}/libgtest.a
+    ${GTEST_LIB_DIR}/libgtest_main.a
+    ${GTEST_LIB_DIR}/libgmock.a
+    ${GTEST_LIB_DIR}/libgmock_main.a
+    
+    # 系统库
+    pthread
+)
+
+# 添加编译定义
+target_compile_definitions(${TEST_EXECUTABLE_NAME} PRIVATE
+    GTEST_HAS_PTHREAD=1
+)
+
+# 设置输出目录
+set_target_properties(${TEST_EXECUTABLE_NAME} PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/Output/unit_test
+)
+
+# 添加测试
+add_test(NAME ${TEST_EXECUTABLE_NAME} COMMAND ${TEST_EXECUTABLE_NAME})
+
+# 打印构建信息
+message(STATUS "Building simple unit test: ${TEST_EXECUTABLE_NAME}")
+message(STATUS "Test executable will be placed in: ${CMAKE_SOURCE_DIR}/Output/unit_test")
+message(STATUS "Using GoogleTest from: ${GTEST_ROOT}") 

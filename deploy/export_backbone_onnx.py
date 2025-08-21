@@ -113,6 +113,13 @@ if __name__ == "__main__":
             opset_version=15,           # onnx算子集版本
             do_constant_folding=True,  # 常量折叠
             verbose=False,             # 是否打印详细信息
+            dynamic_axes={              # 动态轴设置
+                'img': {0: 'batch_size'},
+                'feature': {0: 'batch_size'}
+            },
+            keep_initializers_as_inputs=False,  # 不保留初始化器作为输入
+            export_params=True,         # 导出模型参数
+            training=torch.onnx.TrainingMode.EVAL,  # 设置为评估模式
         )
         # 简化onnx模型
         onnx_orig = onnx.load(args.save_onnx)

@@ -19,7 +19,8 @@ InstanceBank::InstanceBank(const common::E2EParams& params)
       default_time_interval_(params_.instance_bank_params.default_time_interval),
       query_dims_(params_.instance_bank_params.query_dims),
       embedfeat_dims_(params_.model_cfg.embedfeat_dims),
-      confidence_decay_(params_.instance_bank_params.confidence_decay) {
+      confidence_decay_(params_.instance_bank_params.confidence_decay) 
+{
   mask_ = 0;
   history_time_ = 0.0F;
   time_interval_ = 0.0F;
@@ -35,7 +36,8 @@ InstanceBank::InstanceBank(const common::E2EParams& params)
   reset();
 }
 
-common::Status InstanceBank::reset() {
+common::Status InstanceBank::reset() 
+{
   temp_topk_instance_feature_.clear();
   temp_topk_anchors_.clear();
   temp_topk_index_.clear();
@@ -87,7 +89,8 @@ std::tuple<const std::vector<float>&,
            const float&,
            const std::int32_t&,
            const std::vector<std::int32_t>&>
-InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat) {
+InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat) 
+{
   if (!temp_topk_anchors_.empty()) {
     time_interval_ = static_cast<float>(std::fabs(timestamp - history_time_));
     float epsilon = std::numeric_limits<float>::epsilon();

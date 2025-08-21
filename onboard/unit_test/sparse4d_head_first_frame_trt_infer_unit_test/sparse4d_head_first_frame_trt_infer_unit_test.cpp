@@ -55,6 +55,12 @@ Expd_quality_score: max=2.10492 min=-2.64644
 
 #include <filesystem>
 #include <vector>
+#include <iomanip>
+#include <numeric>
+#include <algorithm>
+#include <map>
+#include <set>
+#include <cmath>
 
 #include "../../common/cuda_wrapper.cu.h"
 #include "../../common/utils.h"
@@ -324,6 +330,366 @@ TEST(Sparse4dHeadFisrstFrameTrtInferUnitTest, TrtInferConsistencyVerification) {
             << " min=" << *std::min_element(expected_pred_quality_score.begin(), expected_pred_quality_score.end())
             << std::endl
             << std::endl;
+
+  // 20.置信度过滤、类别过滤和二维NMS去重
+  const float confidence_threshold = 0.2f;
+  std::cout << "=== 置信度过滤和类别过滤结果 (阈值: " << confidence_threshold << ") ===" << std::endl;
+  
+  // 定义目标结构体
+  struct DetectedObject {
+    int index;
+    float confidence;
+    int class_id;
+    std::string class_name;
+    float x, y, z, l, w, h, yaw;
+    
+    DetectedObject() : index(0), confidence(0.0f), class_id(0), x(0.0f), y(0.0f), z(0.0f), 
+                      l(0.0f), w(0.0f), h(0.0f), yaw(0.0f) {}
+  };
+  
+  // 类别名称映射
+  std::string class_names[] = {"car", "truck", "bus", "trailer", "construction_vehicle", 
+                              "pedestrian", "motorcycle", "bicycle", "traffic_cone", "barrier"};
+  
+  // 需要过滤的类别ID（障碍物和交通锥桶）
+  std::vector<int> filtered_classes = {8, 9};  // traffic_cone, barrier
+  
+  // 统计通过过滤的目标数量
+  int total_objects = 900;
+  int confidence_filtered_objects = 0;
+  int class_filtered_objects = 0;
+  std::vector<DetectedObject> valid_objects;
+  
+  // 从推理结果中提取目标信息
+  for (int i = 0; i < total_objects; ++i) {
+    // 获取当前目标的类别分数 (1×900×10 格式)
+    float max_confidence = 0.0f;
+    int best_class = 0;
+    
+    for (int j = 0; j < 10; ++j) {  // 10个类别
+      int score_idx = i * 10 + j;
+      if (score_idx < pred_class_score.size()) {
+        // 应用sigmoid激活函数
+        float sigmoid_score = 1.0f / (1.0f + std::exp(-pred_class_score[score_idx]));
+        if (sigmoid_score > max_confidence) {
+          max_confidence = sigmoid_score;
+          best_class = j;
+        }
+      }
+    }
+    
+    // 从quality_score中获取质量分数 (1×900×2 格式)
+    float quality_score = 0.0f;
+    int quality_idx = i * 2;
+    if (quality_idx + 1 < pred_quality_score.size()) {
+      float quality_score1 = 1.0f / (1.0f + std::exp(-pred_quality_score[quality_idx]));
+      float quality_score2 = 1.0f / (1.0f + std::exp(-pred_quality_score[quality_idx + 1]));
+      quality_score = std::max(quality_score1, quality_score2);
+    }
+    
+    // 综合置信度：使用类别分数和质量分数的组合
+    float final_confidence = max_confidence * quality_score;
+    
+    // 如果综合置信度太低，使用质量分数
+    if (final_confidence < 0.1f) {
+      final_confidence = quality_score;
+    }
+    
+    // 应用置信度阈值过滤
+    if (final_confidence >= confidence_threshold) {
+      confidence_filtered_objects++;
+      
+      // 检查是否为需要过滤的类别
+      bool should_filter = false;
+      for (int filtered_class : filtered_classes) {
+        if (best_class == filtered_class) {
+          should_filter = true;
+          class_filtered_objects++;
+          break;
+        }
+      }
+      
+      // 如果不属于过滤类别，则保留
+      if (!should_filter) {
+        DetectedObject obj;
+        obj.index = i;
+        obj.confidence = final_confidence;
+        obj.class_id = best_class;
+        obj.class_name = (best_class >= 0 && best_class < 10) ? class_names[best_class] : "unknown";
+        
+        // 获取目标的位置和尺寸信息 (从pred_anchor中提取)
+        int anchor_idx = i * 11;  // 每个目标11个锚点值
+        if (anchor_idx + 6 < pred_anchor.size()) {
+          obj.x = pred_anchor[anchor_idx + 0];  // 中心点x
+          obj.y = pred_anchor[anchor_idx + 1];  // 中心点y
+          obj.z = pred_anchor[anchor_idx + 2];  // 中心点z
+          obj.w = pred_anchor[anchor_idx + 3];  // 宽度
+          obj.l = pred_anchor[anchor_idx + 4];  // 长度
+          obj.h = pred_anchor[anchor_idx + 5];  // 高度
+          obj.yaw = pred_anchor[anchor_idx + 6]; // 偏航角
+        }
+        
+        valid_objects.push_back(obj);
+      }
+    }
+  }
+  
+  // 按置信度排序
+  std::sort(valid_objects.begin(), valid_objects.end(),
+            [](const DetectedObject& a, const DetectedObject& b) {
+              return a.confidence > b.confidence;
+            });
+  
+  // 打印过滤结果统计
+  std::cout << "总目标数量: " << total_objects << std::endl;
+  std::cout << "通过置信度过滤的目标数量: " << confidence_filtered_objects << std::endl;
+  std::cout << "被类别过滤的目标数量: " << class_filtered_objects << std::endl;
+  std::cout << "置信度过滤后保留的目标数量: " << valid_objects.size() << std::endl;
+  
+  // 二维NMS去重函数
+  auto calculate2DIoU = [](const DetectedObject& box1, const DetectedObject& box2) -> float {
+    // 简化的2D IoU计算（基于中心点距离和边界框尺寸）
+    float dx = box1.x - box2.x;
+    float dy = box1.y - box2.y;
+    float distance = std::sqrt(dx * dx + dy * dy);
+    
+    // 计算边界框对角线长度的一半作为重叠阈值
+    float threshold1 = std::sqrt(box1.l * box1.l + box1.w * box1.w) / 2.0f;
+    float threshold2 = std::sqrt(box2.l * box2.l + box2.w * box2.w) / 2.0f;
+    float overlap_threshold = (threshold1 + threshold2) * 0.5f;
+    
+    // 如果距离太远，IoU为0
+    if (distance > overlap_threshold) {
+      return 0.0f;
+    }
+    
+    // 简化的IoU计算
+    float overlap_ratio = 1.0f - (distance / overlap_threshold);
+    return std::max(0.0f, overlap_ratio);
+  };
+  
+  // 执行二维NMS
+  std::vector<DetectedObject> nms_objects;
+  std::vector<bool> suppressed(valid_objects.size(), false);
+  const float nms_threshold = 0.01f;  // NMS阈值
+  
+  for (size_t i = 0; i < valid_objects.size(); ++i) {
+    if (suppressed[i]) continue;
+    
+    // 添加当前检测框到结果中
+    nms_objects.push_back(valid_objects[i]);
+    
+    // 抑制与当前检测框IoU大于阈值的检测框
+    for (size_t j = i + 1; j < valid_objects.size(); ++j) {
+      if (suppressed[j]) continue;
+      
+      // 只对相同类别的检测框进行NMS
+      if (valid_objects[i].class_id == valid_objects[j].class_id) {
+        float iou = calculate2DIoU(valid_objects[i], valid_objects[j]);
+        // std::cout << "NMS iou: " << iou << std::endl;
+        if (iou > nms_threshold) {
+          suppressed[j] = true;
+        }
+      }
+    }
+  }
+  
+  std::cout << "NMS去重后保留的目标数量: " << nms_objects.size() << std::endl;
+  
+  // 打印NMS过滤后的目标详细信息
+  std::cout << "\n=== NMS过滤后的目标详细信息 ===" << std::endl;
+  std::cout << std::setw(8) << "索引" << std::setw(12) << "置信度" << std::setw(12) << "类别" 
+            << std::setw(12) << "X坐标" << std::setw(12) << "Y坐标" << std::setw(12) << "Z坐标"
+            << std::setw(10) << "长度" << std::setw(10) << "宽度" << std::setw(10) << "高度"
+            << std::setw(12) << "偏航角" << std::endl;
+  std::cout << std::string(110, '-') << std::endl;
+  
+  for (const auto& obj : nms_objects) {
+    std::cout << std::setw(8) << obj.index 
+              << std::setw(12) << std::fixed << std::setprecision(4) << obj.confidence
+              << std::setw(12) << obj.class_name
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.x
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.y
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.z
+              << std::setw(10) << std::fixed << std::setprecision(2) << obj.l
+              << std::setw(10) << std::fixed << std::setprecision(2) << obj.w
+              << std::setw(10) << std::fixed << std::setprecision(2) << obj.h
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.yaw
+              << std::endl;
+  }
+  
+  std::cout << "\n=== NMS过滤完成，共保留 " << nms_objects.size() << " 个目标 ===" << std::endl;
+
+  // 21.对预期结果文件进行相同的后处理
+  std::cout << "\n=== 对预期结果文件进行后处理 ===" << std::endl;
+  
+  // 对预期结果进行相同的置信度过滤、类别过滤和NMS去重
+  std::vector<DetectedObject> expected_valid_objects;
+  
+  for (int i = 0; i < total_objects; ++i) {
+    // 获取当前目标的类别分数 (1×900×10 格式)
+    float max_confidence = 0.0f;
+    int best_class = 0;
+    
+    for (int j = 0; j < 10; ++j) {  // 10个类别
+      int score_idx = i * 10 + j;
+      if (score_idx < expected_pred_class_score.size()) {
+        // 应用sigmoid激活函数
+        float sigmoid_score = 1.0f / (1.0f + std::exp(-expected_pred_class_score[score_idx]));
+        if (sigmoid_score > max_confidence) {
+          max_confidence = sigmoid_score;
+          best_class = j;
+        }
+      }
+    }
+    
+    // 从quality_score中获取质量分数 (1×900×2 格式)
+    float quality_score = 0.0f;
+    int quality_idx = i * 2;
+    if (quality_idx + 1 < expected_pred_quality_score.size()) {
+      float quality_score1 = 1.0f / (1.0f + std::exp(-expected_pred_quality_score[quality_idx]));
+      float quality_score2 = 1.0f / (1.0f + std::exp(-expected_pred_quality_score[quality_idx + 1]));
+      quality_score = std::max(quality_score1, quality_score2);
+    }
+    
+    // 综合置信度：使用类别分数和质量分数的组合
+    float final_confidence = max_confidence * quality_score;
+    
+    // 如果综合置信度太低，使用质量分数
+    if (final_confidence < 0.1f) {
+      final_confidence = quality_score;
+    }
+    
+    // 应用置信度阈值过滤
+    if (final_confidence >= confidence_threshold) {
+      // 检查是否为需要过滤的类别
+      bool should_filter = false;
+      for (int filtered_class : filtered_classes) {
+        if (best_class == filtered_class) {
+          should_filter = true;
+          break;
+        }
+      }
+      
+      // 如果不属于过滤类别，则保留
+      if (!should_filter) {
+        DetectedObject obj;
+        obj.index = i;
+        obj.confidence = final_confidence;
+        obj.class_id = best_class;
+        obj.class_name = (best_class >= 0 && best_class < 10) ? class_names[best_class] : "unknown";
+        
+        // 获取目标的位置和尺寸信息 (从expected_pred_anchor中提取)
+        int anchor_idx = i * 11;  // 每个目标11个锚点值
+        if (anchor_idx + 6 < expected_pred_anchor.size()) {
+          obj.x = expected_pred_anchor[anchor_idx + 0];  // 中心点x
+          obj.y = expected_pred_anchor[anchor_idx + 1];  // 中心点y
+          obj.z = expected_pred_anchor[anchor_idx + 2];  // 中心点z
+          obj.w = expected_pred_anchor[anchor_idx + 3];  // 宽度
+          obj.l = expected_pred_anchor[anchor_idx + 4];  // 长度
+          obj.h = expected_pred_anchor[anchor_idx + 5];  // 高度
+          obj.yaw = expected_pred_anchor[anchor_idx + 6]; // 偏航角
+        }
+        
+        expected_valid_objects.push_back(obj);
+      }
+    }
+  }
+  
+  // 按置信度排序
+  std::sort(expected_valid_objects.begin(), expected_valid_objects.end(),
+            [](const DetectedObject& a, const DetectedObject& b) {
+              return a.confidence > b.confidence;
+            });
+  
+  // 对预期结果执行二维NMS
+  std::vector<DetectedObject> expected_nms_objects;
+  std::vector<bool> expected_suppressed(expected_valid_objects.size(), false);
+  
+  for (size_t i = 0; i < expected_valid_objects.size(); ++i) {
+    if (expected_suppressed[i]) continue;
+    
+    // 添加当前检测框到结果中
+    expected_nms_objects.push_back(expected_valid_objects[i]);
+    
+    // 抑制与当前检测框IoU大于阈值的检测框
+    for (size_t j = i + 1; j < expected_valid_objects.size(); ++j) {
+      if (expected_suppressed[j]) continue;
+      
+      // 只对相同类别的检测框进行NMS
+      if (expected_valid_objects[i].class_id == expected_valid_objects[j].class_id) {
+        float iou = calculate2DIoU(expected_valid_objects[i], expected_valid_objects[j]);
+        if (iou > nms_threshold) {
+          expected_suppressed[j] = true;
+        }
+      }
+    }
+  }
+  
+  std::cout << "预期结果过滤后保留的目标数量: " << expected_nms_objects.size() << std::endl;
+  
+  // 打印预期结果的目标详细信息
+  std::cout << "\n=== 预期结果NMS过滤后的目标详细信息 ===" << std::endl;
+  std::cout << std::setw(8) << "索引" << std::setw(12) << "置信度" << std::setw(12) << "类别" 
+            << std::setw(12) << "X坐标" << std::setw(12) << "Y坐标" << std::setw(12) << "Z坐标"
+            << std::setw(10) << "长度" << std::setw(10) << "宽度" << std::setw(10) << "高度"
+            << std::setw(12) << "偏航角" << std::endl;
+  std::cout << std::string(110, '-') << std::endl;
+  
+  for (const auto& obj : expected_nms_objects) {
+    std::cout << std::setw(8) << obj.index 
+              << std::setw(12) << std::fixed << std::setprecision(4) << obj.confidence
+              << std::setw(12) << obj.class_name
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.x
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.y
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.z
+              << std::setw(10) << std::fixed << std::setprecision(2) << obj.l
+              << std::setw(10) << std::fixed << std::setprecision(2) << obj.w
+              << std::setw(10) << std::fixed << std::setprecision(2) << obj.h
+              << std::setw(12) << std::fixed << std::setprecision(2) << obj.yaw
+              << std::endl;
+  }
+  
+  // 比较两个结果
+  std::cout << "\n=== 结果比较 ===" << std::endl;
+  std::cout << "预测结果目标数量: " << nms_objects.size() << std::endl;
+  std::cout << "预期结果目标数量: " << expected_nms_objects.size() << std::endl;
+  std::cout << "目标数量差异: " << std::abs(static_cast<int>(nms_objects.size()) - static_cast<int>(expected_nms_objects.size())) << std::endl;
+  
+  // 按类别比较
+  std::map<std::string, int> pred_class_counts, exp_class_counts;
+  for (const auto& obj : nms_objects) {
+    pred_class_counts[obj.class_name]++;
+  }
+  for (const auto& obj : expected_nms_objects) {
+    exp_class_counts[obj.class_name]++;
+  }
+  
+  std::cout << "\n按类别比较:" << std::endl;
+  std::cout << std::setw(15) << "类别" << std::setw(10) << "预测" << std::setw(10) << "预期" << std::setw(10) << "差异" << std::endl;
+  std::cout << std::string(45, '-') << std::endl;
+  
+  // 合并所有类别
+  std::set<std::string> all_classes;
+  for (const auto& pair : pred_class_counts) {
+    all_classes.insert(pair.first);
+  }
+  for (const auto& pair : exp_class_counts) {
+    all_classes.insert(pair.first);
+  }
+  
+  for (const auto& class_name : all_classes) {
+    int pred_count = pred_class_counts[class_name];
+    int exp_count = exp_class_counts[class_name];
+    int diff = pred_count - exp_count;
+    
+    std::cout << std::setw(15) << class_name 
+              << std::setw(10) << pred_count
+              << std::setw(10) << exp_count
+              << std::setw(10) << diff << std::endl;
+  }
+  
+  std::cout << "\n=== 预期结果后处理完成 ===" << std::endl;
 
   // 20.销毁cuda event 和 stream
   checkCudaErrors(cudaEventDestroy(start));

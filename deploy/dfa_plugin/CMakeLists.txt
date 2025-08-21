@@ -2,11 +2,11 @@
 
 cmake_minimum_required(VERSION 3.16)
 
-# 启用CUDA语言支持
-enable_language(CUDA)
-
 # 设置项目
 project(dfa_plugin CUDA CXX)
+
+# 启用CUDA语言支持
+enable_language(CUDA)
 
 # 设置C++标准
 set(CMAKE_CXX_STANDARD 17)
@@ -17,7 +17,8 @@ option(DEBUG "Enable debug mode" OFF)
 option(WARN "Enable warnings" OFF)
 
 # 设置CUDA架构
-set(CUDASM "75" CACHE STRING "CUDA architecture")
+# set(CUDASM "75" CACHE STRING "CUDA architecture")  # CUDA11.6 
+set(CUDASM "86" CACHE STRING "CUDA architecture")  # CUDA12.4
 set(CMAKE_CUDA_ARCHITECTURES ${CUDASM})
 
 # 设置编译标志

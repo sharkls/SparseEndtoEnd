@@ -1,0 +1,25 @@
+/*******************************************************
+ 文件：CDataBase.idl
+ 作者：sharkls
+ 描述：数据基础类，需要做时间匹配的各种数据体都要继承该结构
+ 版本：v1.0
+ 日期：2025-04-18
+ *******************************************************/
+
+struct CDataBase
+{
+    octet                                         eDataType;           // 数据类型 (根据枚举类型设定)
+    octet                                         eDataSourceType;     // 数据体来源类型（0：双目  1：红外  2：毫米波雷达）
+    unsigned long                                 unFrameId;           // 帧号
+
+    unsigned long long                            lTimeStamp;
+    
+    //存放各个阶段各种数据的时间戳：ms
+    map<octet, unsigned long long>                mapTimeStamp;
+
+    //存放各个阶段各种过程耗时信息：ms
+    map<octet, unsigned long>                     mapDelay;
+
+    //存放各个阶段的各种数据的帧率：
+    map<octet, float>                             mapFps;
+};

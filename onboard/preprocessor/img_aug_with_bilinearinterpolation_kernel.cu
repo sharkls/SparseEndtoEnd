@@ -3,12 +3,17 @@
 namespace sparse_end2end {
 namespace preprocessor {
 
-#define R_MEAN 0.485F
-#define G_MEAN 0.456F
-#define B_MEAN 0.406F
-#define R_STD 0.229F
-#define G_STD 0.224F
-#define B_STD 0.225F
+// 修改归一化参数以匹配Python端配置
+// Python端配置: mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True
+#define R_MEAN 123.675F
+#define G_MEAN 116.28F
+#define B_MEAN 103.53F
+#define R_STD 58.395F
+#define G_STD 57.12F
+#define B_STD 57.375F
+
+// 添加颜色空间转换标志
+#define TO_RGB true
 
 #define DIVUP(a, b) ((a % b != 0) ? (a / b + 1) : (a / b))
 
@@ -33,6 +38,10 @@ __global__ void imgAugKernel(const std::uint8_t* input_ptr,  /// raw_imgs_cuda_p
     return;
   }
 
+  if (cam_id >= n) {
+    return;
+  }
+
   const float resize_ratio_x = static_cast<float>(w) / static_cast<float>(std::floor(w * resize_ratio));
   const float resize_ratio_y = static_cast<float>(h) / static_cast<float>(std::floor(h * resize_ratio));
 
@@ -48,6 +57,10 @@ __global__ void imgAugKernel(const std::uint8_t* input_ptr,  /// raw_imgs_cuda_p
   low_x = max(0U, low_x);
   low_y = max(0U, low_y);
 
+  if (low_x >= w || low_y >= h || high_x >= w || high_y >= h) {
+    return;
+  }
+
   const float ly = src_y - low_y;
   const float lx = src_x - low_x;
   const float hy = 1.0F - ly;
@@ -55,37 +68,51 @@ __global__ void imgAugKernel(const std::uint8_t* input_ptr,  /// raw_imgs_cuda_p
 
   const float w1 = hy * hx, w2 = hy * lx, w3 = ly * hx, w4 = ly * lx;
 
-  const float value1_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + low_y * w + low_x]);
-  const float value1_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + low_y * w + low_x]);
-  const float value1_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + low_y * w + low_x]);
+  const size_t cam_offset = cam_id * (c * h * w);
+  const size_t channel_offset_r = 0 * (h * w);
+  const size_t channel_offset_g = 1 * (h * w);
+  const size_t channel_offset_b = 2 * (h * w);
 
-  const float value2_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + low_y * w + high_x]);
-  const float value2_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + low_y * w + high_x]);
-  const float value2_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + low_y * w + high_x]);
+  const float value1_r = float(input_ptr[cam_offset + channel_offset_r + low_y * w + low_x]);
+  const float value1_g = float(input_ptr[cam_offset + channel_offset_g + low_y * w + low_x]);
+  const float value1_b = float(input_ptr[cam_offset + channel_offset_b + low_y * w + low_x]);
 
-  const float value3_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + high_y * w + low_x]);
-  const float value3_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + high_y * w + low_x]);
-  const float value3_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + high_y * w + low_x]);
+  const float value2_r = float(input_ptr[cam_offset + channel_offset_r + low_y * w + high_x]);
+  const float value2_g = float(input_ptr[cam_offset + channel_offset_g + low_y * w + high_x]);
+  const float value2_b = float(input_ptr[cam_offset + channel_offset_b + low_y * w + high_x]);
 
-  const float value4_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + high_y * w + high_x]);
-  const float value4_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + high_y * w + high_x]);
-  const float value4_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + high_y * w + high_x]);
+  const float value3_r = float(input_ptr[cam_offset + channel_offset_r + high_y * w + low_x]);
+  const float value3_g = float(input_ptr[cam_offset + channel_offset_g + high_y * w + low_x]);
+  const float value3_b = float(input_ptr[cam_offset + channel_offset_b + high_y * w + low_x]);
+
+  const float value4_r = float(input_ptr[cam_offset + channel_offset_r + high_y * w + high_x]);
+  const float value4_g = float(input_ptr[cam_offset + channel_offset_g + high_y * w + high_x]);
+  const float value4_b = float(input_ptr[cam_offset + channel_offset_b + high_y * w + high_x]);
 
   float r_value = value1_r * w1 + value2_r * w2 + value3_r * w3 + value4_r * w4;
   float g_value = value1_g * w1 + value2_g * w2 + value3_g * w3 + value4_g * w4;
   float b_value = value1_b * w1 + value2_b * w2 + value3_b * w3 + value4_b * w4;
 
-  r_value = r_value / 255.0F;
-  g_value = g_value / 255.0F;
-  b_value = b_value / 255.0F;
+  // 添加颜色空间转换：BGR到RGB（与Python端to_rgb=True保持一致）
+  #if TO_RGB
+  float temp = r_value;
+  r_value = b_value;  // B -> R
+  b_value = temp;     // R -> B
+  #endif
 
+  // 归一化处理（移除255除法，直接使用原始像素值）
   r_value = (r_value - R_MEAN) / R_STD;
   g_value = (g_value - G_MEAN) / G_STD;
   b_value = (b_value - B_MEAN) / B_STD;
 
-  output_ptr[cam_id * c * target_h * target_w + 0U * target_h * target_w + dst_y * target_w + dst_x] = r_value;
-  output_ptr[cam_id * c * target_h * target_w + 1U * target_h * target_w + dst_y * target_w + dst_x] = g_value;
-  output_ptr[cam_id * c * target_h * target_w + 2U * target_h * target_w + dst_y * target_w + dst_x] = b_value;
+  const size_t output_cam_offset = cam_id * c * target_h * target_w;
+  const size_t output_channel_offset_r = 0U * target_h * target_w;
+  const size_t output_channel_offset_g = 1U * target_h * target_w;
+  const size_t output_channel_offset_b = 2U * target_h * target_w;
+
+  output_ptr[output_cam_offset + output_channel_offset_r + dst_y * target_w + dst_x] = r_value;
+  output_ptr[output_cam_offset + output_channel_offset_g + dst_y * target_w + dst_x] = g_value;
+  output_ptr[output_cam_offset + output_channel_offset_b + dst_y * target_w + dst_x] = b_value;
 }
 
 // image prepocessor(resize+crop+bilinear_interpolation+normalization) CUDA kernel with output dtype: fp16.
@@ -108,6 +135,10 @@ __global__ void imgAugKernel(const std::uint8_t* input_ptr,
     return;
   }
 
+  if (cam_id >= n) {
+    return;
+  }
+
   const float resize_ratio_x = static_cast<float>(w) / static_cast<float>(std::floor(w * resize_ratio));
   const float resize_ratio_y = static_cast<float>(h) / static_cast<float>(std::floor(h * resize_ratio));
 
@@ -123,6 +154,10 @@ __global__ void imgAugKernel(const std::uint8_t* input_ptr,
   low_x = max(0U, low_x);
   low_y = max(0U, low_y);
 
+  if (low_x >= w || low_y >= h || high_x >= w || high_y >= h) {
+    return;
+  }
+
   const float ly = src_y - low_y;
   const float lx = src_x - low_x;
   const float hy = 1.0F - ly;
@@ -130,39 +165,53 @@ __global__ void imgAugKernel(const std::uint8_t* input_ptr,
 
   const float w1 = hy * hx, w2 = hy * lx, w3 = ly * hx, w4 = ly * lx;
 
-  const float value1_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + low_y * w + low_x]);
-  const float value1_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + low_y * w + low_x]);
-  const float value1_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + low_y * w + low_x]);
+  const size_t cam_offset = cam_id * (c * h * w);
+  const size_t channel_offset_r = 0 * (h * w);
+  const size_t channel_offset_g = 1 * (h * w);
+  const size_t channel_offset_b = 2 * (h * w);
 
-  const float value2_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + low_y * w + high_x]);
-  const float value2_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + low_y * w + high_x]);
-  const float value2_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + low_y * w + high_x]);
+  const float value1_r = float(input_ptr[cam_offset + channel_offset_r + low_y * w + low_x]);
+  const float value1_g = float(input_ptr[cam_offset + channel_offset_g + low_y * w + low_x]);
+  const float value1_b = float(input_ptr[cam_offset + channel_offset_b + low_y * w + low_x]);
 
-  const float value3_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + high_y * w + low_x]);
-  const float value3_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + high_y * w + low_x]);
-  const float value3_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + high_y * w + low_x]);
+  const float value2_r = float(input_ptr[cam_offset + channel_offset_r + low_y * w + high_x]);
+  const float value2_g = float(input_ptr[cam_offset + channel_offset_g + low_y * w + high_x]);
+  const float value2_b = float(input_ptr[cam_offset + channel_offset_b + low_y * w + high_x]);
 
-  const float value4_r = float(input_ptr[cam_id * (c * h * w) + 0 * (h * w) + high_y * w + high_x]);
-  const float value4_g = float(input_ptr[cam_id * (c * h * w) + 1 * (h * w) + high_y * w + high_x]);
-  const float value4_b = float(input_ptr[cam_id * (c * h * w) + 2 * (h * w) + high_y * w + high_x]);
+  const float value3_r = float(input_ptr[cam_offset + channel_offset_r + high_y * w + low_x]);
+  const float value3_g = float(input_ptr[cam_offset + channel_offset_g + high_y * w + low_x]);
+  const float value3_b = float(input_ptr[cam_offset + channel_offset_b + high_y * w + low_x]);
+
+  const float value4_r = float(input_ptr[cam_offset + channel_offset_r + high_y * w + high_x]);
+  const float value4_g = float(input_ptr[cam_offset + channel_offset_g + high_y * w + high_x]);
+  const float value4_b = float(input_ptr[cam_offset + channel_offset_b + high_y * w + high_x]);
 
   float r_value = value1_r * w1 + value2_r * w2 + value3_r * w3 + value4_r * w4;
   float g_value = value1_g * w1 + value2_g * w2 + value3_g * w3 + value4_g * w4;
   float b_value = value1_b * w1 + value2_b * w2 + value3_b * w3 + value4_b * w4;
 
-  r_value = r_value / 255.0F;
-  g_value = g_value / 255.0F;
-  b_value = b_value / 255.0F;
+  // 添加颜色空间转换：BGR到RGB（与Python端to_rgb=True保持一致）
+  #if TO_RGB
+  float temp = r_value;
+  r_value = b_value;  // B -> R
+  b_value = temp;     // R -> B
+  #endif
 
+  // 归一化处理（移除255除法，直接使用原始像素值）
   r_value = (r_value - R_MEAN) / R_STD;
   g_value = (g_value - G_MEAN) / G_STD;
   b_value = (b_value - B_MEAN) / B_STD;
 
-  output_ptr[cam_id * c * target_h * target_w + 0U * target_h * target_w + dst_y * target_w + dst_x] =
+  const size_t output_cam_offset = cam_id * c * target_h * target_w;
+  const size_t output_channel_offset_r = 0U * target_h * target_w;
+  const size_t output_channel_offset_g = 1U * target_h * target_w;
+  const size_t output_channel_offset_b = 2U * target_h * target_w;
+
+  output_ptr[output_cam_offset + output_channel_offset_r + dst_y * target_w + dst_x] =
       __float2half(r_value);
-  output_ptr[cam_id * c * target_h * target_w + 1U * target_h * target_w + dst_y * target_w + dst_x] =
+  output_ptr[output_cam_offset + output_channel_offset_g + dst_y * target_w + dst_x] =
       __float2half(g_value);
-  output_ptr[cam_id * c * target_h * target_w + 2U * target_h * target_w + dst_y * target_w + dst_x] =
+  output_ptr[output_cam_offset + output_channel_offset_b + dst_y * target_w + dst_x] =
       __float2half(b_value);
 }
 
@@ -184,9 +233,17 @@ common::Status imgPreprocessLauncher(const std::uint8_t* raw_imgs_cuda_ptr,
   dim3 blocks_dim_in_each_grid(num_cams, DIVUP(model_input_img_h, thread_num), DIVUP(model_input_img_w, thread_num));
   dim3 threads_dim_in_each_block(thread_num, thread_num);
 
+  // 内核调用前检查
+  cudaError_t err_before = cudaGetLastError();
+  printf("[DEBUG][CUDA] Before kernel launch, cudaGetLastError: %s\n", cudaGetErrorString(err_before));
+
   imgAugKernel<<<blocks_dim_in_each_grid, threads_dim_in_each_block, 0, stream>>>(
       raw_imgs_cuda_ptr, num_cams, raw_img_c, raw_img_h, raw_img_w, model_input_img_h, model_input_img_w, resize_ratio,
       crop_height, crop_width, model_input_imgs_cuda_ptr);
+
+  // 内核调用后同步检查
+  cudaError_t err_after = cudaDeviceSynchronize();
+  printf("[DEBUG][CUDA] After kernel launch, cudaDeviceSynchronize: %s\n", cudaGetErrorString(err_after));
 
   if (cudaError::cudaSuccess == cudaGetLastError()) {
     return common::Status::kSuccess;

@@ -1,25 +1,32 @@
 // Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
 #include "deformableAttentionAggrPlugin.h"
 
+#include <cstdio>
 #include <cstring>
-#include <map>
+#include <iostream>
+#include <vector>
 
-// 核函数
-int32_t thomas_deform_attn_cuda_forward(cudaStream_t stream,
-                                       const float* value,
-                                       const int32_t* spatialShapes,
-                                       const int32_t* levelStartIndex,
-                                       const float* samplingLoc,
-                                       const float* attnWeight,
-                                       float* output,
-                                       int32_t batch,
-                                       int32_t mSpatialSize,
-                                       int32_t mChannels,
-                                       int32_t mNumCams,
-                                       int32_t mNumLevels,
-                                       int32_t mNumQuery,
-                                       int32_t mNumPoint,
-                                       int32_t mNumGroups);
+#include "NvInfer.h"
+#include "NvInferPlugin.h"
+#include "NvInferRuntime.h"
+#include "NvInferVersion.h"
+
+// 声明CUDA函数
+int thomas_deform_attn_cuda_forward(cudaStream_t stream,
+                                    const float* value,
+                                    const int* spatialShapes,
+                                    const int* levelStartIndex,
+                                    const float* samplingLoc,
+                                    const float* attnWeight,
+                                    float* output,
+                                    int batch,
+                                    int mSpatialSize,
+                                    int mChannels,
+                                    int mNumCams,
+                                    int mNumLevels,
+                                    int mNumQuery,
+                                    int mNumPoint,
+                                    int mNumGroups);
 
 namespace custom
 {
@@ -112,14 +119,14 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
                                         samplingLoc,
                                         attnWeight,
                                         output,
-                                        batch,
-                                        spatial_size,
-                                        channels,
-                                        num_cams,
-                                        num_levels,
-                                        num_query,
-                                        num_point,
-                                        num_groups);
+                                        batch,           // batch_size
+                                        num_cams,        // num_cams
+                                        spatial_size,    // num_feat (spatial_size)
+                                        channels,        // num_embeds (channels)
+                                        num_levels,      // num_scale (num_levels)
+                                        num_query,       // num_anchors (num_query)
+                                        num_point,       // num_pts (num_point)
+                                        num_groups);     // num_groups
 
     return rc;
 }

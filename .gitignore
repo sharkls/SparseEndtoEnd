@@ -27,6 +27,7 @@ LOG_*
 *.swp
 *.pth
 *.pdf
+*.mp4
 
 # Jupyter Notebook
 .ipynb_checkpoints
@@ -49,6 +50,15 @@ ENV/
 
 # datas
 data/
+dataset/
 ckpt/
 docker/
 e2e_worklog/
+script/tutorial/asset/
+
+C++/build/
+C++/Data/
+C++/Output/Lib/
+C++/Output/val_bin/
+C++/Output/vis/
+C++/Submodules/ThirdParty

@@ -3,6 +3,8 @@
 #define ONBOARD_TENSORRT_TENSORRT_H
 
 #include <map>
+#include <string>
+#include <tuple>
 #include <vector>
 
 #include "NvInfer.h"

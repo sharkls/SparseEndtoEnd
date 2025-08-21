@@ -37,10 +37,10 @@ if [ ! -f "${ENV_CUDA_BIN}/nvcc" ]; then
     return
 fi
 
-if [ -f "deploy/dfa_plugin/tools/cudasm.sh" ]; then
-    . "deploy/dfa_plugin/tools/cudasm.sh"
+if [ -f "./tools/cudasm.sh" ]; then
+    . "./tools/cudasm.sh"
 else
-    echo "[ERROR] Failed to Find \"deploy/dfa_plugin/tools/cudasm.sh\" File!"
+    echo "[ERROR] Failed to Find \"./tools/cudasm.sh\" File!"
     return
 fi
 
@@ -58,6 +58,8 @@ export ENVONNX=deploy/dfa_plugin/onnx/deformableAttentionAggr.onnx # absolute pa
 export ENVTRTDIR=deploy/dfa_plugin/engine                          # absolute path for saving dfa engine convertion logs
 export ENVEINGINENAME=$ENVTRTDIR/deformableAttentionAggr.engine    # absolute path for saving dfa engine
 
+export ENVTRTLOGSDIR=deploy/dfa_plugin/engine/logs
+
 echo "===================================================================================================================="
 echo "||  Config Environment Below:"
 echo "||  TensorRT LIB\t: $ENV_TensorRT_LIB"
@@ -73,5 +75,6 @@ echo "||  ENVTARGETPLUGIN\t: $ENVTARGETPLUGIN"
 echo "||  ENVONNX\t: $ENVONNX"
 echo "||  ENVEINGINENAME\t: $ENVEINGINENAME"
 echo "||  ENVTRTDIR\t: $ENVTRTDIR"
+echo "||  ENVTRTLOGSDIR\t: $ENVTRTLOGSDIR"
 echo "===================================================================================================================="
 echo "[INFO] Config Env Done, Please Check EnvPrintOut Above!"

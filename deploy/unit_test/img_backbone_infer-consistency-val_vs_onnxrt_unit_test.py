@@ -13,6 +13,10 @@ from modules.sparse4d_detector import *
 from typing import Optional, Dict, Any
 from tool.utils.config import read_cfg
 
+# 修复NumPy兼容性问题
+if not hasattr(np, 'bool'):
+    np.bool = bool
+
 
 def parse_args():
     parser = argparse.ArgumentParser(

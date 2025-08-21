@@ -24,9 +24,21 @@
 [2024-09-24::22:57:56] [INFO]: [cosine_distance ] pred_quality_score = 0.0
 """
 import os
-import ctypes
+import sys
+import time
 import logging
+import argparse
 import numpy as np
+
+# 设置完全确定性环境
+os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
+os.environ['PYTHONHASHSEED'] = '42'
+
+# 添加项目根目录到Python路径
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
+
+import ctypes
 import tensorrt as trt
 
 from typing import List
@@ -34,6 +46,21 @@ from cuda import cudart
 from tool.utils.logger import logger_wrapper
 from deploy.utils.utils import printArrayInformation
 
+# 设置numpy随机种子
+np.random.seed(42)
+
+# 设置CUDA确定性
+import torch
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+torch.use_deterministic_algorithms(True, warn_only=False)
+torch.manual_seed(42)
+torch.cuda.manual_seed(42)
+torch.cuda.manual_seed_all(42)
+torch.cuda.empty_cache()
+
+if not hasattr(np, 'bool'):
+    np.bool = bool
 
 def read_bin(samples, logger):
     prefix = "script/tutorial/asset/"
@@ -165,6 +192,172 @@ def read_bin(samples, logger):
         ).reshape(pred_track_id_shape)
         printArrayInformation(pred_track_id, logger, "pred_track_id", "PyTorch")
 
+        # 添加temp_gnn_output数据读取
+        temp_gnn_output_shape = [1, 900, 256]
+        temp_gnn_output = np.fromfile(
+            f"{prefix}sample_{i}_temp_gnn_output_1*900*256_float32.bin",
+            dtype=np.float32,
+        ).reshape(temp_gnn_output_shape)
+        printArrayInformation(temp_gnn_output, logger, "temp_gnn_output", "PyTorch")
+
+        # 添加tmp_outs*数据读取
+        tmp_outs = []
+        for j in range(6):  # 假设有6个tmp_outs
+            tmp_out_shape = [1, 900, 512]
+            try:
+                tmp_out = np.fromfile(
+                    f"{prefix}sample_{i}_tmp_outs{j}_1*900*512_float32.bin",
+                    dtype=np.float32,
+                ).reshape(tmp_out_shape)
+                printArrayInformation(tmp_out, logger, f"tmp_outs{j}", "PyTorch")
+            except FileNotFoundError:
+                # 如果文件不存在，创建零张量
+                tmp_out = np.zeros(tmp_out_shape, dtype=np.float32)
+                logger.warning(f"tmp_outs{j} file not found, using zeros")
+            tmp_outs.append(tmp_out)
+
+        # 添加refine_outs*数据读取
+        refine_outs = []
+        for j in range(1):  # 假设只有1个refine模块
+            try:
+                # 读取refine模块的四个输出
+                refine_anchor_shape = [1, 900, 11]
+                refine_anchor = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_anchor_1*900*11_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_anchor_shape)
+                printArrayInformation(refine_anchor, logger, f"refine_outs{j}_anchor", "PyTorch")
+
+                refine_instance_feature_shape = [1, 900, 256]
+                refine_instance_feature = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_instance_feature_1*900*256_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_instance_feature_shape)
+                printArrayInformation(refine_instance_feature, logger, f"refine_outs{j}_instance_feature", "PyTorch")
+
+                refine_anchor_embed_shape = [1, 900, 256]
+                refine_anchor_embed = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_anchor_embed_1*900*256_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_anchor_embed_shape)
+                printArrayInformation(refine_anchor_embed, logger, f"refine_outs{j}_anchor_embed", "PyTorch")
+
+                refine_temp_anchor_embed_shape = [1, 600, 256]
+                refine_temp_anchor_embed = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_temp_anchor_embed_1*600*256_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_temp_anchor_embed_shape)
+                printArrayInformation(refine_temp_anchor_embed, logger, f"refine_outs{j}_temp_anchor_embed", "PyTorch")
+
+                # 添加update_comparison数据读取
+                refine_instance_feature_before_update_shape = [1, 900, 256]
+                refine_instance_feature_before_update = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_instance_feature_before_update_1*900*256_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_instance_feature_before_update_shape)
+                printArrayInformation(refine_instance_feature_before_update, logger, f"refine_outs{j}_instance_feature_before_update", "PyTorch")
+
+                refine_anchor_before_update_shape = [1, 900, 11]
+                refine_anchor_before_update = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_anchor_before_update_1*900*11_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_anchor_before_update_shape)
+                printArrayInformation(refine_anchor_before_update, logger, f"refine_outs{j}_anchor_before_update", "PyTorch")
+
+                # 新增：读取temp_instance_feature和temp_anchor
+                refine_temp_instance_feature_shape = [1, 600, 256]
+                refine_temp_instance_feature = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_temp_instance_feature_1*600*256_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_temp_instance_feature_shape)
+                printArrayInformation(refine_temp_instance_feature, logger, f"refine_outs{j}_temp_instance_feature", "PyTorch")
+
+                refine_temp_anchor_shape = [1, 600, 11]
+                refine_temp_anchor = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_temp_anchor_1*600*11_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_temp_anchor_shape)
+                printArrayInformation(refine_temp_anchor, logger, f"refine_outs{j}_temp_anchor", "PyTorch")
+
+                # 新增：读取selected_feature和selected_anchor
+                refine_selected_feature_shape = [1, 900, 256]
+                refine_selected_feature = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_selected_feature_1*900*256_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_selected_feature_shape)
+                printArrayInformation(refine_selected_feature, logger, f"refine_outs{j}_selected_feature", "PyTorch")
+
+                refine_selected_anchor_shape = [1, 900, 11]
+                refine_selected_anchor = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_selected_anchor_1*900*11_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_selected_anchor_shape)
+                printArrayInformation(refine_selected_anchor, logger, f"refine_outs{j}_selected_anchor", "PyTorch")
+
+                refine_instance_feature_after_update_shape = [1, 900, 256]
+                refine_instance_feature_after_update = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_instance_feature_after_update_1*900*256_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_instance_feature_after_update_shape)
+                printArrayInformation(refine_instance_feature_after_update, logger, f"refine_outs{j}_instance_feature_after_update", "PyTorch")
+
+                refine_anchor_after_update_shape = [1, 900, 11]
+                refine_anchor_after_update = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_anchor_after_update_1*900*11_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_anchor_after_update_shape)
+                printArrayInformation(refine_anchor_after_update, logger, f"refine_outs{j}_anchor_after_update", "PyTorch")
+
+                # 新增：读取confidence_sorted和indices
+                refine_confidence_sorted_shape = [1, 300]  # N = 900 - 600 = 300
+                refine_confidence_sorted = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_confidence_sorted_1*300_float32.bin",
+                    dtype=np.float32,
+                ).reshape(refine_confidence_sorted_shape)
+                printArrayInformation(refine_confidence_sorted, logger, f"refine_outs{j}_confidence_sorted", "PyTorch")
+
+                refine_indices_shape = [1, 300]  # N = 900 - 600 = 300
+                print(f"{prefix}sample_{i}_refine_outs{j}_indices_1*300_int32.bin")
+                refine_indices = np.fromfile(
+                    f"{prefix}sample_{i}_refine_outs{j}_indices_1*300_int32.bin",
+                    dtype=np.int32,
+                ).reshape(refine_indices_shape)
+                printArrayInformation(refine_indices, logger, f"refine_outs{j}_indices", "PyTorch")
+
+                refine_outs.extend([
+                    refine_anchor, refine_instance_feature, refine_anchor_embed, refine_temp_anchor_embed,
+                    refine_instance_feature_before_update, refine_anchor_before_update,
+                    refine_temp_instance_feature, refine_temp_anchor,  # 新增
+                    refine_instance_feature_after_update, refine_anchor_after_update,
+                    refine_selected_feature, refine_selected_anchor,  # 新增：selected_feature和selected_anchor
+                    refine_confidence_sorted, refine_indices,  # 新增：confidence_sorted和indices
+                ])
+            except FileNotFoundError:
+                # 如果文件不存在，创建零张量
+                logger.warning(f"refine_outs{j} files not found, using zeros")
+                refine_anchor = np.zeros([1, 900, 11], dtype=np.float32)
+                refine_instance_feature = np.zeros([1, 900, 256], dtype=np.float32)
+                refine_anchor_embed = np.zeros([1, 900, 256], dtype=np.float32)
+                refine_temp_anchor_embed = np.zeros([1, 600, 256], dtype=np.float32)
+                refine_instance_feature_before_update = np.zeros([1, 900, 256], dtype=np.float32)
+                refine_anchor_before_update = np.zeros([1, 900, 11], dtype=np.float32)
+                refine_temp_instance_feature = np.zeros([1, 600, 256], dtype=np.float32)  # 新增
+                refine_temp_anchor = np.zeros([1, 600, 11], dtype=np.float32)            # 新增
+                refine_confidence_sorted = np.zeros([1, 300], dtype=np.float32)          # 新增：confidence_sorted
+                refine_indices = np.zeros([1, 300], dtype=np.int32)                     # 新增：indices
+                refine_selected_feature = np.zeros([1, 900, 256], dtype=np.float32) # 新增
+                refine_selected_anchor = np.zeros([1, 900, 11], dtype=np.float32) # 新增
+                refine_instance_feature_after_update = np.zeros([1, 900, 256], dtype=np.float32)
+                refine_anchor_after_update = np.zeros([1, 900, 11], dtype=np.float32)
+                refine_outs.extend([
+                    refine_anchor, refine_instance_feature, refine_anchor_embed, refine_temp_anchor_embed,
+                    refine_instance_feature_before_update, refine_anchor_before_update,
+                    refine_temp_instance_feature, refine_temp_anchor,  # 新增
+                    refine_instance_feature_after_update, refine_anchor_after_update,
+                    refine_selected_feature, refine_selected_anchor,  # 新增：selected_feature和selected_anchor
+                    refine_confidence_sorted, refine_indices,  # 新增：confidence_sorted和indices
+                ])
+
         inputs.append(
             [
                 feature,
@@ -189,6 +382,9 @@ def read_bin(samples, logger):
                 pred_anchor,
                 pred_class_score,
                 pred_quality_score,
+                temp_gnn_output,
+                *tmp_outs,  # 展开tmp_outs列表
+                *refine_outs,  # 展开refine_outs列表
             ]
         )
     return inputs, outputs
@@ -328,7 +524,11 @@ def inference(
     for b in bufferD:
         cudart.cudaFree(b)
 
-    return nInput, nIO, bufferH
+    # 返回lTensorName和context，这样main函数就可以访问它们
+    if trt_old:
+        return nInput, nIO, bufferH, lTensorName, None
+    else:
+        return nInput, nIO, bufferH, lTensorName, context
 
 
 def inference_consistency_validatation(
@@ -342,6 +542,44 @@ def inference_consistency_validatation(
             np.linalg.norm(x.flatten()) * np.linalg.norm(y.flatten())
         )
         logger.info(f"[cosine_distance ] {name} = {float(cosine_distance)}")
+        
+        # 特别关注 indices 的详细对比
+        if "indices" in name:
+            logger.info("=" * 60)
+            logger.info(f"🔍 详细对比 {name}:")
+            logger.info(f"TensorRT输出 (predicted):")
+            logger.info(f"  形状: {x.shape}, 类型: {x.dtype}")
+            logger.info(f"  完整数据: {x.flatten()}")
+            logger.info(f"  最小值: {x.min()}, 最大值: {x.max()}")
+            
+            logger.info(f"PyTorch期望 (expected):")
+            logger.info(f"  形状: {y.shape}, 类型: {y.dtype}")
+            logger.info(f"  完整数据: {y.flatten()}")
+            logger.info(f"  最小值: {y.min()}, 最大值: {y.max()}")
+            
+            # 计算差异 - 确保形状一致
+            x_flat = x.flatten()
+            y_flat = y.flatten()
+            diff = np.abs(x_flat - y_flat)
+            logger.info(f"差异统计:")
+            logger.info(f"  最大差异: {diff.max()}")
+            logger.info(f"  平均差异: {diff.mean()}")
+            logger.info(f"  差异大于0的元素数量: {np.sum(diff > 0)}")
+            logger.info(f"  完全匹配的元素数量: {np.sum(diff == 0)}")
+            
+            # 找出差异最大的位置
+            max_diff_pos = diff.argmax()
+            logger.info(f"  最大差异位置: {max_diff_pos}")
+            logger.info(f"  该位置TensorRT值: {x_flat[max_diff_pos]}")
+            logger.info(f"  该位置PyTorch值: {y_flat[max_diff_pos]}")
+            
+            # 找出所有差异的位置
+            mismatch_positions = np.where(diff > 0)[0]
+            if len(mismatch_positions) > 0:
+                logger.info(f"  所有差异位置:")
+                for pos in mismatch_positions:
+                    logger.info(f"    位置{pos}: TensorRT={x_flat[pos]}, PyTorch={y_flat[pos]}, 差异={diff[pos]}")
+            logger.info("=" * 60)
 
 
 def main(
@@ -351,7 +589,8 @@ def main(
     logger,
     plugin_name="DeformableAttentionAggrPlugin",
     soFile="deploy/dfa_plugin/lib/deformableAttentionAggr.so",
-    trtFile="deploy/engine/sparse4dhead2nd_polygraphy.engine",
+    # trtFile="deploy/engine/sparse4dhead2nd_polygraphy.engine",
+    trtFile="deploy/engine/sparse4dhead2nd.engine",
 ):
     ctypes.cdll.LoadLibrary(soFile)
     plugin = getPlugin(plugin_name)
@@ -360,7 +599,7 @@ def main(
         logger.error(f"{plugin_name} Engine Building Failed: {trtFile} !")
         return
 
-    sample_id = 0
+    sample_id = 1
     for x, y in zip(input_bins, output_bins):
         (
             feature,
@@ -377,23 +616,43 @@ def main(
             lidar2img,
         ) = x
 
-        nInput, nIO, bufferH = inference(
-            feature,
-            spatial_shapes,
-            level_start_index,
-            instance_feature,
-            anchor,
-            time_interval,
-            temp_instance_feature,
-            temp_anchor,
-            mask,
-            track_id,
-            image_wh,
-            lidar2img,
-            engine,
-            trt_old,
-            logger,
-        )
+        # 修改返回值接收
+        if trt_old:
+            nInput, nIO, bufferH, lTensorName, context = inference(
+                feature,
+                spatial_shapes,
+                level_start_index,
+                instance_feature,
+                anchor,
+                time_interval,
+                temp_instance_feature,
+                temp_anchor,
+                mask,
+                track_id,
+                image_wh,
+                lidar2img,
+                engine,
+                trt_old,
+                logger,
+            )
+        else:
+            nInput, nIO, bufferH, lTensorName, context = inference(
+                feature,
+                spatial_shapes,
+                level_start_index,
+                instance_feature,
+                anchor,
+                time_interval,
+                temp_instance_feature,
+                temp_anchor,
+                mask,
+                track_id,
+                image_wh,
+                lidar2img,
+                engine,
+                trt_old,
+                logger,
+            )
 
         input_names = [
             "feature",
@@ -413,7 +672,7 @@ def main(
         # Sequence of output_names should be same with engine binding sequence.
         output_names = [
             "tmp_outs0",
-            "pred_track_id",
+            "temp_gnn_output",    # 添加temp_gnn_output
             "tmp_outs1",
             "tmp_outs2",
             "tmp_outs3",
@@ -423,45 +682,205 @@ def main(
             "pred_anchor",
             "pred_class_score",
             "pred_quality_score",
+            "pred_track_id",
+            # 添加refine_outs输出名称
+            "refine_outs0_anchor",
+            "refine_outs0_instance_feature",
+            "refine_outs0_anchor_embed",
+            "refine_outs0_temp_anchor_embed",
+            # 添加update_comparison输出名称
+            "refine_outs0_instance_feature_before_update",
+            "refine_outs0_anchor_before_update",
+            "refine_outs0_temp_instance_feature",  # 新增
+            "refine_outs0_temp_anchor",            # 新增
+            "refine_outs0_confidence_sorted",      # 新增：confidence_sorted
+            "refine_outs0_indices",                # 新增：indices
+            "refine_outs0_selected_feature",       # 新增：selected_feature
+            "refine_outs0_selected_anchor",        # 新增：selected_anchor
+            "refine_outs0_instance_feature_after_update",
+            "refine_outs0_anchor_after_update",
         ]
 
         assert len(input_names) == nInput
         assert len(output_names) == nIO - nInput
 
+        # 增加engine输出变量名称的详细打印
+        logger.info("=" * 80)
+        logger.info("TensorRT Engine Output Information:")
+        logger.info("=" * 80)
+        
+        # 打印所有输入tensor信息
+        logger.info("Input Tensors:")
+        for i, name in enumerate(input_names):
+            logger.info(f"  Input{i}: {name} - Shape: {bufferH[i].shape}, Dtype: {bufferH[i].dtype}")
+        
+        # 打印所有输出tensor信息
+        logger.info("Output Tensors:")
+        for i in range(nInput, nIO):
+            tensor_name = lTensorName[i]
+            if trt_old:
+                tensor_shape = engine.get_binding_shape(tensor_name)
+                tensor_dtype = engine.get_binding_dtype(tensor_name)
+            else:
+                tensor_shape = context.get_tensor_shape(tensor_name)
+                tensor_dtype = engine.get_tensor_dtype(tensor_name)
+            logger.info(f"  Output{i-nInput}: {tensor_name} - Shape: {tensor_shape}, Dtype: {trt.nptype(tensor_dtype)}")
+            logger.info(f"    Buffer Index: {i}, Expected Name: {output_names[i-nInput] if i-nInput < len(output_names) else 'N/A'}")
+        
+        logger.info("=" * 80)
+        
+        # 打印期望的输出顺序
+        logger.info("Expected Output Order:")
+        for i, name in enumerate(output_names):
+            logger.info(f"  Index {i}: {name}")
+        
+        logger.info("=" * 80)
+
         for i, name in enumerate(input_names):
             printArrayInformation(bufferH[i], logger, info=f"{name}", prefix="TensorRT")
-        printArrayInformation(
-            bufferH[1 + nInput], logger, info=f"{output_names[1]}", prefix="TensorRT"
-        )
-        printArrayInformation(
-            bufferH[-4], logger, info=f"{output_names[-4]}", prefix="TensorRT"
-        )
-        printArrayInformation(
-            bufferH[-3], logger, info=f"{output_names[-3]}", prefix="TensorRT"
-        )
-        printArrayInformation(
-            bufferH[-2], logger, info=f"{output_names[-2]}", prefix="TensorRT"
-        )
-        printArrayInformation(
-            bufferH[-1], logger, info=f"{output_names[-1]}", prefix="TensorRT"
-        )
 
-        assert 5 == len(y)
-        # inference_consistency_validatation(
-        #     bufferH[nInput : nInput + 5], y, output_names[:5]
-        # )
+        assert 26 == len(y)  # 6个tmp_outs + 6个其他输出 + 4个refine_outs + 10个update_comparison (新增6个)
         logger.info(f"Sample {sample_id} inference consistency validatation:")
+        
+        # 增加实际使用的输出索引信息打印
+        logger.info("Actual Output Indices Used for Validation:")
+        logger.info(f"  refine_outs0_temp_anchor_embed: bufferH[{nInput + 0}] -> {lTensorName[nInput + 0]} (Output0)")
+        logger.info(f"  tmp_outs0: bufferH[{nInput + 1}] -> {lTensorName[nInput + 1]} (Output1)")
+        logger.info(f"  refine_outs0_instance_feature_before_update: bufferH[{nInput + 2}] -> {lTensorName[nInput + 2]} (Output2)")
+        logger.info(f"  refine_outs0_anchor_before_update: bufferH[{nInput + 3}] -> {lTensorName[nInput + 3]} (Output3)")
+        logger.info(f"  refine_outs0_confidence_sorted: bufferH[{nInput + 5}] -> {lTensorName[nInput + 5]} (Output12)")  # 新增：confidence_sorted
+        logger.info(f"  refine_outs0_indices: bufferH[{nInput + 4}] -> {lTensorName[nInput + 4]} (Output13)")            # 新增：indices
+        logger.info(f"  refine_outs0_selected_feature: bufferH[{nInput + 6}] -> {lTensorName[nInput + 6]} (Output6)")
+        logger.info(f"  refine_outs0_selected_anchor: bufferH[{nInput + 7}] -> {lTensorName[nInput + 7]} (Output7)")
+        logger.info(f"  refine_outs0_instance_feature: bufferH[{nInput + 8}] -> {lTensorName[nInput + 8]} (Output8)")
+        logger.info(f"  refine_outs0_instance_feature_after_update: bufferH[{nInput + 9}] -> {lTensorName[nInput + 7]} (Output9)")
+        logger.info(f"  refine_outs0_anchor: bufferH[{nInput + 10}] -> {lTensorName[nInput + 8]} (Output10)")
+        logger.info(f"  refine_outs0_anchor_after_update: bufferH[{nInput + 11}] -> {lTensorName[nInput + 9]} (Output11)")
+        logger.info(f"  refine_outs0_anchor_embed: bufferH[{nInput + 12}] -> {lTensorName[nInput + 10]} (Output12)")
+        logger.info(f"  temp_gnn_output: bufferH[{nInput + 13}] -> {lTensorName[nInput + 11]} (Output13)")
+        logger.info(f"  tmp_outs1: bufferH[{nInput + 14}] -> {lTensorName[nInput + 12]} (Output14)")
+        logger.info(f"  tmp_outs2: bufferH[{nInput + 15}] -> {lTensorName[nInput + 13]} (Output15)")
+        logger.info(f"  tmp_outs3: bufferH[{nInput + 16}] -> {lTensorName[nInput + 14]} (Output16)")
+        logger.info(f"  tmp_outs4: bufferH[{nInput + 17}] -> {lTensorName[nInput + 15]} (Output17)")
+        logger.info(f"  tmp_outs5: bufferH[{nInput + 18}] -> {lTensorName[nInput + 16]} (Output18)")
+        logger.info(f"  pred_instance_feature: bufferH[{nInput + 19}] -> {lTensorName[nInput + 17]} (Output19)")
+        logger.info(f"  pred_anchor: bufferH[{nInput + 20}] -> {lTensorName[nInput + 20]} (Output20)")
+        logger.info(f"  pred_class_score: bufferH[{nInput + 21}] -> {lTensorName[nInput + 21]} (Output21)")
+        logger.info(f"  pred_quality_score: bufferH[{nInput + 22}] -> {lTensorName[nInput + 22]} (Output22)")
+        logger.info(f"  pred_track_id: bufferH[{nInput + 23}] -> {lTensorName[nInput + 23]} (Output23)")
+        logger.info(f"  refine_outs0_temp_instance_feature: bufferH[{nInput + 24}] -> {lTensorName[nInput + 18]} (Output24)")
+        logger.info(f"  refine_outs0_temp_anchor: bufferH[{nInput + 25}] -> {lTensorName[nInput + 19]} (Output25)")
+        
+        # 更新验证时使用的buffer索引，按照TensorRT引擎的实际输出顺序
         inference_consistency_validatation(
-            [bufferH[nInput + 1], bufferH[-4], bufferH[-3], bufferH[-2], bufferH[-1]],
+            [
+                bufferH[nInput + 23],  # pred_track_id (Output23)
+                bufferH[nInput + 19],  # pred_instance_feature (Output19)
+                bufferH[nInput + 20],   # pred_anchor (Output20)
+                bufferH[nInput + 21],   # pred_class_score (Output21)
+                bufferH[nInput + 22],  # pred_quality_score (Output22)
+                bufferH[nInput + 13],  # temp_gnn_output (Output13)
+                bufferH[nInput + 1],   # tmp_outs0 (Output1)
+                bufferH[nInput + 14],  # tmp_outs1 (Output14)
+                bufferH[nInput + 15],  # tmp_outs2 (Output15)
+                bufferH[nInput + 16],  # tmp_outs3 (Output16)
+                bufferH[nInput + 17],  # tmp_outs4 (Output17)
+                bufferH[nInput + 18],  # tmp_outs5 (Output18)
+                # 添加refine_outs验证，按照TensorRT实际输出顺序
+                bufferH[nInput + 10],   # refine_outs0_anchor (Output10)
+                bufferH[nInput + 8],   # refine_outs0_instance_feature (Output8)
+                bufferH[nInput + 12],  # refine_outs0_anchor_embed (Output12)
+                bufferH[nInput + 0],   # refine_outs0_temp_anchor_embed (Output0)
+                # 添加update_comparison验证，按照TensorRT实际输出顺序
+                bufferH[nInput + 2],   # refine_outs0_instance_feature_before_update (Output2)
+                bufferH[nInput + 3],   # refine_outs0_anchor_before_update (Output3)
+                bufferH[nInput + 24],  # refine_outs0_temp_instance_feature (Output24)
+                bufferH[nInput + 25],  # refine_outs0_temp_anchor (Output25)
+                bufferH[nInput + 9],   # refine_outs0_instance_feature_after_update (Output9)
+                bufferH[nInput + 11],   # refine_outs0_anchor_after_update (Output11)
+                # 新增：selected_feature和selected_anchor
+                bufferH[nInput + 6],   # refine_outs0_selected_feature (Output6)
+                bufferH[nInput + 7],   # refine_outs0_selected_anchor (Output7)
+                # 新增：confidence_sorted和indices - 使用正确的索引
+                bufferH[nInput + 4],  # refine_outs0_confidence_sorted (Output12) - 形状(1,300)
+                bufferH[nInput + 5],  # refine_outs0_indices (Output13) - 形状(1,300)
+            ],
             y,
             [
-                output_names[1],
-                output_names[-4],
-                output_names[-3],
-                output_names[-2],
-                output_names[-1],
+                "pred_track_id",
+                "pred_instance_feature", 
+                "pred_anchor",
+                "pred_class_score",
+                "pred_quality_score",
+                "temp_gnn_output",
+                "tmp_outs0",
+                "tmp_outs1",
+                "tmp_outs2",
+                "tmp_outs3",
+                "tmp_outs4",
+                "tmp_outs5",
+                # 添加refine_outs验证名称
+                "refine_outs0_anchor",
+                "refine_outs0_instance_feature",
+                "refine_outs0_anchor_embed",
+                "refine_outs0_temp_anchor_embed",
+                # 添加update_comparison验证名称
+                "refine_outs0_instance_feature_before_update",
+                "refine_outs0_anchor_before_update",
+                "refine_outs0_temp_instance_feature",  # 新增
+                "refine_outs0_temp_anchor",            # 新增
+                "refine_outs0_instance_feature_after_update",
+                "refine_outs0_anchor_after_update",
+                # 新增：selected_feature和selected_anchor
+                "refine_outs0_selected_feature",       # 新增：selected_feature
+                "refine_outs0_selected_anchor",        # 新增：selected_anchor
+                # 新增：confidence_sorted和indices
+                "refine_outs0_confidence_sorted",      # 新增：confidence_sorted
+                "refine_outs0_indices",                # 新增：indices
             ],
         )
+        # 在验证之前，专门打印indices的完整对比信息
+        logger.info("🔍 完整对比 refine_outs0_indices:")
+        logger.info("=" * 80)
+        
+        # 获取TensorRT的indices输出
+        trt_indices = bufferH[nInput + 5]  # refine_outs0_indices
+        # 获取PyTorch期望的indices
+        pytorch_indices = y[25]  # 根据你的输出列表，indices在第25个位置
+        
+        logger.info(f"TensorRT indices:")
+        logger.info(f"  形状: {trt_indices.shape}")
+        logger.info(f"  数据类型: {trt_indices.dtype}")
+        logger.info(f"  完整数据: {trt_indices.flatten()}")
+        logger.info(f"  数值范围: [{trt_indices.min()}, {trt_indices.max()}]")
+        
+        logger.info(f"PyTorch期望 indices:")
+        logger.info(f"  形状: {pytorch_indices.shape}")
+        logger.info(f"  数据类型: {pytorch_indices.dtype}")
+        logger.info(f"  完整数据: {pytorch_indices.flatten()}")
+        logger.info(f"  数值范围: [{pytorch_indices.min()}, {pytorch_indices.max()}]")
+        
+        # 计算并打印差异
+        trt_flat = trt_indices.flatten()
+        pytorch_flat = pytorch_indices.flatten()
+        indices_diff = np.abs(trt_flat - pytorch_flat)
+        logger.info(f"差异分析:")
+        logger.info(f"  最大差异: {indices_diff.max()}")
+        logger.info(f"  平均差异: {indices_diff.mean()}")
+        logger.info(f"  差异分布:")
+        logger.info(f"    差异=0: {np.sum(indices_diff == 0)} 个元素")
+        logger.info(f"    差异>0: {np.sum(indices_diff > 0)} 个元素")
+        
+        # 找出所有差异的位置
+        mismatch_positions = np.where(indices_diff > 0)[0]
+        if len(mismatch_positions) > 0:
+            logger.info(f"  所有差异位置详情:")
+            for pos in mismatch_positions:
+                logger.info(f"    位置{pos}: TensorRT={trt_flat[pos]}, PyTorch={pytorch_flat[pos]}, 差异={indices_diff[pos]}")
+        else:
+            logger.info("  ✅ 所有位置都完全匹配！")
+        
+        logger.info("=" * 80)
         sample_id += 1
 
 

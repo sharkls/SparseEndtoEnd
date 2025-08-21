@@ -1,0 +1,6 @@
+syntax = "proto3";
+package test;
+
+message TestConfig {
+    string  task = 1;  // 例如 SparseBEV
+}

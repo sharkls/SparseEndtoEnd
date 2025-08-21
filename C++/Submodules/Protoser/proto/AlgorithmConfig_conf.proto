@@ -1,0 +1,11 @@
+syntax = "proto3";
+package common;
+
+message ModuleConfig {
+    string type = 1;    // 例如 preprocess/inference/postprocess/augment/...
+    string name = 2;    // 例如 Resize/Yolov11/PoseEstimation/...
+}
+
+message ModulesConfig {
+    repeated ModuleConfig modules = 1;  // 按顺序排列的模块链
+}

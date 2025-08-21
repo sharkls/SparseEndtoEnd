@@ -1,0 +1,83 @@
+syntax = "proto3";
+package sparsebev;
+
+import "AlgorithmConfig_conf.proto";
+
+// SparseBEV感知任务配置
+message TaskConfig {
+    ModelCfgParams model_cfg_params = 1;
+    PreprocessorParams preprocessor_params = 2;
+    InstanceBankParams instance_bank_params = 3;
+    PostprocessorParams postprocessor_params = 4;
+    E2ETrtEngine extract_feat_engine = 5;
+    E2ETrtEngine head1st_engine = 6;
+    E2ETrtEngine head2nd_engine = 7;
+    string homography_path = 8;
+    bool run_status = 9;                    // 程序运行方式
+    bool use_half_precision = 10;            // 是否使用半精度，默认false
+}
+
+// 模型配置参数
+message ModelCfgParams
+{
+    uint32 embedfeat_dims = 1;                                               // 嵌入特征维度，默认256
+    repeated uint32 sparse4d_extract_feat_shape_lc = 2;                      // Sparse4D特征提取形状LC
+    repeated uint32 sparse4d_extract_feat_spatial_shapes_ld = 3;             // Sparse4D特征提取空间形状LD
+    repeated uint32 sparse4d_extract_feat_level_start_index = 4;             // Sparse4D特征提取层级起始索引
+    string multiview_multiscale_deformable_attention_aggregation_path = 5;   // 多视角多尺度可变形注意力聚合插件路径
+    uint32 num_classes = 6;                                                  // 输出目标类型数量，默认10
+    repeated string class_names = 7;                                         // 类别名称列表，按索引顺序
+}
+
+// engine配置参数
+message E2ETrtEngine{
+    string engine_path = 1;                  // TensorRT引擎文件路径
+    string plugin_path = 2;                  // TensorRT插件文件路径
+    repeated string input_names = 3;         // 输入张量名称列表
+    repeated string output_names = 4;        // 输出张量名称列表
+}
+
+// 预处理配置参数
+message PreprocessorParams
+{
+    uint32 num_cams = 1;                    // 相机数量，默认6
+    uint32 raw_img_c = 2;                   // 原始图像通道数，默认3
+    uint32 raw_img_h = 3;                   // 原始图像高度，默认1080
+    uint32 raw_img_w = 4;                   // 原始图像宽度，默认1920
+    uint32 model_input_img_c = 5;           // 模型输入图像通道数，默认3
+    uint32 model_input_img_h = 6;           // 模型输入图像高度，默认256
+    uint32 model_input_img_w = 7;           // 模型输入图像宽度，默认704
+    float resize_ratio = 8;                 // 缩放比例，默认1.0
+    uint32 crop_height = 9;                 // 裁剪高度，默认0
+    uint32 crop_width = 10;                 // 裁剪宽度，默认0
+}
+
+// 实例银行配置参数
+message InstanceBankParams
+{
+    uint32 num_querys = 1;                  // 查询数量，默认900
+    uint32 query_dims = 2;                  // 查询维度，默认11
+    repeated float kmeans_anchors = 3;      // K-means锚点数组
+    uint32 topk_querys = 4;                 // 前K个查询数量，默认600
+    float max_time_interval = 5;            // 最大时间间隔，默认2.0秒
+    float default_time_interval = 6;        // 默认时间间隔，默认0.5秒
+    float confidence_decay = 7;             // 置信度衰减因子，默认0.6
+    string instance_bank_anchor_path = 8;   // 实例银行锚点文件路径
+}
+
+// 后处理配置参数
+message PostprocessorParams
+{
+    uint32 post_process_out_nums = 1;       // 后处理输出数量，默认300
+    float post_process_threshold = 2;       // 后处理阈值，默认0.2
+    // GPU NMS相关参数
+    bool use_gpu_nms = 3;                   // 是否使用GPU NMS，默认true
+    float gpu_nms_threshold = 4;            // GPU NMS IoU阈值，默认0.5
+    uint32 max_output_boxes = 5;            // 最大输出框数量，默认1000
+}
+
+// 融合跟踪任务配置参数
+message ModuleConfig {
+    TaskConfig task_config = 1;
+    common.ModulesConfig modules_config = 2;
+}

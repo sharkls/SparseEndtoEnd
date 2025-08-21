@@ -1,0 +1,126 @@
+syntax = "proto3";
+package errorhandler;
+
+// 错误处理配置消息
+message ErrorHandlerConfig {
+    GlobalConfig global_config = 1;
+    RecoveryStrategies recovery_strategies = 2;
+    MonitorConfig monitor_config = 3;
+    ErrorThresholds error_thresholds = 4;
+    AlertConfig alert_config = 5;
+    LogConfig log_config = 6;
+    PerformanceConfig performance_config = 7;
+}
+
+// 全局配置
+message GlobalConfig {
+    bool enable_error_handling = 1;
+    bool enable_error_recovery = 2;
+    bool enable_error_monitoring = 3;
+    uint32 max_error_history = 4;
+    int32 log_level = 5;
+}
+
+// 恢复策略配置
+message RecoveryStrategies {
+    repeated RecoveryStrategyEntry strategies = 1;
+}
+
+message RecoveryStrategyEntry {
+    string error_code = 1;
+    RecoveryStrategy strategy = 2;
+}
+
+message RecoveryStrategy {
+    enum Strategy {
+        NONE = 0;
+        RETRY = 1;
+        RESTART = 2;
+        FALLBACK = 3;
+        RESET = 4;
+        CUSTOM = 5;
+    }
+    
+    Strategy strategy = 1;
+    int32 max_retries = 2;
+    int32 timeout_ms = 3;
+    int32 retry_interval_ms = 4;
+    string custom_recovery_func = 5;
+}
+
+// 监控配置
+message MonitorConfig {
+    bool enable_monitoring = 1;
+    bool enable_alerts = 2;
+    int32 alert_threshold = 3;
+    int32 time_window_ms = 4;
+    repeated string alert_channels = 5;
+    int32 max_alert_history = 6;
+}
+
+// 错误阈值配置
+message ErrorThresholds {
+    repeated ErrorThresholdEntry error_code_thresholds = 1;
+    repeated ModuleThresholdEntry module_thresholds = 2;
+}
+
+message ErrorThresholdEntry {
+    string error_code = 1;
+    int32 threshold = 2;
+}
+
+message ModuleThresholdEntry {
+    string module_name = 1;
+    int32 threshold = 2;
+}
+
+// 告警配置
+message AlertConfig {
+    repeated AlertLevelEntry alert_levels = 1;
+    MessageTemplates message_templates = 2;
+}
+
+message AlertLevelEntry {
+    string error_code = 1;
+    ErrorSeverity severity = 2;
+}
+
+message MessageTemplates {
+    repeated MessageTemplateEntry templates = 1;
+}
+
+message MessageTemplateEntry {
+    string error_code = 1;
+    string template = 2;
+}
+
+// 错误严重程度
+enum ErrorSeverity {
+    DEBUG = 0;
+    INFO = 1;
+    WARNING = 2;
+    ERROR = 3;
+    CRITICAL = 4;
+}
+
+// 日志配置
+message LogConfig {
+    string error_log_level = 1;
+    string warning_log_level = 2;
+    string info_log_level = 3;
+    string debug_log_level = 4;
+    string log_format = 5;
+    bool log_file_enabled = 6;
+    string log_file_path = 7;
+    int32 log_file_max_size_mb = 8;
+    int32 log_file_max_files = 9;
+}
+
+// 性能监控配置
+message PerformanceConfig {
+    int32 statistics_interval_ms = 1;
+    bool enable_performance_reporting = 2;
+    int32 performance_report_interval_ms = 3;
+    bool enable_memory_monitoring = 4;
+    int32 memory_threshold_mb = 5;
+} 
