@@ -137,6 +137,7 @@ void InstanceBank::initializeInstanceBank()
     history_time_ = 0.0F;
     time_interval_ = 0.0F;
     temp_lidar_to_global_mat_ = Eigen::Matrix<double, 4, 4>::Zero();
+    is_first_frame_ = true;
     
     // 初始化向量大小
     track_size_ = static_cast<std::uint32_t>(num_querys_ * 10);
@@ -173,6 +174,7 @@ Status InstanceBank::reset()
     history_time_ = 0.0F;
     time_interval_ = 0.0F;
     temp_lidar_to_global_mat_ = Eigen::Matrix<double, 4, 4>::Zero();
+    is_first_frame_ = true;
     
     // 从bin文件加载instance_feature初始值
     std::string instance_feature_path = "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin";
@@ -237,8 +239,42 @@ void InstanceBank::updateTrackId(const std::vector<std::int32_t>& track_ids)
         return;
     }
     
-    temp_track_ids_ = track_ids;
-    track_ids_ = track_ids;
+    // 对应Python版本的逻辑：
+    // track_id = track_id.flatten(end_dim=1)[self.temp_topk_indice].reshape(bs, -1)
+    // self.track_id = F.pad(track_id, (0, self.num_anchor - self.num_temp_instances), value=-1)
+    
+    // 根据query_track_ids_中存储的索引，从输入的track_ids中选择对应位置的值
+    std::vector<std::int32_t> selected_track_ids;
+    selected_track_ids.reserve(query_track_ids_.size());
+    
+    for (size_t i = 0; i < query_track_ids_.size(); ++i) {
+        // query_track_ids_[i]存储的是索引，用于从track_ids中选择值
+        std::int32_t index = query_track_ids_[i];
+        if (index >= 0 && static_cast<size_t>(index) < track_ids.size()) {
+            selected_track_ids.push_back(track_ids[index]);
+        } else {
+            selected_track_ids.push_back(-1);  // 索引无效时设为-1
+        }
+    }
+    
+    // 创建最终结果数组，先复制选中的track_ids，然后用-1填充到num_querys_长度
+    std::vector<std::int32_t> padded_track_ids;
+    padded_track_ids.reserve(num_querys_);
+    
+    // 先添加选中的track_ids
+    padded_track_ids.insert(padded_track_ids.end(), selected_track_ids.begin(), selected_track_ids.end());
+    
+    // 在数组后面添加-1，使其满足长度为num_querys_
+    while (padded_track_ids.size() < static_cast<size_t>(num_querys_)) {
+        padded_track_ids.push_back(-1);
+    }
+    
+    // 更新成员变量
+    temp_track_ids_ = padded_track_ids;
+    track_ids_ = padded_track_ids;
+    
+    LOG(INFO) << "[INFO] updateTrackId: selected " << selected_track_ids.size() 
+              << " track_ids from indices, padded to " << padded_track_ids.size() << " with -1";
 }
 
 void InstanceBank::updateConfidence(const std::vector<float>& confidence)
@@ -292,12 +328,12 @@ std::tuple<const std::vector<float>&,
            const float&,
            const std::int32_t&,
            const std::vector<std::int32_t>&>
-InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat) 
+InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat, const bool& is_first_frame) 
 { 
   
   // if (!query_anchor_.empty()) {   // 初始化实例时query_anchor_就不为空了
-  if (history_time_ != 0.0F && !query_anchor_.empty()) {      // 第二帧
-    time_interval_ = static_cast<float>(std::fabs(timestamp - history_time_));
+  if (!is_first_frame) {      // 第二帧
+    time_interval_ = static_cast<float>(std::fabs(timestamp - history_time_) / 1000.0f);
     float epsilon = std::numeric_limits<float>::epsilon();
     mask_ = (time_interval_ < max_time_interval_ || std::fabs(time_interval_ - max_time_interval_) < epsilon) ? 1 : 0;
     time_interval_ = (static_cast<bool>(mask_) && time_interval_ > epsilon) ? time_interval_ : default_time_interval_;
@@ -333,11 +369,13 @@ InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& gl
 
 Status InstanceBank::cache(const std::vector<float>& instance_feature,
                                    const std::vector<float>& anchor,
-                                   const std::vector<float>& confidence_logits) {
+                                   const std::vector<float>& confidence_logits,
+                                   const bool& is_first_frame) {
   std::vector<float> confidence = InstanceBank::getMaxConfidenceScores(confidence_logits, num_querys_);
 
   // 应用置信度衰减和融合
-  if (history_time_ != 0.0F && !query_confidence_.empty()) {
+  // if (!query_confidence_.empty()) {
+  if(!is_first_frame){
     std::vector<float> temp_query_confidence_with_decay(query_confidence_.size());
     std::transform(query_confidence_.begin(), query_confidence_.end(), temp_query_confidence_with_decay.begin(),
                    [this](float element) { return element * confidence_decay_; });
@@ -393,21 +431,10 @@ std::vector<std::int32_t> InstanceBank::getTrackId(const std::vector<std::int32_
   auto nums_new_anchor = static_cast<size_t>(
       std::count_if(track_ids.begin(), track_ids.end(), [](std::int32_t track_id) { return track_id < 0; }));
   
-  // std::cout << "[InstanceBank][DEBUG] nums_new_anchor: " << nums_new_anchor << std::endl;
-  // std::cout << "[InstanceBank][DEBUG] prev_id_: " << prev_id_ << std::endl;
-  
   std::vector<std::int32_t> new_track_ids(nums_new_anchor);
   for (size_t k = 0; k < nums_new_anchor; ++k) {
     new_track_ids[k] = k + prev_id_;
   }
-  
-  // if (!new_track_ids.empty()) {
-  //   std::cout << "[InstanceBank][DEBUG] Generated new_track_ids (first 10): ";
-  //   for (size_t i = 0; i < std::min(size_t(10), new_track_ids.size()); ++i) {
-  //     std::cout << new_track_ids[i] << " ";
-  //   }
-  //   std::cout << std::endl;
-  // }
 
   for (size_t i = num_querys_ - nums_new_anchor, j = 0; i < num_querys_ && j < nums_new_anchor; ++i, ++j) {
     track_ids[i] = new_track_ids[j];
@@ -416,14 +443,7 @@ std::vector<std::int32_t> InstanceBank::getTrackId(const std::vector<std::int32_
   prev_id_ += nums_new_anchor;
   updateTrackId(track_ids);
   
-  // std::cout << "[InstanceBank][DEBUG] Final track_ids (first 10): ";
-  // for (size_t i = 0; i < track_ids.size(); ++i) {
-  //   std::cout << track_ids[i] << " ";
-  // }
-  // std::cout << std::endl;
-  
-  // LOG(INFO) << "getTrackId() track_ids size: " << track_ids.size();
-  return track_ids;
+  return track_ids_;
 }
 
 std::vector<float> InstanceBank::getTempConfidence() const { return temp_confidence_; }
@@ -521,5 +541,64 @@ bool InstanceBank::loadInstanceFeatureFromFile(const std::string& file_path) {
         std::cout << "  - Average: " << (sum / std::min(instance_feature_.size(), size_t(1000))) << std::endl;
     }
     
+    return true;
+}
+
+bool InstanceBank::saveInstanceBankData(const int sample_id) {
+    std::string output_dir = "/share/Code/SparseEnd2End/C++/Output/val_bin/";
+    
+    // 保存query_anchor_ (1*600*11)
+    std::string anchor_path = output_dir + "sample_" + std::to_string(sample_id) + "_ibank_cached_anchor_1*600*11_float32.bin";
+    std::ofstream anchor_file(anchor_path, std::ios::binary);
+    if (anchor_file.is_open()) {
+        anchor_file.write(reinterpret_cast<const char*>(query_anchor_.data()), 
+                         query_anchor_.size() * sizeof(float));
+        anchor_file.close();
+        std::cout << "[INFO] Saved query_anchor_ to: " << anchor_path << std::endl;
+    } else {
+        std::cout << "[ERROR] Failed to open file for writing: " << anchor_path << std::endl;
+        return false;
+    }
+    
+    // 保存query_ (1*600*256)
+    std::string feature_path = output_dir + "sample_" + std::to_string(sample_id) + "_ibank_cached_feature_1*600*256_float32.bin";
+    std::ofstream feature_file(feature_path, std::ios::binary);
+    if (feature_file.is_open()) {
+        feature_file.write(reinterpret_cast<const char*>(query_.data()), 
+                          query_.size() * sizeof(float));
+        feature_file.close();
+        std::cout << "[INFO] Saved query_ to: " << feature_path << std::endl;
+    } else {
+        std::cout << "[ERROR] Failed to open file for writing: " << feature_path << std::endl;
+        return false;
+    }
+    
+    // 保存query_confidence_ (1*600)
+    std::string confidence_path = output_dir + "sample_" + std::to_string(sample_id) + "_ibank_confidence_1*600_float32.bin";
+    std::ofstream confidence_file(confidence_path, std::ios::binary);
+    if (confidence_file.is_open()) {
+        confidence_file.write(reinterpret_cast<const char*>(query_confidence_.data()), 
+                             query_confidence_.size() * sizeof(float));
+        confidence_file.close();
+        std::cout << "[INFO] Saved query_confidence_ to: " << confidence_path << std::endl;
+    } else {
+        std::cout << "[ERROR] Failed to open file for writing: " << confidence_path << std::endl;
+        return false;
+    }
+    
+    // 保存track_ids_ (1*900)
+    std::string track_id_path = output_dir + "sample_" + std::to_string(sample_id) + "_ibank_updated_temp_track_id_1*900_int32.bin";
+    std::ofstream track_id_file(track_id_path, std::ios::binary);
+    if (track_id_file.is_open()) {
+        track_id_file.write(reinterpret_cast<const char*>(track_ids_.data()), 
+                           track_ids_.size() * sizeof(std::int32_t));
+        track_id_file.close();
+        std::cout << "[INFO] Saved track_ids_ to: " << track_id_path << std::endl;
+    } else {
+        std::cout << "[ERROR] Failed to open file for writing: " << track_id_path << std::endl;
+        return false;
+    }
+    
+    std::cout << "[INFO] Successfully saved all InstanceBank data for sample " << sample_id << std::endl;
     return true;
 }

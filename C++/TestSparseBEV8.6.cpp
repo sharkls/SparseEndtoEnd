@@ -13,6 +13,7 @@
 #include "log.h"
 
 #include "./Include/Interface/ExportSparseBEVAlgLib.h"
+#include "./Src/Common/Core/FunctionHub.h"
 
 #include "CAlgResult.h"
 #include "CTimeMatchSrcData.h"
@@ -46,7 +47,7 @@ namespace sparse_bev_8_6 {
 std::string g_asset_path;
 std::string g_save_dir;
 int g_current_frame_index = 0;
-float g_time_stamp = 0.5f;
+int64_t g_time_stamp = GetTimeStamp();  // 直接初始化为当前系统时间戳（毫秒）
 
 // 文件名解析结构
 struct BinFileInfo {
@@ -310,10 +311,26 @@ CTimeMatchSrcData loadAssetData(std::string asset_path, int index)
     data.vecVideoSrcData(video_data);
     
     // 3. 设置时间戳信息
-    // std::string time_interval_path = asset_path + "sample_" + std::to_string(index) + "_time_interval_1_float32.bin";
-    // std::vector<float> time_interval = loadBinFile(time_interval_path, {1}, "float32");
-    g_time_stamp += 0.5f;
-    data.lTimeStamp(static_cast<unsigned long long>(g_time_stamp));  // 转换为秒时间戳
+    std::string time_interval_path = asset_path + "sample_" + std::to_string(index) + "_time_interval_1_float32.bin";
+    std::vector<float> time_interval = loadBinFile(time_interval_path, {1}, "float32");
+    
+    if (!time_interval.empty()) {
+        // 将时间间隔转换为毫秒并加到全局时间戳上
+        int64_t time_interval_ms = static_cast<int64_t>(time_interval[0] * 1000.0f);  // 秒转毫秒
+        g_time_stamp += time_interval_ms;  // 增量更新全局时间戳
+        
+        // 设置时间戳（毫秒级）
+        data.lTimeStamp(g_time_stamp);
+        
+        LOG(INFO) << "Time interval: " << time_interval[0] << " seconds (" << time_interval_ms << " ms)";
+        LOG(INFO) << "Updated global timestamp: " << g_time_stamp << " ms";
+        LOG(INFO) << "data.lTimeStamp() after setting: " << data.lTimeStamp();
+    } else {
+        LOG(WARNING) << "Failed to load time interval, using current global timestamp";
+        data.lTimeStamp(g_time_stamp);
+        LOG(INFO) << "Using current global timestamp: " << g_time_stamp << " ms";
+    }
+    
     data.unFrameId(index);
     
     // 4. 加载lidar2img变换矩阵

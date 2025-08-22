@@ -526,4 +526,47 @@ def topk_for_onnx_export(confidence, k, *inputs):
     """
     
     # 使用自定义Sort实现的稳定topk
-    return topk(confidence, k, *inputs)
+    return topk_onnx_compatiblev2(confidence, k, *inputs)
+
+
+def topk_onnx_compatiblev3(confidence, k, *inputs):
+    """
+    ONNX兼容且稳定的topk函数（v3）
+    - 先对置信度进行轻量级“索引编码”，使得在置信度相等时按索引（从小到大）稳定排序
+    - 仅使用ONNX友好的算子：arange、广播、elementwise、topk、gather
+    返回：
+      confidence_sorted: [B, k]
+      selected_outputs:  对应于inputs中每个输入的选中条目列表，每个形状为[B, k, C]
+      indices:           选中的索引，[B, k]
+    """
+    # 形状 [B, N]
+    batch_size, num_querys = confidence.shape
+
+    # [1, N] → [B, N]
+    idx = torch.arange(num_querys, device=confidence.device, dtype=confidence.dtype).unsqueeze(0).expand(batch_size, -1)
+
+    # 动态计算极小扰动幅度，避免影响原有置信度的相对顺序
+    # epsilon = max((max(conf)-min(conf)) * 1e-8, 1e-10)
+    conf_max = torch.amax(confidence)
+    conf_min = torch.amin(confidence)
+    conf_range = conf_max - conf_min
+    epsilon = torch.maximum(conf_range * confidence.new_tensor(1e-8), confidence.new_tensor(1e-10))
+
+    # 索引编码（负号确保topk降序时索引小者优先）
+    encoded = confidence - idx * epsilon
+
+    # topk（ONNX支持）
+    encoded_topk, indices = torch.topk(encoded, k, dim=1)
+
+    # 恢复原始置信度（去除索引扰动影响）
+    confidence_sorted = encoded_topk + indices.to(confidence.dtype) * epsilon
+
+    # 选择对应的输入（ONNX支持的gather）
+    selected_outputs = []
+    gather_index = indices.unsqueeze(-1)  # [B, k, 1]
+    for tensor in inputs:
+        # tensor: [B, N, C] → [B, k, C]
+        selected = torch.gather(tensor, dim=1, index=gather_index.expand(-1, -1, tensor.size(-1)))
+        selected_outputs.append(selected)
+
+    return confidence_sorted, selected_outputs, indices

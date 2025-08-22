@@ -89,7 +89,7 @@ void ImagePreprocessor::execute()
     // // 验证输入数据的完整性
     // LOG(INFO) << "[INFO] Validating input data completeness:";
     // LOG(INFO) << "[INFO] - Video data count: " << m_inputImage.vecVideoSrcData().size();
-    // LOG(INFO) << "[INFO] - Timestamp: " << m_inputImage.lTimeStamp();
+    LOG(INFO) << "[INFO] - Timestamp: " << m_inputImage.lTimeStamp();
     // LOG(INFO) << "[INFO] - Ego pose translation: " << m_inputImage.ego_pose_info().ego2global_translation().size() << " elements";
     // LOG(INFO) << "[INFO] - Ego pose rotation: " << m_inputImage.ego_pose_info().ego2global_rotation().size() << " elements";
     // LOG(INFO) << "[INFO] - Lidar2ego translation: " << m_inputImage.lidar2ego_info().lidar2ego_translation().size() << " elements";
@@ -272,11 +272,17 @@ std::shared_ptr<sparsebev::SparseBEVInputWrapper> ImagePreprocessor::createInput
     // 设置图像特征
     input_data->image_feature = sparsebev::ImageFeature(processed_images);
     
-    // 设置时间间隔
+    // 设置时间戳
+    // 直接传递输入的时间戳，不进行时间间隔计算
+    int64_t input_timestamp_ms = m_inputImage.lTimeStamp();
+    
     // 将时间戳转换为float并包装为CudaWrapper
-    std::vector<float> time_interval_data = {static_cast<float>(m_inputImage.lTimeStamp())};
-    auto time_interval_wrapper = std::make_shared<CudaWrapper<float>>(time_interval_data);
-    input_data->time_interval = sparsebev::TimeInterval(time_interval_wrapper);
+    // 注意：这里传递的是时间戳值，不是时间间隔
+    std::vector<float> timestamp_data = {static_cast<float>(input_timestamp_ms)};
+    LOG(INFO) << "[INFO] Passing timestamp to inference module: " << input_timestamp_ms << " ms";
+    
+    auto timestamp_wrapper = std::make_shared<CudaWrapper<float>>(timestamp_data);
+    input_data->time_interval = sparsebev::TimeInterval(timestamp_wrapper);
     
     // 设置图像标定 - 从CTimeMatchSrcData中获取lidar2img数据
     if (m_inputImage.calibration_data().lidar2img_matrices().size() >= m_taskConfig.preprocessor_params().num_cams() * 16) {
@@ -452,6 +458,7 @@ std::shared_ptr<sparsebev::SparseBEVInputWrapper> ImagePreprocessor::createInput
     LOG(INFO) << "[INFO] - Image data valid: " << (image_data.processed_image != nullptr ? "Yes" : "No");
     LOG(INFO) << "[INFO] - Number of cameras: " << m_taskConfig.preprocessor_params().num_cams();
     LOG(INFO) << "[INFO] - Image size: " << m_taskConfig.preprocessor_params().model_input_img_w() << "x" << m_taskConfig.preprocessor_params().model_input_img_h() << "x" << m_taskConfig.preprocessor_params().model_input_img_c();
+    LOG(INFO) << "[INFO] - Timestamp passed: " << input_timestamp_ms << " ms";
     LOG(INFO) << "[INFO] - Overall data valid: " << (input_data->data_valid ? "Yes" : "No");
     LOG(INFO) << "[INFO] - Is first frame: " << (input_data->isFirstFrame() ? "Yes" : "No");
     

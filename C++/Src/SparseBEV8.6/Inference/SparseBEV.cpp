@@ -451,13 +451,24 @@ void SparseBEV::execute()
         }
         
         // 步骤2：获取temporal信息
-        LOG(INFO) << "[INFO] Step 2: Getting temporal information";
+        LOG(INFO) << "[INFO] Step 2: Getting temporal information: current_timestamp_ : " << current_timestamp_;
         auto [instance_feature, anchor, cached_feature, cached_anchor, time_interval, mask, cached_track_ids] = 
-            instance_bank_->get(current_timestamp_, current_global_to_lidar_mat_);
+            instance_bank_->get(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_);
         
         // 将获取的instance_feature和anchor复制到GPU内存包装器中用于推理
         m_gpu_instance_feature_wrapper.cudaMemUpdateWrap(instance_feature);
         m_gpu_anchor_wrapper.cudaMemUpdateWrap(anchor);
+        m_float_temp_instance_feature_wrapper.cudaMemUpdateWrap(cached_feature);
+        m_float_temp_anchor_wrapper.cudaMemUpdateWrap(cached_anchor);
+        // 将单个mask值转换为向量
+        LOG(INFO) << "mask : " << mask;
+        std::vector<int32_t> mask_vector = {static_cast<int32_t>(mask)};
+        m_float_mask_wrapper.cudaMemUpdateWrap(mask_vector);
+        // 更新当前帧的时间间隔
+        m_time_interval[0] = time_interval;
+        // 将更新后的时间间隔复制到GPU内存
+        m_gpu_time_interval_wrapper.cudaMemUpdateWrap(m_time_interval);
+        
         if(!m_taskConfig.run_status()) {
             m_instance_feature = instance_feature;
             saveInstanceFeatureData();
@@ -466,12 +477,6 @@ void SparseBEV::execute()
         
         LOG(INFO) << "[INFO] Updated GPU instance_feature size: " << instance_feature.size() << " floats";
         LOG(INFO) << "[INFO] Updated GPU anchor size: " << anchor.size() << " floats";
-        
-        // 更新当前帧的时间间隔
-        m_time_interval[0] = time_interval;
-        // 将更新后的时间间隔复制到GPU内存
-        m_gpu_time_interval_wrapper.cudaMemUpdateWrap(m_time_interval);
-        
         LOG(INFO) << "[INFO] Updated time interval: " << m_time_interval[0] << "s";
         
         // 步骤3：根据是否为第一帧选择不同的推理路径
@@ -492,14 +497,19 @@ void SparseBEV::execute()
                 auto pred_anchor = m_float_pred_anchor_wrapper.cudaMemcpyD2HResWrap();
                 auto pred_class = m_float_pred_class_score_wrapper.cudaMemcpyD2HResWrap();
                 
-                instance_bank_->cache(pred_feature, pred_anchor, pred_class);
-                
+                instance_bank_->cache(pred_feature, pred_anchor, pred_class, is_first_frame_);
+            
                 // 标记第一帧已完成
                 is_first_frame_ = false;
                 has_previous_frame_ = true;
 
                 // 从InstanceBank获取跟踪ID
                 track_ids = instance_bank_->getTrackId(track_ids);
+                LOG(INFO) << "track_ids : " << track_ids.size();
+                m_int32_temp_track_id_wrapper.cudaMemUpdateWrap(track_ids);
+
+                // 保存InstanceBank缓存数据
+                instance_bank_->saveInstanceBankData(0);  // sample_0
                 
                 LOG(INFO) << "[INFO] First frame results cached to InstanceBank";
             }
@@ -522,7 +532,7 @@ void SparseBEV::execute()
                 auto pred_class = m_float_pred_class_score_wrapper.cudaMemcpyD2HResWrap();
                 auto pred_track_id = m_int32_pred_track_id_wrapper.cudaMemcpyD2HResWrap();  // 改为int32_t
                 
-                instance_bank_->cache(pred_feature, pred_anchor, pred_class);
+                instance_bank_->cache(pred_feature, pred_anchor, pred_class, is_first_frame_);
                 
                 // 直接使用int32_t类型，无需类型转换
                 track_ids = instance_bank_->getTrackId(pred_track_id);
@@ -632,6 +642,7 @@ bool SparseBEV::setInputDataFromWrapper(const sparsebev::SparseBEVInputData& inp
     // 设置当前时间戳信息
     current_timestamp_ = input_data.time_interval.time_interval ? 
         input_data.time_interval.time_interval->cudaMemcpyD2HResWrap()[0] : 0.0;
+    LOG(INFO) << "setInputDataFromWrapper() current_timestamp_ : " << current_timestamp_;
     
     // 设置坐标变换矩阵
     if (input_data.coordinate_transform.data_valid) {
@@ -1036,6 +1047,61 @@ Status SparseBEV::headSecondFrame(const CudaWrapper<float>& features,
         static_cast<void*>(m_gpu_lidar2img_wrapper.getCudaPtr())
     };
     
+    // 在执行infer前保存input_buffers的各种数据
+    if (!m_taskConfig.run_status()) {
+        LOG(INFO) << "[DEBUG] Saving input buffer data before second frame inference...";
+        
+        // 保存输入特征数据
+        auto input_features = features.cudaMemcpyD2HResWrap();
+        saveInputFeaturesData(input_features);
+        
+        // 保存空间形状数据
+        auto spatial_shapes = m_gpu_spatial_shapes_wrapper.cudaMemcpyD2HResWrap();
+        saveInputSpatialShapesData(spatial_shapes);
+        
+        // 保存层级起始索引数据
+        auto level_start_index = m_gpu_level_start_index_wrapper.cudaMemcpyD2HResWrap();
+        saveInputLevelStartIndexData(level_start_index);
+        
+        // 保存实例特征数据
+        auto instance_feature = m_gpu_instance_feature_wrapper.cudaMemcpyD2HResWrap();
+        saveInputInstanceFeatureData(instance_feature);
+        
+        // 保存锚点数据
+        auto anchor = m_gpu_anchor_wrapper.cudaMemcpyD2HResWrap();
+        saveInputAnchorData(anchor);
+        
+        // 保存时间间隔数据
+        auto time_interval = m_gpu_time_interval_wrapper.cudaMemcpyD2HResWrap();
+        saveInputTimeIntervalData(time_interval);
+        
+        // 保存临时实例特征数据
+        auto temp_instance_feature = m_float_temp_instance_feature_wrapper.cudaMemcpyD2HResWrap();
+        saveTempInstanceFeatureData();
+        
+        // 保存临时锚点数据
+        auto temp_anchor = m_float_temp_anchor_wrapper.cudaMemcpyD2HResWrap();
+        saveTempAnchorData();
+        
+        // 保存掩码数据
+        auto mask = m_float_mask_wrapper.cudaMemcpyD2HResWrap();
+        saveMaskData();
+        
+        // 保存临时跟踪ID数据
+        auto temp_track_id = m_int32_temp_track_id_wrapper.cudaMemcpyD2HResWrap();
+        saveTrackIdData();
+        
+        // 保存图像宽高数据
+        auto image_wh = m_gpu_image_wh_wrapper.cudaMemcpyD2HResWrap();
+        saveInputImageWhData(image_wh);
+        
+        // 保存Lidar2img变换矩阵数据
+        auto lidar2img = m_gpu_lidar2img_wrapper.cudaMemcpyD2HResWrap();
+        saveInputLidar2imgData(lidar2img);
+        
+        LOG(INFO) << "[DEBUG] Second frame input buffer data saved successfully";
+    }
+    
     // 准备输出缓冲区 - 修复顺序以匹配TensorRT引擎的实际输出绑定
     std::vector<void*> output_buffers = {
         static_cast<void*>(m_float_tmp_outs0_wrapper.getCudaPtr()),  // binding 12
@@ -1144,7 +1210,8 @@ void SparseBEV::convertToOutputFormat(const std::vector<float>& pred_instance_fe
                       << ", score=" << score 
                       << ", xyz=(" << x << "," << y << "," << z << ")"
                       << ", wlh=(" << w << "," << l << "," << h << ")"
-                      << ", yaw=" << yaw;
+                      << ", yaw=" << yaw
+                      << ", track_id=" << track_ids[k];
         }
     }
     
@@ -1305,6 +1372,7 @@ void SparseBEV::savePreprocessedData() {
 
 void SparseBEV::setCurrentSampleIndex(int sample_index) {
     current_sample_index_ = sample_index;
+    LOG(INFO) << "setCurrentSampleIndex() current_sample_index_ : " << current_sample_index_;
 }
 
 /**

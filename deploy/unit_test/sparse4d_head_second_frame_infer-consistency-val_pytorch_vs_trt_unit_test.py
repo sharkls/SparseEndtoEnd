@@ -62,6 +62,15 @@ torch.cuda.empty_cache()
 if not hasattr(np, 'bool'):
     np.bool = bool
 
+# TensorRT数据类型到NumPy数据类型的映射
+TRT_TO_NP = {
+    trt.DataType.FLOAT: np.float32,
+    trt.DataType.HALF: np.float16,
+    trt.DataType.INT8: np.int8,
+    trt.DataType.INT32: np.int32,
+    trt.DataType.BOOL: np.bool,
+}
+
 def read_bin(samples, logger):
     prefix = "script/tutorial/asset/"
     inputs = list()

@@ -63,6 +63,20 @@ def compare_class_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dict[
     abs_diff = np.abs(diff)
     rel_diff = np.abs(diff) / (np.abs(python_data) + 1e-8)
     
+    # 计算cosine distance
+    cpp_flat = cpp_data.flatten()
+    python_flat = python_data.flatten()
+    
+    # 避免零向量
+    cpp_norm = np.linalg.norm(cpp_flat)
+    python_norm = np.linalg.norm(python_flat)
+    
+    if cpp_norm > 1e-8 and python_norm > 1e-8:
+        cosine_similarity = np.dot(cpp_flat, python_flat) / (cpp_norm * python_norm)
+        cosine_distance = 1 - cosine_similarity
+    else:
+        cosine_distance = 1.0  # 如果向量接近零，cosine distance为1
+    
     # 按类别统计
     num_classes = cpp_data.shape[-1]
     class_stats = {}
@@ -71,12 +85,26 @@ def compare_class_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dict[
         class_diff = abs_diff[..., i]
         class_rel_diff = rel_diff[..., i]
         
+        # 每个类别的cosine distance
+        cpp_class = cpp_data[..., i].flatten()
+        python_class = python_data[..., i].flatten()
+        
+        cpp_class_norm = np.linalg.norm(cpp_class)
+        python_class_norm = np.linalg.norm(python_class)
+        
+        if cpp_class_norm > 1e-8 and python_class_norm > 1e-8:
+            class_cosine_sim = np.dot(cpp_class, python_class) / (cpp_class_norm * python_class_norm)
+            class_cosine_dist = 1 - class_cosine_sim
+        else:
+            class_cosine_dist = 1.0
+        
         class_stats[f"class_{i}"] = {
             "max_error": float(class_diff.max()),
             "mean_error": float(class_diff.mean()),
             "std_error": float(class_diff.std()),
             "max_rel_error": float(class_rel_diff.max()),
-            "mean_rel_error": float(class_rel_diff.mean())
+            "mean_rel_error": float(class_rel_diff.mean()),
+            "cosine_distance": float(class_cosine_dist)
         }
     
     # 总体统计
@@ -87,6 +115,7 @@ def compare_class_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dict[
         "max_rel_error": float(rel_diff.max()),
         "mean_rel_error": float(rel_diff.mean()),
         "std_rel_error": float(rel_diff.std()),
+        "cosine_distance": float(cosine_distance),
         "class_stats": class_stats
     }
     
@@ -95,6 +124,7 @@ def compare_class_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dict[
     print(f"平均绝对误差: {overall_stats['mean_abs_error']:.6f}")
     print(f"最大相对误差: {overall_stats['max_rel_error']:.6f}")
     print(f"平均相对误差: {overall_stats['mean_rel_error']:.6f}")
+    print(f"Cosine Distance: {overall_stats['cosine_distance']:.6f}")
     
     return overall_stats
 
@@ -116,6 +146,20 @@ def compare_quality_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dic
     abs_diff = np.abs(diff)
     rel_diff = np.abs(diff) / (np.abs(python_data) + 1e-8)
     
+    # 计算cosine distance
+    cpp_flat = cpp_data.flatten()
+    python_flat = python_data.flatten()
+    
+    # 避免零向量
+    cpp_norm = np.linalg.norm(cpp_flat)
+    python_norm = np.linalg.norm(python_flat)
+    
+    if cpp_norm > 1e-8 and python_norm > 1e-8:
+        cosine_similarity = np.dot(cpp_flat, python_flat) / (cpp_norm * python_norm)
+        cosine_distance = 1 - cosine_similarity
+    else:
+        cosine_distance = 1.0  # 如果向量接近零，cosine distance为1
+    
     # 按质量维度统计
     num_quality_dims = cpp_data.shape[-1]
     quality_stats = {}
@@ -124,12 +168,26 @@ def compare_quality_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dic
         dim_diff = abs_diff[..., i]
         dim_rel_diff = rel_diff[..., i]
         
+        # 每个质量维度的cosine distance
+        cpp_dim = cpp_data[..., i].flatten()
+        python_dim = python_data[..., i].flatten()
+        
+        cpp_dim_norm = np.linalg.norm(cpp_dim)
+        python_dim_norm = np.linalg.norm(python_dim)
+        
+        if cpp_dim_norm > 1e-8 and python_dim_norm > 1e-8:
+            dim_cosine_sim = np.dot(cpp_dim, python_dim) / (cpp_dim_norm * python_dim_norm)
+            dim_cosine_dist = 1 - dim_cosine_sim
+        else:
+            dim_cosine_dist = 1.0
+        
         quality_stats[f"quality_dim_{i}"] = {
             "max_error": float(dim_diff.max()),
             "mean_error": float(dim_diff.mean()),
             "std_error": float(dim_diff.std()),
             "max_rel_error": float(dim_rel_diff.max()),
-            "mean_rel_error": float(dim_rel_diff.mean())
+            "mean_rel_error": float(dim_rel_diff.mean()),
+            "cosine_distance": float(dim_cosine_dist)
         }
     
     # 总体统计
@@ -140,6 +198,7 @@ def compare_quality_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dic
         "max_rel_error": float(rel_diff.max()),
         "mean_rel_error": float(rel_diff.mean()),
         "std_rel_error": float(rel_diff.std()),
+        "cosine_distance": float(cosine_distance),
         "quality_stats": quality_stats
     }
     
@@ -148,6 +207,7 @@ def compare_quality_scores(cpp_data: np.ndarray, python_data: np.ndarray) -> Dic
     print(f"平均绝对误差: {overall_stats['mean_abs_error']:.6f}")
     print(f"最大相对误差: {overall_stats['max_rel_error']:.6f}")
     print(f"平均相对误差: {overall_stats['mean_rel_error']:.6f}")
+    print(f"Cosine Distance: {overall_stats['cosine_distance']:.6f}")
     
     return overall_stats
 
@@ -168,11 +228,26 @@ def compare_track_ids(cpp_data: np.ndarray, python_data: np.ndarray) -> Dict[str
     diff = cpp_data - python_data
     abs_diff = np.abs(diff)
     
+    # 计算cosine distance（对于整数数据，转换为float计算）
+    cpp_flat = cpp_data.flatten().astype(np.float32)
+    python_flat = python_data.flatten().astype(np.float32)
+    
+    # 避免零向量
+    cpp_norm = np.linalg.norm(cpp_flat)
+    python_norm = np.linalg.norm(python_flat)
+    
+    if cpp_norm > 1e-8 and python_norm > 1e-8:
+        cosine_similarity = np.dot(cpp_flat, python_flat) / (cpp_norm * python_norm)
+        cosine_distance = 1 - cosine_similarity
+    else:
+        cosine_distance = 1.0  # 如果向量接近零，cosine distance为1
+    
     # 统计信息
     stats = {
         "max_abs_error": int(abs_diff.max()),
         "mean_abs_error": float(abs_diff.mean()),
         "std_abs_error": float(abs_diff.std()),
+        "cosine_distance": float(cosine_distance),
         "exact_match_count": int(np.sum(cpp_data == python_data)),
         "total_count": int(cpp_data.size),
         "match_percentage": float(np.sum(cpp_data == python_data) / cpp_data.size * 100),
@@ -185,6 +260,7 @@ def compare_track_ids(cpp_data: np.ndarray, python_data: np.ndarray) -> Dict[str
     print(f"跟踪ID形状: {cpp_data.shape}")
     print(f"最大绝对误差: {stats['max_abs_error']}")
     print(f"平均绝对误差: {stats['mean_abs_error']:.6f}")
+    print(f"Cosine Distance: {stats['cosine_distance']:.6f}")
     print(f"完全匹配数量: {stats['exact_match_count']} / {stats['total_count']}")
     print(f"匹配百分比: {stats['match_percentage']:.2f}%")
     print(f"C++唯一值数量: {stats['cpp_unique_values']}")
@@ -280,7 +356,8 @@ def save_comparison_results(results: Dict[str, Any], save_path: str):
             f.write(f"  最大绝对误差: {results['class_scores']['max_abs_error']:.6f}\n")
             f.write(f"  平均绝对误差: {results['class_scores']['mean_abs_error']:.6f}\n")
             f.write(f"  最大相对误差: {results['class_scores']['max_rel_error']:.6f}\n")
-            f.write(f"  平均相对误差: {results['class_scores']['mean_rel_error']:.6f}\n\n")
+            f.write(f"  平均相对误差: {results['class_scores']['mean_rel_error']:.6f}\n")
+            f.write(f"  Cosine Distance: {results['class_scores']['cosine_distance']:.6f}\n\n")
             
             f.write("各类别误差统计:\n")
             for class_name, stats in results['class_scores']['class_stats'].items():
@@ -288,6 +365,9 @@ def save_comparison_results(results: Dict[str, Any], save_path: str):
                 f.write(f"    最大误差: {stats['max_error']:.6f}\n")
                 f.write(f"    平均误差: {stats['mean_error']:.6f}\n")
                 f.write(f"    标准差: {stats['std_error']:.6f}\n")
+                f.write(f"    最大相对误差: {stats['max_rel_error']:.6f}\n")
+                f.write(f"    平均相对误差: {stats['mean_rel_error']:.6f}\n")
+                f.write(f"    Cosine Distance: {stats['cosine_distance']:.6f}\n")
             f.write("\n")
         
         # 质量得分结果
@@ -296,7 +376,8 @@ def save_comparison_results(results: Dict[str, Any], save_path: str):
             f.write(f"  最大绝对误差: {results['quality_scores']['max_abs_error']:.6f}\n")
             f.write(f"  平均绝对误差: {results['quality_scores']['mean_abs_error']:.6f}\n")
             f.write(f"  最大相对误差: {results['quality_scores']['max_rel_error']:.6f}\n")
-            f.write(f"  平均相对误差: {results['quality_scores']['mean_rel_error']:.6f}\n\n")
+            f.write(f"  平均相对误差: {results['quality_scores']['mean_rel_error']:.6f}\n")
+            f.write(f"  Cosine Distance: {results['quality_scores']['cosine_distance']:.6f}\n\n")
             
             f.write("各质量维度误差统计:\n")
             for dim_name, stats in results['quality_scores']['quality_stats'].items():
@@ -304,6 +385,9 @@ def save_comparison_results(results: Dict[str, Any], save_path: str):
                 f.write(f"    最大误差: {stats['max_error']:.6f}\n")
                 f.write(f"    平均误差: {stats['mean_error']:.6f}\n")
                 f.write(f"    标准差: {stats['std_error']:.6f}\n")
+                f.write(f"    最大相对误差: {stats['max_rel_error']:.6f}\n")
+                f.write(f"    平均相对误差: {stats['mean_rel_error']:.6f}\n")
+                f.write(f"    Cosine Distance: {stats['cosine_distance']:.6f}\n")
             f.write("\n")
         
         # 跟踪ID结果
@@ -311,6 +395,7 @@ def save_comparison_results(results: Dict[str, Any], save_path: str):
             f.write("跟踪ID比较结果:\n")
             f.write(f"  最大绝对误差: {results['track_ids']['max_abs_error']}\n")
             f.write(f"  平均绝对误差: {results['track_ids']['mean_abs_error']:.6f}\n")
+            f.write(f"  Cosine Distance: {results['track_ids']['cosine_distance']:.6f}\n")
             f.write(f"  完全匹配数量: {results['track_ids']['exact_match_count']} / {results['track_ids']['total_count']}\n")
             f.write(f"  匹配百分比: {results['track_ids']['match_percentage']:.2f}%\n")
             f.write(f"  C++唯一值数量: {results['track_ids']['cpp_unique_values']}\n")

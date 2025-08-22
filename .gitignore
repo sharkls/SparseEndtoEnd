@@ -28,6 +28,8 @@ LOG_*
 *.pth
 *.pdf
 *.mp4
+*.txt
+*.jpg
 
 # Jupyter Notebook
 .ipynb_checkpoints

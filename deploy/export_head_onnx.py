@@ -387,6 +387,7 @@ class Sparse4DHead2nd(nn.Module):
                         mask[:, None, None], selected_feature, instance_feature
                     )
                     anchor = torch.where(mask[:, None, None], selected_anchor, anchor)
+                    track_id = torch.where(mask[:, None], track_id, track_id.new_tensor(-1))
                     
                     # # 保存update前后的对比数据
                     # update_comparison = {

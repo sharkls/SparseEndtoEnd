@@ -53,7 +53,7 @@ class InstanceBank {
              const float&,
              const std::int32_t&,
              const std::vector<std::int32_t>&>
-  get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat);
+  get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat, const bool& is_first_frame);
 
   /// @brief 获取实例特征
   const std::vector<float>& getInstanceFeature() const { return instance_feature_; }
@@ -85,13 +85,19 @@ class InstanceBank {
   /// @brief 获取缓存的跟踪ID
   std::vector<std::int32_t> getCachedTrackIds() const;
 
+  /// @brief 保存InstanceBank缓存数据到文件
+  /// @param sample_id 样本ID
+  /// @return 是否保存成功
+  bool saveInstanceBankData(const int sample_id);
+
   /// @brief 缓存当前帧的前K个实例特征、锚点和置信度
   /// @param instance_feature 实例特征，形状为(num_querys, embedfeat_dims)
   /// @param anchor 锚点，形状为(num_querys, query_dims)
   /// @param confidence_logits 置信度logits，形状为(num_querys, class_nums)
   Status cache(const std::vector<float>& instance_feature,
                const std::vector<float>& anchor,
-               const std::vector<float>& confidence_logits);
+               const std::vector<float>& confidence_logits,
+               const bool& is_first_frame);
 
  private:
   /// @brief 初始化实例银行
@@ -146,10 +152,11 @@ class InstanceBank {
   float confidence_decay_;
 
   // 实例库状态
-  uint32_t mask_;
+  std::int32_t mask_;
   float history_time_;
   float time_interval_;
   Eigen::Matrix<double, 4, 4> temp_lidar_to_global_mat_;
+  bool is_first_frame_;
 
   // 实例数据
   uint32_t track_size_;

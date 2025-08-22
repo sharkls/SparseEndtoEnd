@@ -322,7 +322,7 @@ struct RawInferenceResult
             box.confidence = topk_scores[k];
             box.label = topk_class_ids[k];
             if (squeeze_cls) {
-                if (i < track_ids.size()) box.track_id = static_cast<int>(track_ids[i]);
+                if (i < track_ids.size()) box.track_id = static_cast<int>(track_ids[k]);
                 else box.track_id = -1;
             } else {
                 box.track_id = -1;
