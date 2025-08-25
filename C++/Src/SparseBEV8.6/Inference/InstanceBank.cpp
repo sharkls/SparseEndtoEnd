@@ -351,16 +351,16 @@ InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& gl
   temp_lidar_to_global_mat_ = global_to_lidar_mat.inverse();
 
   // 调试：赋值后打印
-  std::cout << "[InstanceBank][DEBUG] After update: history_time_=" << history_time_ << std::endl;
-  std::cout << "[InstanceBank][DEBUG] temp_lidar_to_global_mat_:" << std::endl;
+//   std::cout << "[InstanceBank][DEBUG] After update: history_time_=" << history_time_ << std::endl;
+//   std::cout << "[InstanceBank][DEBUG] temp_lidar_to_global_mat_:" << std::endl;
   std::cout << " time_interval_ :  " << time_interval_ << " , mask_ :" << mask_ << std::endl;
-  for (int r = 0; r < 4; ++r) {
-    std::cout << "  ";
-    for (int c = 0; c < 4; ++c) {
-      std::cout << temp_lidar_to_global_mat_(r, c) << (c == 3 ? "" : " ");
-    }
-    std::cout << std::endl;
-  }
+//   for (int r = 0; r < 4; ++r) {
+//     std::cout << "  ";
+//     for (int c = 0; c < 4; ++c) {
+//       std::cout << temp_lidar_to_global_mat_(r, c) << (c == 3 ? "" : " ");
+//     }
+//     std::cout << std::endl;
+//   }
 
   return std::make_tuple(std::cref(instance_feature_), std::cref(kmeans_anchors_),
                          std::cref(query_), std::cref(query_anchor_),
@@ -403,11 +403,11 @@ Status InstanceBank::cache(const std::vector<float>& instance_feature,
     query_track_ids_[i] = static_cast<std::int32_t>(temp_topk_index[i]);
   }
 
-  LOG(INFO) << "[INFO] InstanceBank cache completed successfully";
-  LOG(INFO) << "[INFO] Cached feature size: " << query_.size();
-  LOG(INFO) << "[INFO] Cached anchor size: " << query_anchor_.size();
-  LOG(INFO) << "[INFO] Cached confidence size: " << query_confidence_.size();
-  LOG(INFO) << "[INFO] Cached track IDs size: " << query_track_ids_.size();
+//   LOG(INFO) << "[INFO] InstanceBank cache completed successfully";
+//   LOG(INFO) << "[INFO] Cached feature size: " << query_.size();
+//   LOG(INFO) << "[INFO] Cached anchor size: " << query_anchor_.size();
+//   LOG(INFO) << "[INFO] Cached confidence size: " << query_confidence_.size();
+//   LOG(INFO) << "[INFO] Cached track IDs size: " << query_track_ids_.size();
 
   return Status::kSuccess;
 }

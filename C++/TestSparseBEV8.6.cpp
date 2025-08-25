@@ -805,7 +805,7 @@ void main_sparse_bev_8_6() {
         l_pObj->initAlgorithm(deploy_path, sparse_bev_8_6::testSparseBEV8_6Alg, nullptr);
 
         // 处理多个样本的数据
-        int num_samples = 1;  // asset中有3个样本 (0, 1, 2)
+        int num_samples = 3;  // asset中有3个样本 (0, 1, 2)
         for (int i = 0; i < num_samples; i++)
         {
             LOG(INFO) << "Processing sample " << i << " with SparseBEV8.6";

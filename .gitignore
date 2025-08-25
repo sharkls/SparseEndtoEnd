@@ -30,6 +30,7 @@ LOG_*
 *.mp4
 *.txt
 *.jpg
+*.png
 
 # Jupyter Notebook
 .ipynb_checkpoints

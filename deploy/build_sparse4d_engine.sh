@@ -35,27 +35,29 @@ echo "STEP1: build sparse4dbackbone engine -> saving in ${ENV_BACKBONE_ENGINE}..
 #     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
 #     --profilingVerbosity=detailed \
 #     >${ENVTRTDIR}/build_backbone.log 2>&1
-${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
-    --memPoolSize=workspace:4096 \
-    --saveEngine=${ENV_BACKBONE_ENGINE} \
-    --verbose \
-    --warmUp=200 \
-    --iterations=50 \
-    --dumpOutput \
-    --dumpProfile \
-    --dumpLayerInfo \
-    --exportOutput=${ENVTRTDIR}/buildOutput_backbone.json \
-    --exportProfile=${ENVTRTDIR}/buildProfile_backbone.json \
-    --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
-    --profilingVerbosity=detailed \
-    --fp16 \
-    --int8 \
-    --strictTypeConstraints \
-    --maxBatch=1 \
-    --optShapes=img:1x6x3x256x704 \
-    --minShapes=img:1x6x3x256x704 \
-    --maxShapes=img:1x6x3x256x704 \
-    >${ENVTRTDIR}/build_backbone.log 2>&1
+
+# backbone优化engine
+# ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
+#     --memPoolSize=workspace:4096 \
+#     --saveEngine=${ENV_BACKBONE_ENGINE} \
+#     --verbose \
+#     --warmUp=200 \
+#     --iterations=50 \
+#     --dumpOutput \
+#     --dumpProfile \
+#     --dumpLayerInfo \
+#     --exportOutput=${ENVTRTDIR}/buildOutput_backbone.json \
+#     --exportProfile=${ENVTRTDIR}/buildProfile_backbone.json \
+#     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
+#     --profilingVerbosity=detailed \
+#     --fp16 \
+#     --int8 \
+#     --strictTypeConstraints \
+#     --maxBatch=1 \
+#     --optShapes=img:1x6x3x256x704 \
+#     --minShapes=img:1x6x3x256x704 \
+#     --maxShapes=img:1x6x3x256x704 \
+#     >${ENVTRTDIR}/build_backbone.log 2>&1
 
 # # STEP2: build 1st frame sparse4dhead engine
 # echo "STEP2: build 1st frame sparse4dhead engine -> saving in ${ENV_HEAD1_ENGINE}..."
@@ -76,23 +78,23 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
 #     --profilingVerbosity=detailed \
 #     >${ENVTRTDIR}/build_head1.log 2>&1
 
-# # STEP3: build frame > 2 sparse4dhead engine
-# echo "STEP3: build frame > 2 sparse4dhead engine -> saving in ${ENV_HEAD2_ENGINE}..."
-# sleep 2s
-# ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
-#     --plugins=$ENVTARGETPLUGIN \
-#     --memPoolSize=workspace:2048 \
-#     --saveEngine=${ENV_HEAD2_ENGINE} \
-#     --verbose \
-#     --warmUp=200 \
-#     --iterations=50 \
-#     --dumpOutput \
-#     --dumpProfile \
-#     --dumpLayerInfo \
-#     --exportOutput=${ENVTRTDIR}/buildOutput_head2.json \
-#     --exportProfile=${ENVTRTDIR}/buildProfile_head2.json \
-#     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head2.json \
-#     --profilingVerbosity=detailed \
-#     >${ENVTRTDIR}/build_head2.log 2>&1
+# STEP3: build frame > 2 sparse4dhead engine
+echo "STEP3: build frame > 2 sparse4dhead engine -> saving in ${ENV_HEAD2_ENGINE}..."
+sleep 2s
+${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
+    --plugins=$ENVTARGETPLUGIN \
+    --memPoolSize=workspace:2048 \
+    --saveEngine=${ENV_HEAD2_ENGINE} \
+    --verbose \
+    --warmUp=200 \
+    --iterations=50 \
+    --dumpOutput \
+    --dumpProfile \
+    --dumpLayerInfo \
+    --exportOutput=${ENVTRTDIR}/buildOutput_head2.json \
+    --exportProfile=${ENVTRTDIR}/buildProfile_head2.json \
+    --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head2.json \
+    --profilingVerbosity=detailed \
+    >${ENVTRTDIR}/build_head2.log 2>&1
 
 echo "success build."

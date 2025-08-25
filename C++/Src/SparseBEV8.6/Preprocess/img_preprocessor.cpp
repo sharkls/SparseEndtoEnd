@@ -324,29 +324,29 @@ std::shared_ptr<sparsebev::SparseBEVInputWrapper> ImagePreprocessor::createInput
                     test_data.img_width())) {
                     LOG(INFO) << "[INFO] Preprocessed image data validation using FunctionHub: PASSED";
                     
-                    // 示例：提取第一个相机的R通道数据进行验证
-                    std::vector<float> camera0_r_channel = extract_preprocessed_image_data(
-                        test_data.preprocessed_imgs(),
-                        m_taskConfig.preprocessor_params().num_cams(),
-                        test_data.img_channels(),
-                        test_data.img_height(),
-                        test_data.img_width(),
-                        0,  // camera_id = 0 (第一个相机)
-                        0   // channel = 0 (R通道)
-                    );
+                    // // 示例：提取第一个相机的R通道数据进行验证
+                    // std::vector<float> camera0_r_channel = extract_preprocessed_image_data(
+                    //     test_data.preprocessed_imgs(),
+                    //     m_taskConfig.preprocessor_params().num_cams(),
+                    //     test_data.img_channels(),
+                    //     test_data.img_height(),
+                    //     test_data.img_width(),
+                    //     0,  // camera_id = 0 (第一个相机)
+                    //     0   // channel = 0 (R通道)
+                    // );
                     
-                    if (!camera0_r_channel.empty()) {
-                        LOG(INFO) << "[INFO] Successfully extracted camera 0 R channel data: " << camera0_r_channel.size() << " floats";
+                    // if (!camera0_r_channel.empty()) {
+                    //     LOG(INFO) << "[INFO] Successfully extracted camera 0 R channel data: " << camera0_r_channel.size() << " floats";
                         
-                        // 计算R通道的统计信息
-                        float min_val = *std::min_element(camera0_r_channel.begin(), camera0_r_channel.end());
-                        float max_val = *std::max_element(camera0_r_channel.begin(), camera0_r_channel.end());
-                        float sum = std::accumulate(camera0_r_channel.begin(), camera0_r_channel.end(), 0.0f);
-                        float mean = sum / camera0_r_channel.size();
+                    //     // 计算R通道的统计信息
+                    //     float min_val = *std::min_element(camera0_r_channel.begin(), camera0_r_channel.end());
+                    //     float max_val = *std::max_element(camera0_r_channel.begin(), camera0_r_channel.end());
+                    //     float sum = std::accumulate(camera0_r_channel.begin(), camera0_r_channel.end(), 0.0f);
+                    //     float mean = sum / camera0_r_channel.size();
                         
-                        LOG(INFO) << "[INFO] Camera 0 R channel statistics:";
-                        LOG(INFO) << "[INFO] - Min: " << min_val << ", Max: " << max_val << ", Mean: " << mean;
-                    }
+                    //     LOG(INFO) << "[INFO] Camera 0 R channel statistics:";
+                    //     LOG(INFO) << "[INFO] - Min: " << min_val << ", Max: " << max_val << ", Mean: " << mean;
+                    // }
                     
                     // 示例：提取所有相机的数据
                     std::vector<float> all_cameras_data = extract_preprocessed_image_data(
@@ -365,30 +365,30 @@ std::shared_ptr<sparsebev::SparseBEVInputWrapper> ImagePreprocessor::createInput
                 // 获取当前处理的图像数据用于比较
                 std::vector<float> current_processed_data = m_float_output_wrapper.cudaMemcpyD2HResWrap();
                 
-                // 比较数据
-                if (current_processed_data.size() == test_data.preprocessed_imgs().size()) {
-                    float max_error = 0.0f;
+                // // 比较数据
+                // if (current_processed_data.size() == test_data.preprocessed_imgs().size()) {
+                //     float max_error = 0.0f;
                     
-                    // 计算最大误差
-                    for (size_t i = 0; i < current_processed_data.size(); ++i) {
-                        float error = std::abs(current_processed_data[i] - test_data.preprocessed_imgs()[i]);
-                        if (error > max_error) {
-                            max_error = error;
-                        }
-                    }
+                //     // 计算最大误差
+                //     for (size_t i = 0; i < current_processed_data.size(); ++i) {
+                //         float error = std::abs(current_processed_data[i] - test_data.preprocessed_imgs()[i]);
+                //         if (error > max_error) {
+                //             max_error = error;
+                //         }
+                //     }
                     
-                    // 只输出最大误差
-                    LOG(INFO) << "[INFO] Max error: " << max_error;
+                //     // 只输出最大误差
+                //     LOG(INFO) << "[INFO] Max error: " << max_error;
                     
-                    // 如果误差在可接受范围内，记录验证成功
-                    if (max_error < 0.1f) {
-                        LOG(INFO) << "[INFO] Preprocessed image data validation: PASSED";
-                    } else {
-                        LOG(WARNING) << "[WARNING] Preprocessed image data validation: FAILED - errors too large";
-                    }
-                } else {
-                    LOG(WARNING) << "[WARNING] Preprocessed image data size mismatch for comparison";
-                }
+                //     // 如果误差在可接受范围内，记录验证成功
+                //     if (max_error < 0.1f) {
+                //         LOG(INFO) << "[INFO] Preprocessed image data validation: PASSED";
+                //     } else {
+                //         LOG(WARNING) << "[WARNING] Preprocessed image data validation: FAILED - errors too large";
+                //     }
+                // } else {
+                //     LOG(WARNING) << "[WARNING] Preprocessed image data size mismatch for comparison";
+                // }
             } else {
                 LOG(WARNING) << "[WARNING] Preprocessed image data size validation: FAILED";
             }
@@ -433,17 +433,17 @@ std::shared_ptr<sparsebev::SparseBEVInputWrapper> ImagePreprocessor::createInput
             // 写入到输入数据结构
             input_data->coordinate_transform.setTransformMatrices(global2lidar_mat, lidar2global_mat);
 
-            // 调试输出
-            LOG(INFO) << "[INFO] Set coordinate transform from CTimeMatchSrcData (global2lidar)";
-            LOG(INFO) << "[INFO] global2lidar matrix:";
-            for (int r = 0; r < 4; ++r) {
-                std::stringstream ss;
-                ss << "  Row " << r << ": ";
-                for (int c = 0; c < 4; ++c) {
-                    ss << std::fixed << std::setprecision(6) << global2lidar_mat(r, c) << " ";
-                }
-                LOG(INFO) << ss.str();
-            }
+            // // 调试输出
+            // LOG(INFO) << "[INFO] Set coordinate transform from CTimeMatchSrcData (global2lidar)";
+            // LOG(INFO) << "[INFO] global2lidar matrix:";
+            // for (int r = 0; r < 4; ++r) {
+            //     std::stringstream ss;
+            //     ss << "  Row " << r << ": ";
+            //     for (int c = 0; c < 4; ++c) {
+            //         ss << std::fixed << std::setprecision(6) << global2lidar_mat(r, c) << " ";
+            //     }
+            //     LOG(INFO) << ss.str();
+            // }
         } else {
             LOG(WARNING) << "[WARNING] global2lidar_matrix size is not 16, skip setting coordinate transform (size=" << g2l.size() << ")";
         }

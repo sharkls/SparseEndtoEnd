@@ -219,8 +219,8 @@ struct RawInferenceResult
                     if (topk_scores[i] > pre_max) pre_max = topk_scores[i];
                 }
                 float pre_mean = pre_sum / static_cast<float>(Nprint);
-                LOG(INFO) << "[DecodeStat] pre_score_mean(top10)=" << pre_mean
-                          << ", pre_score_max(top10)=" << pre_max;
+                // LOG(INFO) << "[DecodeStat] pre_score_mean(top10)=" << pre_mean
+                //           << ", pre_score_max(top10)=" << pre_max;
             }
         }
 

@@ -461,7 +461,7 @@ void SparseBEV::execute()
         m_float_temp_instance_feature_wrapper.cudaMemUpdateWrap(cached_feature);
         m_float_temp_anchor_wrapper.cudaMemUpdateWrap(cached_anchor);
         // 将单个mask值转换为向量
-        LOG(INFO) << "mask : " << mask;
+        // LOG(INFO) << "mask : " << mask;
         std::vector<int32_t> mask_vector = {static_cast<int32_t>(mask)};
         m_float_mask_wrapper.cudaMemUpdateWrap(mask_vector);
         // 更新当前帧的时间间隔
@@ -475,8 +475,8 @@ void SparseBEV::execute()
             saveAnchorData();
         }
         
-        LOG(INFO) << "[INFO] Updated GPU instance_feature size: " << instance_feature.size() << " floats";
-        LOG(INFO) << "[INFO] Updated GPU anchor size: " << anchor.size() << " floats";
+        // LOG(INFO) << "[INFO] Updated GPU instance_feature size: " << instance_feature.size() << " floats";
+        // LOG(INFO) << "[INFO] Updated GPU anchor size: " << anchor.size() << " floats";
         LOG(INFO) << "[INFO] Updated time interval: " << m_time_interval[0] << "s";
         
         // 步骤3：根据是否为第一帧选择不同的推理路径
@@ -649,17 +649,17 @@ bool SparseBEV::setInputDataFromWrapper(const sparsebev::SparseBEVInputData& inp
         current_global_to_lidar_mat_ = input_data.coordinate_transform.global_to_lidar_mat;
         LOG(INFO) << "[INFO] Set coordinate transform matrix from input data";
         
-        // 打印变换矩阵（调试用）
-        LOG(INFO) << "[INFO] Current global_to_lidar matrix:";
-        for (int i = 0; i < 4; ++i) {
-            std::stringstream ss;
-            ss << "  Row " << i << ": ";
-            for (int j = 0; j < 4; ++j) {
-                ss << std::fixed << std::setprecision(6) 
-                   << current_global_to_lidar_mat_(i, j) << " ";
-            }
-            LOG(INFO) << ss.str();
-        }
+        // // 打印变换矩阵（调试用）
+        // LOG(INFO) << "[INFO] Current global_to_lidar matrix:";
+        // for (int i = 0; i < 4; ++i) {
+        //     std::stringstream ss;
+        //     ss << "  Row " << i << ": ";
+        //     for (int j = 0; j < 4; ++j) {
+        //         ss << std::fixed << std::setprecision(6) 
+        //            << current_global_to_lidar_mat_(i, j) << " ";
+        //     }
+        //     LOG(INFO) << ss.str();
+        // }
     } else {
         // 如果没有提供坐标变换矩阵，第一帧使用单位矩阵，后续帧保持前一帧的值
         if (!has_previous_frame_) {
@@ -784,17 +784,17 @@ bool SparseBEV::setImageCalibration(const sparsebev::ImageCalibration& image_cal
         LOG(INFO) << "[INFO] Lidar2img data size: " << m_lidar2img.size() << " floats";
         LOG(INFO) << "[INFO] GPU lidar2img wrapper updated with new data";
         
-        // 打印第一个相机的矩阵（调试用）
-        LOG(INFO) << "[INFO] Camera 0 lidar2img matrix from input:";
-        for (int row = 0; row < 4; ++row) {
-            std::stringstream ss;
-            ss << "  Row " << row << ": ";
-            for (int col = 0; col < 4; ++col) {
-                ss << std::fixed << std::setprecision(6) 
-                   << m_lidar2img[row * 4 + col] << " ";
-            }
-            LOG(INFO) << ss.str();
-        }
+        // // 打印第一个相机的矩阵（调试用）
+        // LOG(INFO) << "[INFO] Camera 0 lidar2img matrix from input:";
+        // for (int row = 0; row < 4; ++row) {
+        //     std::stringstream ss;
+        //     ss << "  Row " << row << ": ";
+        //     for (int col = 0; col < 4; ++col) {
+        //         ss << std::fixed << std::setprecision(6) 
+        //            << m_lidar2img[row * 4 + col] << " ";
+        //     }
+        //     LOG(INFO) << ss.str();
+        // }
         
         return true;
     } else {
@@ -857,11 +857,11 @@ Status SparseBEV::extractFeatures(const CudaWrapper<float>& input_imgs,
                 sum += val;
             }
             
-            LOG(INFO) << "[DEBUG] Feature extraction output stats:";
-            LOG(INFO) << "[DEBUG]   Min value: " << min_val;
-            LOG(INFO) << "[DEBUG]   Max value: " << max_val;
-            LOG(INFO) << "[DEBUG]   Average (first 1000): " << (sum / std::min(output_data.size(), size_t(1000)));
-            LOG(INFO) << "[DEBUG]   Total elements: " << output_data.size();
+            // LOG(INFO) << "[DEBUG] Feature extraction output stats:";
+            // LOG(INFO) << "[DEBUG]   Min value: " << min_val;
+            // LOG(INFO) << "[DEBUG]   Max value: " << max_val;
+            // LOG(INFO) << "[DEBUG]   Average (first 1000): " << (sum / std::min(output_data.size(), size_t(1000)));
+            // LOG(INFO) << "[DEBUG]   Total elements: " << output_data.size();
         } else {
             LOG(ERROR) << "[ERROR] Feature extraction output is empty!";
         }
@@ -1158,62 +1158,62 @@ void SparseBEV::convertToOutputFormat(const std::vector<float>& pred_instance_fe
     raw_result.num_classes = m_taskConfig.model_cfg_params().num_classes();
     raw_result.is_first_frame = is_first_frame_;
     
-    // 调试：打印pred_class_score得分最高的前10个object信息
-    {
-        const int num_objects = raw_result.num_objects;
-        const int num_classes = raw_result.num_classes;
+    // // 调试：打印pred_class_score得分最高的前10个object信息
+    // {
+    //     const int num_objects = raw_result.num_objects;
+    //     const int num_classes = raw_result.num_classes;
         
-        // 计算每个object在类别维的最大分数
-        std::vector<std::pair<float, size_t>> object_scores;
-        object_scores.reserve(num_objects);
+    //     // 计算每个object在类别维的最大分数
+    //     std::vector<std::pair<float, size_t>> object_scores;
+    //     object_scores.reserve(num_objects);
         
-        for (int i = 0; i < num_objects; ++i) {
-            const size_t base = i * num_classes;
-            float max_score = -std::numeric_limits<float>::infinity();
-            int best_class = 0;
+    //     for (int i = 0; i < num_objects; ++i) {
+    //         const size_t base = i * num_classes;
+    //         float max_score = -std::numeric_limits<float>::infinity();
+    //         int best_class = 0;
             
-            // 在类别维找最大分数
-            for (int c = 0; c < num_classes; ++c) {
-                float score = pred_class_score[base + c];
-                if (score > max_score) {
-                    max_score = score;
-                    best_class = c;
-                }
-            }
-            object_scores.emplace_back(max_score, i);
-        }
+    //         // 在类别维找最大分数
+    //         for (int c = 0; c < num_classes; ++c) {
+    //             float score = pred_class_score[base + c];
+    //             if (score > max_score) {
+    //                 max_score = score;
+    //                 best_class = c;
+    //             }
+    //         }
+    //         object_scores.emplace_back(max_score, i);
+    //     }
         
-        // 按分数排序，取前10
-        std::sort(object_scores.begin(), object_scores.end(), 
-                  [](const auto& a, const auto& b) { return a.first > b.first; });
+    //     // 按分数排序，取前10
+    //     std::sort(object_scores.begin(), object_scores.end(), 
+    //               [](const auto& a, const auto& b) { return a.first > b.first; });
         
-        const int show_count = std::min(10, num_objects);
-        LOG(INFO) << "[DEBUG] Top-" << show_count << " objects by class score:";
+    //     const int show_count = std::min(10, num_objects);
+    //     LOG(INFO) << "[DEBUG] Top-" << show_count << " objects by class score:";
         
-        for (int k = 0; k < show_count; ++k) {
-            const size_t obj_idx = object_scores[k].second;
-            const float score = object_scores[k].first;
+    //     for (int k = 0; k < show_count; ++k) {
+    //         const size_t obj_idx = object_scores[k].second;
+    //         const float score = object_scores[k].first;
             
-            // 解码对应的anchor信息
-            const size_t anchor_offset = obj_idx * 11; // anchor_dims = 11
-            const float x = pred_anchor[anchor_offset + 0];
-            const float y = pred_anchor[anchor_offset + 1];
-            const float z = pred_anchor[anchor_offset + 2];
-            const float w = std::exp(pred_anchor[anchor_offset + 3]);
-            const float l = std::exp(pred_anchor[anchor_offset + 4]);
-            const float h = std::exp(pred_anchor[anchor_offset + 5]);
-            const float sin_yaw = pred_anchor[anchor_offset + 6];
-            const float cos_yaw = pred_anchor[anchor_offset + 7];
-            const float yaw = std::atan2(sin_yaw, cos_yaw);
+    //         // 解码对应的anchor信息
+    //         const size_t anchor_offset = obj_idx * 11; // anchor_dims = 11
+    //         const float x = pred_anchor[anchor_offset + 0];
+    //         const float y = pred_anchor[anchor_offset + 1];
+    //         const float z = pred_anchor[anchor_offset + 2];
+    //         const float w = std::exp(pred_anchor[anchor_offset + 3]);
+    //         const float l = std::exp(pred_anchor[anchor_offset + 4]);
+    //         const float h = std::exp(pred_anchor[anchor_offset + 5]);
+    //         const float sin_yaw = pred_anchor[anchor_offset + 6];
+    //         const float cos_yaw = pred_anchor[anchor_offset + 7];
+    //         const float yaw = std::atan2(sin_yaw, cos_yaw);
             
-            LOG(INFO) << "[DEBUG] Object " << k << ": idx=" << obj_idx 
-                      << ", score=" << score 
-                      << ", xyz=(" << x << "," << y << "," << z << ")"
-                      << ", wlh=(" << w << "," << l << "," << h << ")"
-                      << ", yaw=" << yaw
-                      << ", track_id=" << track_ids[k];
-        }
-    }
+    //         LOG(INFO) << "[DEBUG] Object " << k << ": idx=" << obj_idx 
+    //                   << ", score=" << score 
+    //                   << ", xyz=(" << x << "," << y << "," << z << ")"
+    //                   << ", wlh=(" << w << "," << l << "," << h << ")"
+    //                   << ", yaw=" << yaw
+    //                   << ", track_id=" << track_ids[k];
+    //     }
+    // }
     
     LOG(INFO) << "[INFO] Converted output format with " << raw_result.num_objects << " objects";
 }

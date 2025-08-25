@@ -225,8 +225,8 @@ def main():
         tmp_name = f"tmp_outs{i}"
         
         # 构建文件路径
-        file1_path = os.path.join(base_path1, f"sample_0_{tmp_name}_1*900*512_float32.bin")
-        file2_path = os.path.join(base_path2, f"sample_0_{tmp_name}_1*900*512_float32.bin")
+        file1_path = os.path.join(base_path1, f"sample_1_{tmp_name}_1*900*512_float32.bin")
+        file2_path = os.path.join(base_path2, f"sample_1_{tmp_name}_1*900*512_float32.bin")
         
         print(f"\n{'='*60}")
         print(f"比较 {tmp_name}")

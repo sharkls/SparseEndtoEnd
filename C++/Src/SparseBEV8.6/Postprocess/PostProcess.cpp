@@ -116,16 +116,15 @@ void PostProcessor::execute() {
         for (const auto& box : input_boxes) {
             if (box.confidence >= m_confidenceThreshold) {
                 filtered_boxes.push_back(box);
-                std::cout << "box.confidence: " << box.confidence
-                          << " , box.label: " << box.label
-                          << " , box.track_id: " << box.track_id
-                          << " , xyz=(" << box.x << "," << box.y << "," << box.z << ")"
-                          << " , wlh=(" << box.w << "," << box.l << "," << box.h << ")"
-                          << " , yaw=" << box.yaw
-                          << ", m_confidenceThreshold: " << m_confidenceThreshold << std::endl;
+                // std::cout << "box.confidence: " << box.confidence
+                //           << " , box.label: " << box.label
+                //           << " , box.track_id: " << box.track_id
+                //           << " , xyz=(" << box.x << "," << box.y << "," << box.z << ")"
+                //           << " , wlh=(" << box.w << "," << box.l << "," << box.h << ")"
+                //           << " , yaw=" << box.yaw
+                //           << ", m_confidenceThreshold: " << m_confidenceThreshold << std::endl;
             }
             else{
-                
                 count++;
             }
         }

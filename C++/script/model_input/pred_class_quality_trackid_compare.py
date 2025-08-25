@@ -12,13 +12,14 @@ from typing import Tuple, Dict, Any
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def load_bin_file(file_path: str, expected_shape: Tuple[int, ...]) -> np.ndarray:
+def load_bin_file(file_path: str, expected_shape: Tuple[int, ...], data_type: str = "float32") -> np.ndarray:
     """
     加载二进制文件并重塑为指定形状
     
     Args:
         file_path: 文件路径
         expected_shape: 期望的形状
+        data_type: 数据类型 ("float32" 或 "int32")
         
     Returns:
         加载的数据数组
@@ -26,8 +27,11 @@ def load_bin_file(file_path: str, expected_shape: Tuple[int, ...]) -> np.ndarray
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"文件不存在: {file_path}")
     
-    # 读取二进制数据
-    data = np.fromfile(file_path, dtype=np.float32)
+    # 根据数据类型选择读取方式
+    if data_type == "int32":
+        data = np.fromfile(file_path, dtype=np.int32)
+    else:
+        data = np.fromfile(file_path, dtype=np.float32)
     
     # 计算期望的元素数量
     expected_size = np.prod(expected_shape)
@@ -38,10 +42,31 @@ def load_bin_file(file_path: str, expected_shape: Tuple[int, ...]) -> np.ndarray
     # 重塑数据
     data = data.reshape(expected_shape)
     
-    print(f"成功加载文件: {file_path}")
-    print(f"  形状: {data.shape}")
-    print(f"  数据类型: {data.dtype}")
-    print(f"  数值范围: [{data.min():.6f}, {data.max():.6f}]")
+    # 数据验证
+    if data_type == "int32":
+        print(f"成功加载文件: {file_path}")
+        print(f"  形状: {data.shape}")
+        print(f"  数据类型: {data.dtype}")
+        print(f"  数值范围: [{data.min()}, {data.max()}]")
+        
+        # 检查是否有无效值
+        invalid_count = np.sum(data < 0)
+        if invalid_count > 0:
+            print(f"  警告: 发现 {invalid_count} 个负值 (可能是-1填充值)")
+    else:
+        print(f"成功加载文件: {file_path}")
+        print(f"  形状: {data.shape}")
+        print(f"  数据类型: {data.dtype}")
+        
+        # 检查NaN值
+        nan_count = np.sum(np.isnan(data))
+        inf_count = np.sum(np.isinf(data))
+        
+        if nan_count > 0 or inf_count > 0:
+            print(f"  警告: 发现 {nan_count} 个NaN值和 {inf_count} 个无穷值")
+            print(f"  数值范围: [{np.nanmin(data):.6f}, {np.nanmax(data):.6f}]")
+        else:
+            print(f"  数值范围: [{data.min():.6f}, {data.max():.6f}]")
     
     return data
 
@@ -331,13 +356,13 @@ Python数据范围: [{python_data.min():.6f}, {python_data.max():.6f}]
     axes[1, 1].text(0.1, 0.5, stats_text, fontsize=12, 
                      verticalalignment='center', fontfamily='monospace')
     
-    plt.tight_layout()
+    # plt.tight_layout()
     
-    if save_path:
-        plt.savefig(save_path, dpi=300, bbox_inches='tight')
-        print(f"可视化结果已保存到: {save_path}")
+    # if save_path:
+    #     plt.savefig(save_path, dpi=300, bbox_inches='tight')
+    #     print(f"可视化结果已保存到: {save_path}")
     
-    plt.show()
+    # plt.show()
 
 def save_comparison_results(results: Dict[str, Any], save_path: str):
     """
@@ -443,9 +468,9 @@ def main():
     
     cpp_quality_score = os.path.join(cpp_dir, f"{sample_id}_pred_quality_score_1*900*2_float32.bin")
     python_quality_score = os.path.join(python_dir, f"{sample_id}_pred_quality_score_1*900*2_float32.bin")
-    
-    cpp_track_id = os.path.join(cpp_dir, f"{sample_id}_pred_track_id_1*900_int32.bin")
-    python_track_id = os.path.join(python_dir, f"{sample_id}_pred_track_id_1*900_int32.bin")
+
+    cpp_track_id = os.path.join(cpp_dir, f"{sample_id}_ibank_updated_temp_track_id_1*900_int32.bin")
+    python_track_id = os.path.join(python_dir, f"{sample_id}_ibank_updated_temp_track_id_1*900_int32.bin")
     
     print(f"文件1 (C++): {cpp_dir}")
     print(f"文件2 (Python): {python_dir}")

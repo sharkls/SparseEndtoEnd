@@ -139,8 +139,8 @@ def compare_features(data1, data2, tolerance=1e-6):
 
 def main():
     # 文件路径
-    file1_path = "/share/Code/SparseEnd2End/C++/Output/val_bin/sample_0_feature_1*89760*256_float32.bin"
-    file2_path = "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_feature_1*89760*256_float32.bin"
+    file1_path = "/share/Code/SparseEnd2End/C++/Output/val_bin/sample_1_feature_1*89760*256_float32.bin"
+    file2_path = "/share/Code/SparseEnd2End/script/tutorial/asset/sample_1_feature_1*89760*256_float32.bin"
     
     # 数据形状
     shape = (1, 89760, 256)  # (batch_size, num_features, feature_dim)
