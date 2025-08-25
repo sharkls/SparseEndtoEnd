@@ -129,7 +129,7 @@ void PostProcessor::execute() {
             }
         }
         
-        std::cout << "count: " << count << std::endl;
+        // std::cout << "count: " << count << std::endl;
         
         LOG(INFO) << "[INFO] Confidence filtering: " << input_boxes.size() 
                   << " -> " << filtered_boxes.size() << " boxes (threshold=" << m_confidenceThreshold << ")";
@@ -142,9 +142,9 @@ void PostProcessor::execute() {
         // 2. 执行NMS去重
         std::vector<BoundingBox3D> nms_boxes;
         if (m_useGPU) {
-            LOG(INFO) << "[INFO] Executing GPU NMS with threshold=" << m_gpuNMSThreshold;
+            // LOG(INFO) << "[INFO] Executing GPU NMS with threshold=" << m_gpuNMSThreshold;
             int num_output = m_gpuNMS.processBatch(filtered_boxes, nms_boxes, m_gpuNMSThreshold, m_maxOutputBoxes);
-            LOG(INFO) << "[INFO] GPU NMS completed, output " << num_output << " boxes";
+            LOG(INFO) << "[INFO] GPU NMS completed, output " << num_output << " boxes"  << ", threshold=" << m_gpuNMSThreshold;
         } else {
             LOG(INFO) << "[INFO] Executing CPU NMS with threshold=" << m_gpuNMSThreshold;
             nms_boxes = cpuNMS(filtered_boxes, m_gpuNMSThreshold, m_maxOutputBoxes);

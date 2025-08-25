@@ -71,6 +71,7 @@ class InstanceBank {
   /// @param refined_track_ids 精炼后的跟踪ID数组，形状为(num_querys,)
   /// @return 返回跟踪ID数组
   std::vector<std::int32_t> getTrackId(const std::vector<std::int32_t>& refined_track_ids);
+  std::vector<std::int32_t> getTrackId(const bool& is_first_frame);
 
   /// @brief 获取临时置信度数组
   std::vector<float> getTempConfidence() const;

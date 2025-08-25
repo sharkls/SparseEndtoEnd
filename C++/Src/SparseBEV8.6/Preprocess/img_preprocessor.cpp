@@ -234,7 +234,7 @@ Status ImagePreprocessor::forward(const CudaWrapper<std::uint8_t>& input_imgs,
         return Ret_Code;
     }
 
-    LOG(INFO) << "[INFO] Image preprocessing completed successfully (uint8 to float)";
+    // LOG(INFO) << "[INFO] Image preprocessing completed successfully (uint8 to float)";
     return Status::kSuccess;
 }
 

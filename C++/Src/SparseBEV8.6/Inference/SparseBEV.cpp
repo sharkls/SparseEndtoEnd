@@ -499,18 +499,20 @@ void SparseBEV::execute()
                 
                 instance_bank_->cache(pred_feature, pred_anchor, pred_class, is_first_frame_);
             
+                
+
+                // 从InstanceBank获取跟踪ID
+                // track_ids = instance_bank_->getTrackId(track_ids);
+                track_ids = instance_bank_->getTrackId(is_first_frame_);
+                // LOG(INFO) << "track_ids : " << track_ids.size();
+                m_int32_temp_track_id_wrapper.cudaMemUpdateWrap(track_ids);
+
+                // // 保存InstanceBank缓存数据(ibank_cached_anchor \ ibank_cached_feature \ ibank_confidence \ ibank_updated_temp_track_id)
+                // instance_bank_->saveInstanceBankData(0);  
+                
                 // 标记第一帧已完成
                 is_first_frame_ = false;
                 has_previous_frame_ = true;
-
-                // 从InstanceBank获取跟踪ID
-                track_ids = instance_bank_->getTrackId(track_ids);
-                LOG(INFO) << "track_ids : " << track_ids.size();
-                m_int32_temp_track_id_wrapper.cudaMemUpdateWrap(track_ids);
-
-                // 保存InstanceBank缓存数据
-                instance_bank_->saveInstanceBankData(0);  // sample_0
-                
                 LOG(INFO) << "[INFO] First frame results cached to InstanceBank";
             }
         } else {
@@ -535,7 +537,8 @@ void SparseBEV::execute()
                 instance_bank_->cache(pred_feature, pred_anchor, pred_class, is_first_frame_);
                 
                 // 直接使用int32_t类型，无需类型转换
-                track_ids = instance_bank_->getTrackId(pred_track_id);
+                // track_ids = instance_bank_->getTrackId(pred_track_id);
+                track_ids = instance_bank_->getTrackId(is_first_frame_);
                 
                 LOG(INFO) << "[INFO] Second frame results cached to InstanceBank";
             }
@@ -985,11 +988,11 @@ Status SparseBEV::headFirstFrame(const CudaWrapper<float>& features,
         auto pred_class_data = pred_class_score.cudaMemcpyD2HResWrap();
         auto pred_quality_data = pred_quality_score.cudaMemcpyD2HResWrap();
         
-        LOG(INFO) << "[DEBUG] ========== Output Data Analysis ==========";
-        LOG(INFO) << "[DEBUG] Pred feature data size: " << pred_feature_data.size();
-        LOG(INFO) << "[DEBUG] Pred anchor data size: " << pred_anchor_data.size();
-        LOG(INFO) << "[DEBUG] Pred class data size: " << pred_class_data.size();
-        LOG(INFO) << "[DEBUG] Pred quality data size: " << pred_quality_data.size();
+        // LOG(INFO) << "[DEBUG] ========== Output Data Analysis ==========";
+        // LOG(INFO) << "[DEBUG] Pred feature data size: " << pred_feature_data.size();
+        // LOG(INFO) << "[DEBUG] Pred anchor data size: " << pred_anchor_data.size();
+        // LOG(INFO) << "[DEBUG] Pred class data size: " << pred_class_data.size();
+        // LOG(INFO) << "[DEBUG] Pred quality data size: " << pred_quality_data.size();
         
         // 检查是否有非零值
         bool has_nonzero = false;
@@ -1211,7 +1214,7 @@ void SparseBEV::convertToOutputFormat(const std::vector<float>& pred_instance_fe
     //                   << ", xyz=(" << x << "," << y << "," << z << ")"
     //                   << ", wlh=(" << w << "," << l << "," << h << ")"
     //                   << ", yaw=" << yaw
-    //                   << ", track_id=" << track_ids[k];
+    //                   << ", track_id=" << track_ids[obj_idx];
     //     }
     // }
     

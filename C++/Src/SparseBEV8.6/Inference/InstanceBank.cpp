@@ -273,8 +273,8 @@ void InstanceBank::updateTrackId(const std::vector<std::int32_t>& track_ids)
     temp_track_ids_ = padded_track_ids;
     track_ids_ = padded_track_ids;
     
-    LOG(INFO) << "[INFO] updateTrackId: selected " << selected_track_ids.size() 
-              << " track_ids from indices, padded to " << padded_track_ids.size() << " with -1";
+    // LOG(INFO) << "[INFO] updateTrackId: selected " << selected_track_ids.size() 
+    //           << " track_ids from indices, padded to " << padded_track_ids.size() << " with -1";
 }
 
 void InstanceBank::updateConfidence(const std::vector<float>& confidence)
@@ -442,8 +442,62 @@ std::vector<std::int32_t> InstanceBank::getTrackId(const std::vector<std::int32_
 
   prev_id_ += nums_new_anchor;
   updateTrackId(track_ids);
+
+//   if (!track_ids_.empty()) {
+//         LOG(INFO) << "[DEBUG] All track_ids_ values:";
+//         for (size_t i = 0; i < track_ids_.size(); ++i) {
+//             std::cout << " " << track_ids_[i];
+//         }
+//     } else {
+//         LOG(INFO) << "[DEBUG] track_ids_ is empty";
+//     }
+//     LOG(INFO) << "[DEBUG] =================================================";
   
-  return track_ids_;
+  return track_ids;     // track_ids_
+}
+
+std::vector<std::int32_t> InstanceBank::getTrackId(const bool& is_first_frame) {
+  std::vector<std::int32_t> track_ids(num_querys_, -1);
+  
+  // std::cout << "[InstanceBank][DEBUG] getTrackId called with track_ids_ size: " << track_ids_.size() << std::endl;
+  // std::cout << "[InstanceBank][DEBUG] num_querys_: " << num_querys_ << std::endl;
+  
+  if (!is_first_frame) {
+    if (track_ids_.size() != num_querys_) {
+      throw "[ERROR] track_ids_ size is mismatch !";
+    }
+    std::copy(track_ids_.begin(), track_ids_.end(), track_ids.begin());
+    std::cout << "[InstanceBank][DEBUG] Copied track_ids_ to track_ids" << std::endl;
+  } else {
+    std::cout << "[InstanceBank][DEBUG] track_ids_ is empty, will generate new track_ids" << std::endl;
+  }
+
+  auto nums_new_anchor = static_cast<size_t>(
+      std::count_if(track_ids.begin(), track_ids.end(), [](std::int32_t track_id) { return track_id < 0; }));
+  
+  std::vector<std::int32_t> new_track_ids(nums_new_anchor);
+  for (size_t k = 0; k < nums_new_anchor; ++k) {
+    new_track_ids[k] = k + prev_id_;
+  }
+
+  for (size_t i = num_querys_ - nums_new_anchor, j = 0; i < num_querys_ && j < nums_new_anchor; ++i, ++j) {
+    track_ids[i] = new_track_ids[j];
+  }
+
+  prev_id_ += nums_new_anchor;
+  updateTrackId(track_ids);
+
+//   if (!track_ids_.empty()) {
+//         LOG(INFO) << "[DEBUG] All track_ids_ values:";
+//         for (size_t i = 0; i < track_ids_.size(); ++i) {
+//             std::cout << " " << track_ids_[i];
+//         }
+//     } else {
+//         LOG(INFO) << "[DEBUG] track_ids_ is empty";
+//     }
+//     LOG(INFO) << "[DEBUG] =================================================";
+  
+  return track_ids;     // track_ids_
 }
 
 std::vector<float> InstanceBank::getTempConfidence() const { return temp_confidence_; }

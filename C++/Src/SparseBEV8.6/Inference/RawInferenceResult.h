@@ -237,21 +237,21 @@ struct RawInferenceResult
                 centerness_sel[k] = sigmoid_f(cns);
             }
 
-            // 统计：centerness的Top-10均值/最大值（与当前排序对应的前10）
-            {
-                const size_t Nprint = std::min<size_t>(centerness_sel.size(), 10);
-                if (Nprint > 0) {
-                    float cns_sum = 0.0f;
-                    float cns_max = -std::numeric_limits<float>::infinity();
-                    for (size_t i = 0; i < Nprint; ++i) {
-                        cns_sum += centerness_sel[i];
-                        if (centerness_sel[i] > cns_max) cns_max = centerness_sel[i];
-                    }
-                    float cns_mean = cns_sum / static_cast<float>(Nprint);
-                    LOG(INFO) << "[DecodeStat] centerness_mean(top10)=" << cns_mean
-                              << ", centerness_max(top10)=" << cns_max;
-                }
-            }
+            // // 统计：centerness的Top-10均值/最大值（与当前排序对应的前10）
+            // {
+            //     const size_t Nprint = std::min<size_t>(centerness_sel.size(), 10);
+            //     if (Nprint > 0) {
+            //         float cns_sum = 0.0f;
+            //         float cns_max = -std::numeric_limits<float>::infinity();
+            //         for (size_t i = 0; i < Nprint; ++i) {
+            //             cns_sum += centerness_sel[i];
+            //             if (centerness_sel[i] > cns_max) cns_max = centerness_sel[i];
+            //         }
+            //         float cns_mean = cns_sum / static_cast<float>(Nprint);
+            //         LOG(INFO) << "[DecodeStat] centerness_mean(top10)=" << cns_mean
+            //                   << ", centerness_max(top10)=" << cns_max;
+            //     }
+            // }
 
             // 乘以centerness并按新scores降序重排indices/class_ids/scores
             for (size_t k = 0; k < topk_scores.size(); ++k) {
@@ -278,21 +278,21 @@ struct RawInferenceResult
                 topk_scores.swap(topk_scores_tmp);
             }
 
-            // 统计：乘以centerness后的Top-10分数
-            {
-                const size_t Nprint = std::min<size_t>(topk_scores.size(), 10);
-                if (Nprint > 0) {
-                    float post_sum = 0.0f;
-                    float post_max = -std::numeric_limits<float>::infinity();
-                    for (size_t i = 0; i < Nprint; ++i) {
-                        post_sum += topk_scores[i];
-                        if (topk_scores[i] > post_max) post_max = topk_scores[i];
-                    }
-                    float post_mean = post_sum / static_cast<float>(Nprint);
-                    LOG(INFO) << "[DecodeStat] post_score_mean(top10)=" << post_mean
-                              << ", post_score_max(top10)=" << post_max;
-                }
-            }
+            // // 统计：乘以centerness后的Top-10分数
+            // {
+            //     const size_t Nprint = std::min<size_t>(topk_scores.size(), 10);
+            //     if (Nprint > 0) {
+            //         float post_sum = 0.0f;
+            //         float post_max = -std::numeric_limits<float>::infinity();
+            //         for (size_t i = 0; i < Nprint; ++i) {
+            //             post_sum += topk_scores[i];
+            //             if (topk_scores[i] > post_max) post_max = topk_scores[i];
+            //         }
+            //         float post_mean = post_sum / static_cast<float>(Nprint);
+            //         LOG(INFO) << "[DecodeStat] post_score_mean(top10)=" << post_mean
+            //                   << ", post_score_max(top10)=" << post_max;
+            //     }
+            // }
         }
 
         // 5) 解码box并构建输出（严格按decoder的decode_box）
@@ -322,7 +322,7 @@ struct RawInferenceResult
             box.confidence = topk_scores[k];
             box.label = topk_class_ids[k];
             if (squeeze_cls) {
-                if (i < track_ids.size()) box.track_id = static_cast<int>(track_ids[k]);
+                if (i < track_ids.size()) box.track_id = static_cast<int>(track_ids[i]);
                 else box.track_id = -1;
             } else {
                 box.track_id = -1;

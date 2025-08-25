@@ -137,7 +137,7 @@ void CSparseBEVAlg::runAlgorithm(void* p_pSrcData)
     
     // 3. 从输入数据中提取样本索引
     current_sample_index_ = static_cast<int>(m_currentInput->unFrameId());
-    LOG(INFO) << "[INFO] Processing sample " << current_sample_index_ << " (frame ID: " << m_currentInput->unFrameId() << ")";
+    // LOG(INFO) << "[INFO] Processing sample " << current_sample_index_ << " (frame ID: " << m_currentInput->unFrameId() << ")";
     
     // 4. 执行模块链
     startTimer("execution");
