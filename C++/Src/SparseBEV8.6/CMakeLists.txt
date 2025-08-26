@@ -51,7 +51,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6
     ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Preprocess
     ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Postprocess
-    ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Inference
+    ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/InferenceGPU
     ${TENSORRT_INCLUDE_DIR}
 )
 
@@ -59,7 +59,7 @@ include_directories(
 aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6 HW_SRC_FILES)
 aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Preprocess HW_SRC_FILES)
 aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Postprocess HW_SRC_FILES)
-aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Inference HW_SRC_FILES)
+aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/InferenceGPU HW_SRC_FILES)
 aux_source_directory(. HW_SRC_FILES)
 
 # 添加TensorRT源文件
