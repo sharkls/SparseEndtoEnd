@@ -73,21 +73,6 @@ InstanceBank::InstanceBank(const sparsebev::TaskConfig& params)
     std::cout << "  - kmeans_anchors size: " << kmeans_anchors_.size() << std::endl;
     std::cout << "  - topk_querys: " << topk_querys_ << std::endl;
     
-    // 打印前几个锚点的示例数据
-    if (!kmeans_anchors_.empty()) {
-        std::cout << "  - First anchor (11 dims): ";
-        for (int i = 0; i < std::min(11, (int)query_dims_); ++i) {
-            std::cout << kmeans_anchors_[i] << " ";
-        }
-        std::cout << std::endl;
-        
-        std::cout << "  - Second anchor (11 dims): ";
-        for (int i = 0; i < std::min(11, (int)query_dims_); ++i) {
-            std::cout << kmeans_anchors_[query_dims_ + i] << " ";
-        }
-        std::cout << std::endl;
-    }
-    
     // 初始化实例库
     initializeInstanceBank();
 }
