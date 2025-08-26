@@ -609,10 +609,10 @@ std::string formatTimestamp(int64_t timestamp) {
 void main_sparse_bev_v2() {
     try {
         // 设置路径
-        std::string deploy_path = "/share/Code/SparseEnd2End/C++/Output/";
+        std::string deploy_path = "/share/Code/Sparse4d/C++/Output/";
         sparse_bev_v2::g_save_dir = deploy_path + "vis/";
-        std::string asset_path = "/share/Code/SparseEnd2End/script/tutorial/asset/";
-        std::string save_dir = "/share/Code/SparseEnd2End/C++/Output/val_bin/";
+        std::string asset_path = "/share/Code/Sparse4d/script/tutorial/asset/";
+        std::string save_dir = "/share/Code/Sparse4d/C++/Output/val_bin/";
 
         // 创建保存目录
         if (!std::filesystem::exists(sparse_bev_v2::g_save_dir)) {

@@ -44,6 +44,16 @@ bool SparseBEV::init(void* p_pAlgParam)
     LOG(INFO) << "[INFO] Creating TensorRT engines...";
     
     // 特征提取引擎
+    LOG(INFO) << "[DEBUG] Loading extract feature engine from: " << m_taskConfig.extract_feat_engine().engine_path();
+    LOG(INFO) << "[DEBUG] Extract feature engine input names:";
+    for (const auto& name : m_taskConfig.extract_feat_engine().input_names()) {
+        LOG(INFO) << "[DEBUG]   " << name;
+    }
+    LOG(INFO) << "[DEBUG] Extract feature engine output names:";
+    for (const auto& name : m_taskConfig.extract_feat_engine().output_names()) {
+        LOG(INFO) << "[DEBUG]   " << name;
+    }
+    
     m_extract_feat_engine = std::make_shared<TensorRT>(
         m_taskConfig.extract_feat_engine().engine_path(),
         "",  // 无插件路径
@@ -52,9 +62,10 @@ bool SparseBEV::init(void* p_pAlgParam)
         std::vector<std::string>(m_taskConfig.extract_feat_engine().output_names().begin(), 
                                 m_taskConfig.extract_feat_engine().output_names().end()));
     
-    if (!m_extract_feat_engine) {
+    if (m_extract_feat_engine) {
+        LOG(INFO) << "[DEBUG] Extract feature engine loaded successfully";
+    } else {
         LOG(ERROR) << "[ERROR] Failed to load extract feature engine";
-        return false;
     }
 
     // 第一帧头部引擎
@@ -66,7 +77,47 @@ bool SparseBEV::init(void* p_pAlgParam)
         std::vector<std::string>(m_taskConfig.head1st_engine().output_names().begin(), 
                                 m_taskConfig.head1st_engine().output_names().end()));
 
-    // 第一帧头部引擎
+    // 添加详细的引擎信息调试
+    LOG(INFO) << "[DEBUG] ========== Head1st Engine Info ==========";
+    LOG(INFO) << "[DEBUG] Engine path: " << m_taskConfig.head1st_engine().engine_path();
+    LOG(INFO) << "[DEBUG] Plugin path: " << m_taskConfig.head1st_engine().plugin_path();
+    
+    LOG(INFO) << "[DEBUG] Input names:";
+    for (const auto& name : m_taskConfig.head1st_engine().input_names()) {
+        LOG(INFO) << "[DEBUG]   " << name;
+    }
+    
+    LOG(INFO) << "[DEBUG] Output names:";
+    for (const auto& name : m_taskConfig.head1st_engine().output_names()) {
+        LOG(INFO) << "[DEBUG]   " << name;
+    }
+    
+    // 检查输出名称是否与我们的缓冲区顺序匹配
+    std::vector<std::string> expected_output_names = {
+       "tmp_outs0", "tmp_outs1", "tmp_outs2", "tmp_outs3", "tmp_outs4", "tmp_outs5", "pred_instance_feature", "pred_anchor", "pred_class_score", "pred_quality_score"
+    };
+    
+    LOG(INFO) << "[DEBUG] Expected output names:";
+    for (const auto& name : expected_output_names) {
+        LOG(INFO) << "[DEBUG]   " << name;
+    }
+    
+    // 检查前4个输出名称是否匹配
+    bool names_match = true;
+    for (size_t i = 0; i < 4 && i < m_taskConfig.head1st_engine().output_names().size(); ++i) {
+        if (m_taskConfig.head1st_engine().output_names(i) != expected_output_names[i]) {
+            LOG(ERROR) << "[ERROR] Output name mismatch at index " << i 
+                       << ": expected '" << expected_output_names[i] 
+                       << "', got '" << m_taskConfig.head1st_engine().output_names(i) << "'";
+            names_match = false;
+        }
+    }
+    
+    if (names_match) {
+        LOG(INFO) << "[DEBUG] Output names match expected order";
+    } else {
+        LOG(ERROR) << "[ERROR] Output names do not match expected order!";
+    }
 
     // 第二帧头部引擎
     m_head2nd_engine = std::make_shared<TensorRT>(
@@ -121,8 +172,7 @@ bool SparseBEV::init(void* p_pAlgParam)
     // 加载辅助数据
     loadAuxiliaryData();
 
-    // 分配辅助数据的GPU内存 - 预分配以避免运行时分配开销
-    LOG(INFO) << "[INFO] Pre-allocating auxiliary data GPU memory...";
+    // 分配辅助数据的GPU内存
     if (!m_gpu_spatial_shapes_wrapper.allocate(m_spatial_shapes.size()) ||
         !m_gpu_level_start_index_wrapper.allocate(m_level_start_index.size()) ||
         !m_gpu_instance_feature_wrapper.allocate(m_instance_feature.size()) ||
@@ -134,7 +184,6 @@ bool SparseBEV::init(void* p_pAlgParam)
         status_ = false;
         return status_;
     }
-    LOG(INFO) << "[INFO] Auxiliary data GPU memory pre-allocated successfully";
 
     // 将辅助数据复制到GPU内存
     // 原始: m_spatial_shapes.size()==8, 形如 [H0,W0,H1,W1,H2,W2,H3,W3]
@@ -366,11 +415,24 @@ void SparseBEV::execute()
     int64_t feature_extraction_start, feature_extraction_end, feature_extraction_time;
     int64_t first_frame_start, first_frame_end, first_frame_time;
     int64_t second_frame_start, second_frame_end, second_frame_time;
-    int64_t instance_bank_start, instance_bank_end, instance_bank_time;
-    int64_t memory_copy_start, memory_copy_end, memory_copy_time;
     
     try {
-        // 初始化
+        // 步骤0：保存中间变量数据（当run_status为False时）
+        if (!m_taskConfig.run_status()) {
+            savePreprocessedData();
+            saveTimeIntervalData();
+            saveImageWhData();
+            saveLidar2imgData();
+            saveSpatialShapesData();
+            saveLevelStartIndexData();
+            
+            // 添加调试信息
+            LOG(INFO) << "[DEBUG] Image WH size: " << m_image_wh.size();
+            LOG(INFO) << "[DEBUG] Lidar2img size: " << m_lidar2img.size();
+            LOG(INFO) << "[DEBUG] Time interval: " << m_time_interval[0];
+        }
+        
+                // 初始化
         std::vector<int32_t> track_ids;
         
         // 步骤1：特征提取
@@ -395,79 +457,37 @@ void SparseBEV::execute()
             cudaStreamDestroy(stream);
             return;
         }
-
+        
+        // 当run_status为False时，保存特征提取结果
+        if (!m_taskConfig.run_status()) {
+            saveFeatureExtractionResults();
+            
+        }
+        
         // 步骤2：获取temporal信息
-        instance_bank_start = GetTimeStamp();
         LOG(INFO) << "[INFO] Step 2: Getting temporal information: current_timestamp_ : " << current_timestamp_;
         auto [instance_feature, anchor, cached_feature, cached_anchor, time_interval, mask, cached_track_ids] = 
             instance_bank_->get(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_);
-        instance_bank_end = GetTimeStamp();
-        instance_bank_time = instance_bank_end - instance_bank_start;
-        LOG(INFO) << "[INFO] Instance bank completed in " << instance_bank_time << "ms";
-
-        // 智能GPU内存传输策略：根据数据大小选择最佳传输方法
-        LOG(INFO) << "[INFO] Starting intelligent GPU memory transfers...";
         
-        // 记录内存拷贝开始时间
-        int64_t memory_copy_start = GetTimeStamp();
-        
-        // 计算总传输数据量
-        size_t total_transfer_size = instance_feature.size() + anchor.size() + cached_feature.size() + 
-                                   cached_anchor.size() + 1 + m_time_interval.size(); // +1 for mask
-        
-        LOG(INFO) << "[INFO] Total transfer size: " << total_transfer_size << " elements";
-        
-        // 策略1：对于大数据块，使用同步传输（避免多次小传输的开销）
-        if (instance_feature.size() > 50000) { // 大数据块使用同步传输
-            LOG(INFO) << "[INFO] Using synchronous transfer for large instance_feature data (" << instance_feature.size() << " elements)";
-            m_gpu_instance_feature_wrapper.cudaMemUpdateWrap(instance_feature);
-        } else if (instance_feature.size() > 10000) { // 中等数据块使用优化传输
-            LOG(INFO) << "[INFO] Using optimized transfer for medium instance_feature data (" << instance_feature.size() << " elements)";
-            m_gpu_instance_feature_wrapper.cudaMemUpdateWrapOptimized(instance_feature, stream);
-        } else { // 小数据块使用异步传输
-            m_gpu_instance_feature_wrapper.cudaMemUpdateWrapAsync(instance_feature, stream);
-        }
-        
-        if (anchor.size() > 50000) {
-            LOG(INFO) << "[INFO] Using synchronous transfer for large anchor data (" << anchor.size() << " elements)";
-            m_gpu_anchor_wrapper.cudaMemUpdateWrap(anchor);
-        } else if (anchor.size() > 10000) {
-            LOG(INFO) << "[INFO] Using optimized transfer for medium anchor data (" << anchor.size() << " elements)";
-            m_gpu_anchor_wrapper.cudaMemUpdateWrapOptimized(anchor, stream);
-        } else {
-            m_gpu_anchor_wrapper.cudaMemUpdateWrapAsync(anchor, stream);
-        }
-        
-        // 策略2：对于小数据块，使用异步传输
-        m_float_temp_instance_feature_wrapper.cudaMemUpdateWrapAsync(cached_feature, stream);
-        m_float_temp_anchor_wrapper.cudaMemUpdateWrapAsync(cached_anchor, stream);
-        
+        // 将获取的instance_feature和anchor复制到GPU内存包装器中用于推理
+        m_gpu_instance_feature_wrapper.cudaMemUpdateWrap(instance_feature);
+        m_gpu_anchor_wrapper.cudaMemUpdateWrap(anchor);
+        m_float_temp_instance_feature_wrapper.cudaMemUpdateWrap(cached_feature);
+        m_float_temp_anchor_wrapper.cudaMemUpdateWrap(cached_anchor);
         // 将单个mask值转换为向量
-        LOG(INFO) << "mask : " << mask;
+        // LOG(INFO) << "mask : " << mask;
         std::vector<int32_t> mask_vector = {static_cast<int32_t>(mask)};
-        m_float_mask_wrapper.cudaMemUpdateWrapAsync(mask_vector, stream);
-        
+        m_float_mask_wrapper.cudaMemUpdateWrap(mask_vector);
         // 更新当前帧的时间间隔
         m_time_interval[0] = time_interval;
         // 将更新后的时间间隔复制到GPU内存
-        m_gpu_time_interval_wrapper.cudaMemUpdateWrapAsync(m_time_interval, stream);
+        m_gpu_time_interval_wrapper.cudaMemUpdateWrap(m_time_interval);
         
-        // 策略3：使用事件来优化同步，避免阻塞CPU
-        cudaEvent_t transfer_complete;
-        cudaEventCreate(&transfer_complete);
-        cudaEventRecord(transfer_complete, stream);
-        
-        // 等待所有异步拷贝完成
-        cudaEventSynchronize(transfer_complete);
-        cudaEventDestroy(transfer_complete);
-        
-        // 记录内存拷贝结束时间并计算耗时
-        int64_t memory_copy_end = GetTimeStamp();
-        int64_t memory_copy_time = memory_copy_end - memory_copy_start;
-        LOG(INFO) << "[INFO] GPU memory transfers completed in " << memory_copy_time << "ms";
-        
-        // 保存实例特征和锚点数据到成员变量
-        m_instance_feature = instance_feature;
+        if(!m_taskConfig.run_status()) {
+            m_instance_feature = instance_feature;
+            saveInstanceFeatureData();
+            saveAnchorData();
+        }
         
         // LOG(INFO) << "[INFO] Updated GPU instance_feature size: " << instance_feature.size() << " floats";
         // LOG(INFO) << "[INFO] Updated GPU anchor size: " << anchor.size() << " floats";
@@ -499,10 +519,17 @@ void SparseBEV::execute()
                 auto pred_class = m_float_pred_class_score_wrapper.cudaMemcpyD2HResWrap();
                 
                 instance_bank_->cache(pred_feature, pred_anchor, pred_class, is_first_frame_);
+            
                 
+
                 // 从InstanceBank获取跟踪ID
+                // track_ids = instance_bank_->getTrackId(track_ids);
                 track_ids = instance_bank_->getTrackId(is_first_frame_);
+                // LOG(INFO) << "track_ids : " << track_ids.size();
                 m_int32_temp_track_id_wrapper.cudaMemUpdateWrap(track_ids);
+
+                // // 保存InstanceBank缓存数据(ibank_cached_anchor \ ibank_cached_feature \ ibank_confidence \ ibank_updated_temp_track_id)
+                // instance_bank_->saveInstanceBankData(0);  
                 
                 // 标记第一帧已完成
                 is_first_frame_ = false;
@@ -533,11 +560,12 @@ void SparseBEV::execute()
                 auto pred_feature = m_float_pred_instance_feature_wrapper.cudaMemcpyD2HResWrap();
                 auto pred_anchor = m_float_pred_anchor_wrapper.cudaMemcpyD2HResWrap();
                 auto pred_class = m_float_pred_class_score_wrapper.cudaMemcpyD2HResWrap();
-                auto pred_track_id = m_int32_pred_track_id_wrapper.cudaMemcpyD2HResWrap();
+                auto pred_track_id = m_int32_pred_track_id_wrapper.cudaMemcpyD2HResWrap();  // 改为int32_t
                 
                 instance_bank_->cache(pred_feature, pred_anchor, pred_class, is_first_frame_);
                 
-                // 获取跟踪ID
+                // 直接使用int32_t类型，无需类型转换
+                // track_ids = instance_bank_->getTrackId(pred_track_id);
                 track_ids = instance_bank_->getTrackId(is_first_frame_);
                 
                 LOG(INFO) << "[INFO] Second frame results cached to InstanceBank";
@@ -571,7 +599,44 @@ void SparseBEV::execute()
                 m_raw_result
             );
         
-
+        // 步骤5：保存推理结果数据（当run_status为False时）
+        if (!m_taskConfig.run_status()) {
+            LOG(INFO) << "[INFO] Step 5: Saving inference results";
+            
+            // 验证推理结果
+                auto pred_feature = m_float_pred_instance_feature_wrapper.cudaMemcpyD2HResWrap();
+                auto pred_anchor = m_float_pred_anchor_wrapper.cudaMemcpyD2HResWrap();
+                auto pred_class = m_float_pred_class_score_wrapper.cudaMemcpyD2HResWrap();
+                auto pred_quality = m_float_pred_quality_score_wrapper.cudaMemcpyD2HResWrap();
+                
+                LOG(INFO) << "[DEBUG] Pred feature size: " << pred_feature.size();
+                LOG(INFO) << "[DEBUG] Pred anchor size: " << pred_anchor.size();
+                LOG(INFO) << "[DEBUG] Pred class size: " << pred_class.size();
+                LOG(INFO) << "[DEBUG] Pred quality size: " << pred_quality.size();
+            
+            // 保存推理结果数据
+            savePredInstanceFeatureData();
+            savePredAnchorData();
+            savePredClassScoreData();
+            savePredQualityScoreData();
+            savePredTrackIdData();
+            
+            // 保存tmp_outs0~5数据
+            saveTmpOuts0Data();
+            saveTmpOuts1Data();
+            saveTmpOuts2Data();
+            saveTmpOuts3Data();
+            saveTmpOuts4Data();
+            saveTmpOuts5Data();
+            
+            // 如果是第二帧，保存时序数据
+            if (!is_first_frame_) {
+                saveTempInstanceFeatureData();
+                saveTempAnchorData();
+                saveMaskData();
+                saveTrackIdData();
+            }
+        }
         
         // 更新时间戳
         previous_timestamp_ = current_timestamp_;
@@ -589,8 +654,6 @@ void SparseBEV::execute()
         
         LOG(INFO) << "[INFO] ========== Inference Time Summary ==========";
         LOG(INFO) << "[INFO] Feature extraction time: " << feature_extraction_time << "ms";
-        LOG(INFO) << "[INFO] Instance bank time: " << instance_bank_time << "ms";
-        LOG(INFO) << "[INFO] GPU memory transfer time: " << memory_copy_time << "ms";
         if (is_first_frame_ || !has_previous_frame_) {
             LOG(INFO) << "[INFO] First frame inference time: " << first_frame_time << "ms";
         } else {
@@ -820,10 +883,40 @@ Status SparseBEV::extractFeatures(const CudaWrapper<float>& input_imgs,
     std::vector<void*> output_buffers = {static_cast<void*>(output_features.getCudaPtr())};
     
     // 执行推理
+    LOG(INFO) << "[DEBUG] Starting feature extraction inference (float)...";
+    LOG(INFO) << "[DEBUG] Input buffer size: " << input_buffers.size();
+    LOG(INFO) << "[DEBUG] Output buffer size: " << output_buffers.size();
+    LOG(INFO) << "[DEBUG] Input data size: " << input_imgs.getSize();
+    LOG(INFO) << "[DEBUG] Output data size: " << output_features.getSize();
+    
     bool success = m_extract_feat_engine->infer(input_buffers.data(), output_buffers.data(), stream);
     
     if (success) {
         LOG(INFO) << "[INFO] Feature extraction completed successfully";
+        
+        // 添加调试信息：检查输出数据的统计信息
+        auto output_data = output_features.cudaMemcpyD2HResWrap();
+        if (!output_data.empty()) {
+            float min_val = output_data[0];
+            float max_val = output_data[0];
+            float sum = 0.0f;
+            
+            for (size_t i = 0; i < std::min(output_data.size(), size_t(1000)); ++i) {
+                float val = output_data[i];
+                min_val = std::min(min_val, val);
+                max_val = std::max(max_val, val);
+                sum += val;
+            }
+            
+            // LOG(INFO) << "[DEBUG] Feature extraction output stats:";
+            // LOG(INFO) << "[DEBUG]   Min value: " << min_val;
+            // LOG(INFO) << "[DEBUG]   Max value: " << max_val;
+            // LOG(INFO) << "[DEBUG]   Average (first 1000): " << (sum / std::min(output_data.size(), size_t(1000)));
+            // LOG(INFO) << "[DEBUG]   Total elements: " << output_data.size();
+        } else {
+            LOG(ERROR) << "[ERROR] Feature extraction output is empty!";
+        }
+        
         return Status::kSuccess;
     } else {
         LOG(ERROR) << "[ERROR] Feature extraction failed";
@@ -848,6 +941,20 @@ Status SparseBEV::headFirstFrame(const CudaWrapper<float>& features,
         return Status::kInferenceErr;
     }
     
+    // 添加详细的调试信息
+    LOG(INFO) << "[DEBUG] ========== HeadFirstFrame Debug Info ==========";
+    LOG(INFO) << "[DEBUG] Input features size: " << features.getSize();
+    LOG(INFO) << "[DEBUG] Output pred_instance_feature size: " << pred_instance_feature.getSize();
+    LOG(INFO) << "[DEBUG] Output pred_anchor size: " << pred_anchor.getSize();
+    LOG(INFO) << "[DEBUG] Output pred_class_score size: " << pred_class_score.getSize();
+    LOG(INFO) << "[DEBUG] Output pred_quality_score size: " << pred_quality_score.getSize();
+    
+    // 检查输入数据的前几个值
+    auto input_data = features.cudaMemcpyD2HResWrap();
+    // LOG(INFO) << "[DEBUG] Input features first 5 values: " 
+    //           << input_data[0] << ", " << input_data[1] << ", " << input_data[2] 
+    //           << ", " << input_data[3] << ", " << input_data[4];
+    
     // 准备输入数据
     std::vector<void*> input_buffers = {
         const_cast<void*>(static_cast<const void*>(features.getCudaPtr())),
@@ -860,27 +967,96 @@ Status SparseBEV::headFirstFrame(const CudaWrapper<float>& features,
         static_cast<void*>(m_gpu_lidar2img_wrapper.getCudaPtr())
     };
     
-    // 准备输出缓冲区
+    
+    // 准备输出缓冲区 - 修复顺序以匹配TensorRT引擎的实际输出绑定
     std::vector<void*> output_buffers = {
-        static_cast<void*>(m_float_tmp_outs0_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs1_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs2_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs3_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs4_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs5_wrapper.getCudaPtr()),
-        static_cast<void*>(pred_instance_feature.getCudaPtr()),
-        static_cast<void*>(pred_anchor.getCudaPtr()),
-        static_cast<void*>(pred_class_score.getCudaPtr()),
-        static_cast<void*>(pred_quality_score.getCudaPtr())
+        static_cast<void*>(m_float_tmp_outs0_wrapper.getCudaPtr()),  // binding 8
+        static_cast<void*>(m_float_tmp_outs1_wrapper.getCudaPtr()),  // binding 9
+        static_cast<void*>(m_float_tmp_outs2_wrapper.getCudaPtr()),  // binding 10
+        static_cast<void*>(m_float_tmp_outs3_wrapper.getCudaPtr()),  // binding 11
+        static_cast<void*>(m_float_tmp_outs4_wrapper.getCudaPtr()),  // binding 12
+        static_cast<void*>(m_float_tmp_outs5_wrapper.getCudaPtr()),  // binding 13
+        static_cast<void*>(pred_instance_feature.getCudaPtr()),       // binding 14
+        static_cast<void*>(pred_anchor.getCudaPtr()),                // binding 15
+        static_cast<void*>(pred_class_score.getCudaPtr()),           // binding 16
+        static_cast<void*>(pred_quality_score.getCudaPtr())          // binding 17
     };
     
-
+    LOG(INFO) << "[DEBUG] Input buffers count: " << input_buffers.size();
+    LOG(INFO) << "[DEBUG] Output buffers count: " << output_buffers.size();
+    
+    // 在执行infer前保存input_buffers的各种数据
+    if (!m_taskConfig.run_status()) {
+        LOG(INFO) << "[DEBUG] Saving input buffer data before inference...";
+        
+        // 保存输入特征数据
+        auto input_features = features.cudaMemcpyD2HResWrap();
+        saveInputFeaturesData(input_features);
+        
+        // 保存空间形状数据
+        auto spatial_shapes = m_gpu_spatial_shapes_wrapper.cudaMemcpyD2HResWrap();
+        saveInputSpatialShapesData(spatial_shapes);
+        
+        // 保存层级起始索引数据
+        auto level_start_index = m_gpu_level_start_index_wrapper.cudaMemcpyD2HResWrap();
+        saveInputLevelStartIndexData(level_start_index);
+        
+        // 保存实例特征数据
+        auto instance_feature = m_gpu_instance_feature_wrapper.cudaMemcpyD2HResWrap();
+        saveInputInstanceFeatureData(instance_feature);
+        
+        // 保存锚点数据
+        auto anchor = m_gpu_anchor_wrapper.cudaMemcpyD2HResWrap();
+        saveInputAnchorData(anchor);
+        
+        // 保存时间间隔数据
+        auto time_interval = m_gpu_time_interval_wrapper.cudaMemcpyD2HResWrap();
+        saveInputTimeIntervalData(time_interval);
+        
+        // 保存图像宽高数据
+        auto image_wh = m_gpu_image_wh_wrapper.cudaMemcpyD2HResWrap();
+        saveInputImageWhData(image_wh);
+        
+        // 保存Lidar2img变换矩阵数据
+        auto lidar2img = m_gpu_lidar2img_wrapper.cudaMemcpyD2HResWrap();
+        saveInputLidar2imgData(lidar2img);
+        
+        LOG(INFO) << "[DEBUG] Input buffer data saved successfully";
+    }
     
     // 执行推理
     bool success = m_head1st_engine->infer(input_buffers.data(), output_buffers.data(), stream);
     
     if (success) {
         LOG(INFO) << "[INFO] First frame head inference completed successfully";
+        
+        // 检查输出数据
+        auto pred_feature_data = pred_instance_feature.cudaMemcpyD2HResWrap();
+        auto pred_anchor_data = pred_anchor.cudaMemcpyD2HResWrap();
+        auto pred_class_data = pred_class_score.cudaMemcpyD2HResWrap();
+        auto pred_quality_data = pred_quality_score.cudaMemcpyD2HResWrap();
+        
+        // LOG(INFO) << "[DEBUG] ========== Output Data Analysis ==========";
+        // LOG(INFO) << "[DEBUG] Pred feature data size: " << pred_feature_data.size();
+        // LOG(INFO) << "[DEBUG] Pred anchor data size: " << pred_anchor_data.size();
+        // LOG(INFO) << "[DEBUG] Pred class data size: " << pred_class_data.size();
+        // LOG(INFO) << "[DEBUG] Pred quality data size: " << pred_quality_data.size();
+        
+        // 检查是否有非零值
+        bool has_nonzero = false;
+        for (size_t i = 0; i < pred_feature_data.size(); ++i) {
+            if (pred_feature_data[i] != 0.0f) {
+                has_nonzero = true;
+                break;
+            }
+        }
+        
+        if (!has_nonzero) {
+            LOG(ERROR) << "[ERROR] All pred_feature values are zero!";
+        } else {
+            LOG(INFO) << "[DEBUG] Found non-zero values in pred_feature";
+        }
+        
         return Status::kSuccess;
     } else {
         LOG(ERROR) << "[ERROR] First frame head inference failed";
@@ -922,19 +1098,74 @@ Status SparseBEV::headSecondFrame(const CudaWrapper<float>& features,
         static_cast<void*>(m_gpu_lidar2img_wrapper.getCudaPtr())
     };
     
-    // 准备输出缓冲区
+    // 在执行infer前保存input_buffers的各种数据
+    if (!m_taskConfig.run_status()) {
+        LOG(INFO) << "[DEBUG] Saving input buffer data before second frame inference...";
+        
+        // 保存输入特征数据
+        auto input_features = features.cudaMemcpyD2HResWrap();
+        saveInputFeaturesData(input_features);
+        
+        // 保存空间形状数据
+        auto spatial_shapes = m_gpu_spatial_shapes_wrapper.cudaMemcpyD2HResWrap();
+        saveInputSpatialShapesData(spatial_shapes);
+        
+        // 保存层级起始索引数据
+        auto level_start_index = m_gpu_level_start_index_wrapper.cudaMemcpyD2HResWrap();
+        saveInputLevelStartIndexData(level_start_index);
+        
+        // 保存实例特征数据
+        auto instance_feature = m_gpu_instance_feature_wrapper.cudaMemcpyD2HResWrap();
+        saveInputInstanceFeatureData(instance_feature);
+        
+        // 保存锚点数据
+        auto anchor = m_gpu_anchor_wrapper.cudaMemcpyD2HResWrap();
+        saveInputAnchorData(anchor);
+        
+        // 保存时间间隔数据
+        auto time_interval = m_gpu_time_interval_wrapper.cudaMemcpyD2HResWrap();
+        saveInputTimeIntervalData(time_interval);
+        
+        // 保存临时实例特征数据
+        auto temp_instance_feature = m_float_temp_instance_feature_wrapper.cudaMemcpyD2HResWrap();
+        saveTempInstanceFeatureData();
+        
+        // 保存临时锚点数据
+        auto temp_anchor = m_float_temp_anchor_wrapper.cudaMemcpyD2HResWrap();
+        saveTempAnchorData();
+        
+        // 保存掩码数据
+        auto mask = m_float_mask_wrapper.cudaMemcpyD2HResWrap();
+        saveMaskData();
+        
+        // 保存临时跟踪ID数据
+        auto temp_track_id = m_int32_temp_track_id_wrapper.cudaMemcpyD2HResWrap();
+        saveTrackIdData();
+        
+        // 保存图像宽高数据
+        auto image_wh = m_gpu_image_wh_wrapper.cudaMemcpyD2HResWrap();
+        saveInputImageWhData(image_wh);
+        
+        // 保存Lidar2img变换矩阵数据
+        auto lidar2img = m_gpu_lidar2img_wrapper.cudaMemcpyD2HResWrap();
+        saveInputLidar2imgData(lidar2img);
+        
+        LOG(INFO) << "[DEBUG] Second frame input buffer data saved successfully";
+    }
+    
+    // 准备输出缓冲区 - 修复顺序以匹配TensorRT引擎的实际输出绑定
     std::vector<void*> output_buffers = {
-        static_cast<void*>(m_float_tmp_outs0_wrapper.getCudaPtr()),
-        static_cast<void*>(pred_track_id.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs1_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs2_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs3_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs4_wrapper.getCudaPtr()),
-        static_cast<void*>(m_float_tmp_outs5_wrapper.getCudaPtr()),
-        static_cast<void*>(pred_instance_feature.getCudaPtr()),
-        static_cast<void*>(pred_anchor.getCudaPtr()),
-        static_cast<void*>(pred_class_score.getCudaPtr()),
-        static_cast<void*>(pred_quality_score.getCudaPtr())
+        static_cast<void*>(m_float_tmp_outs0_wrapper.getCudaPtr()),  // binding 12
+        static_cast<void*>(pred_track_id.getCudaPtr()),               // binding 13
+        static_cast<void*>(m_float_tmp_outs1_wrapper.getCudaPtr()),  // binding 14
+        static_cast<void*>(m_float_tmp_outs2_wrapper.getCudaPtr()),  // binding 15
+        static_cast<void*>(m_float_tmp_outs3_wrapper.getCudaPtr()),  // binding 16
+        static_cast<void*>(m_float_tmp_outs4_wrapper.getCudaPtr()),  // binding 17
+        static_cast<void*>(m_float_tmp_outs5_wrapper.getCudaPtr()),  // binding 18
+        static_cast<void*>(pred_instance_feature.getCudaPtr()),       // binding 19
+        static_cast<void*>(pred_anchor.getCudaPtr()),                // binding 20
+        static_cast<void*>(pred_class_score.getCudaPtr()),           // binding 21
+        static_cast<void*>(pred_quality_score.getCudaPtr())          // binding 22
     };
     
     // 执行推理

@@ -692,7 +692,7 @@ class Sparse4D_head(nn.Module):
         )[batch_size - 1]
         
         # 置信度过滤
-        score_threshold = 0.3  # 置信度阈值
+        score_threshold = 0.2  # 置信度阈值
         boxes_3d = output["boxes_3d"]
         scores_3d = output["scores_3d"]
         labels_3d = output["labels_3d"]
@@ -761,7 +761,7 @@ def main():
     total_filtered_detections = 0
 
     for i, data in enumerate(data_loader):
-        if i == 3:
+        if i == 10:
             break
         with torch.no_grad():
             data = scatter(data, [0])[0]

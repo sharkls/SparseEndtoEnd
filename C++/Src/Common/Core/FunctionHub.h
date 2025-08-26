@@ -17,6 +17,7 @@
 #include <iostream>
 #include <algorithm>
 #include <numeric>
+#include <cmath>
 
 // 保存 float 数组为二进制文件
 inline void save_bin(const std::vector<float>& input_data, const std::string& filename) 

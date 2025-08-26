@@ -788,9 +788,9 @@ void visualizeBEV(const std::vector<Point3D>& points,
 void main_sparse_bev_8_6() {
     try {
         // 设置路径
-        std::string deploy_path = "/share/Code/SparseEnd2End/C++/Output/";
+        std::string deploy_path = "/share/Code/Sparse4d/C++/Output/";
         sparse_bev_8_6::g_save_dir = deploy_path + "vis/";
-        std::string asset_path = "/share/Code/SparseEnd2End/script/tutorial/asset/";
+        std::string asset_path = "/share/Code/Sparse4d/script/tutorial/asset/";
 
         // 创建保存目录
         if (!std::filesystem::exists(sparse_bev_8_6::g_save_dir)) {
@@ -805,7 +805,7 @@ void main_sparse_bev_8_6() {
         l_pObj->initAlgorithm(deploy_path, sparse_bev_8_6::testSparseBEV8_6Alg, nullptr);
 
         // 处理多个样本的数据
-        int num_samples = 3;  // asset中有3个样本 (0, 1, 2)
+        int num_samples = 10;  // asset中有3个样本 (0, 1, 2)
         for (int i = 0; i < num_samples; i++)
         {
             LOG(INFO) << "Processing sample " << i << " with SparseBEV8.6";

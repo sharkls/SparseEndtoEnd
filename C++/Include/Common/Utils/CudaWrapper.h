@@ -154,6 +154,45 @@ class CudaWrapper<T, typename std::enable_if_t<std::is_trivial<T>::value && std:
     cudaMemcpyH2D(vec_data, ptr_, getSizeBytes());
   }
 
+  /// @brief Asynchronous copy data to current CUDAobject ptr_ from CPU memory(vector)
+  void cudaMemUpdateWrapAsync(const std::vector<T> &vec_data, cudaStream_t stream) {
+    if (vec_data.size() > capacity_) {
+      checkCudaErrors(cudaFree(ptr_));
+      size_ = vec_data.size();
+      capacity_ = vec_data.size();
+      checkCudaErrors(cudaMalloc((void **)&ptr_, getSizeBytes()));
+    } else {
+      size_ = vec_data.size();
+    }
+
+    cudaMemcpyH2DAsync(vec_data, ptr_, getSizeBytes(), stream);
+  }
+
+  /// @brief Optimized transfer using pinned memory for better performance
+  void cudaMemUpdateWrapOptimized(const std::vector<T> &vec_data, cudaStream_t stream) {
+    if (vec_data.size() > capacity_) {
+      checkCudaErrors(cudaFree(ptr_));
+      size_ = vec_data.size();
+      capacity_ = vec_data.size();
+      checkCudaErrors(cudaMalloc((void **)&ptr_, getSizeBytes()));
+    } else {
+      size_ = vec_data.size();
+    }
+
+    // 使用固定内存进行传输
+    void* pinned_host_ptr;
+    checkCudaErrors(cudaMallocHost(&pinned_host_ptr, getSizeBytes()));
+    
+    // 复制数据到固定内存
+    memcpy(pinned_host_ptr, vec_data.data(), getSizeBytes());
+    
+    // 异步传输 - 修复参数顺序
+    checkCudaErrors(cudaMemcpyAsync(ptr_, pinned_host_ptr, getSizeBytes(), cudaMemcpyHostToDevice, stream));
+    
+    // 在传输完成后释放固定内存
+    cudaFreeHost(pinned_host_ptr);
+  }
+
   /// @brief Copy data to CPU memory(vector) from current GPU memory(ptr_).
   /// @param
   /// @return std::vector<T>
@@ -245,6 +284,10 @@ class CudaWrapper<T, typename std::enable_if_t<std::is_trivial<T>::value && std:
 
   inline void cudaMemcpyH2D(const std::vector<T> &vec_data, T *cuda_ptr, const std::uint64_t &size) {
     checkCudaErrors(cudaMemcpy(cuda_ptr, (void *)vec_data.data(), size, cudaMemcpyHostToDevice));
+  }
+
+  inline void cudaMemcpyH2DAsync(const std::vector<T> &vec_data, T *cuda_ptr, const std::uint64_t &size, cudaStream_t stream) {
+    checkCudaErrors(cudaMemcpyAsync(cuda_ptr, (void *)vec_data.data(), size, cudaMemcpyHostToDevice, stream));
   }
 
   inline std::vector<T> cudaMemcpyD2HRes() const {
