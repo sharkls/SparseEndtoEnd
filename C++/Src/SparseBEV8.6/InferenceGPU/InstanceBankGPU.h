@@ -1,7 +1,7 @@
 /*******************************************************
  文件名：InstanceBankGPU.h
  作者：sharkls
- 描述：GPU版本的实例银行类，负责管理多帧检测实例的缓存和更新
+ 描述：GPU版本的InstanceBank类，提供GPU上的实例管理功能
  版本：v1.0
  日期：2025-06-18
  *******************************************************/
@@ -9,149 +9,71 @@
 #define __INSTANCE_BANK_GPU_H__
 
 #include <memory>
+#include <tuple>
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
+#include <device_launch_parameters.h>
+#include <device_atomic_functions.h>
+
+
+
 #include <vector>
 #include <cstdint>
-
 // 使用条件编译避免重复包含Eigen
 #ifndef EIGEN_DENSE_INCLUDED
 #define EIGEN_DENSE_INCLUDED
 #include <Eigen/Dense>
 #endif
 
-#include "../../../Include/Common/Utils/CudaWrapper.h"
 #include "GlobalContext.h"
 #include "SparseEnd2EndConfig_conf.pb.h"
+#include "../../../Include/Common/Utils/CudaWrapper.h"
 
-/// @brief GPU版本的实例银行类：管理多帧检测实例的缓存和更新
+/// @brief GPU版本的实例银行类
 class InstanceBankGPU {
-public:
-    /// @brief 构造函数：使用参数初始化GPU实例银行
+  public:
+    /// @brief 构造函数：使用参数初始化实例银行
     InstanceBankGPU(const sparsebev::TaskConfig& params);
-    ~InstanceBankGPU();
+
+    /// @brief 析构函数
+    ~InstanceBankGPU() = default;
 
     /// @brief 重置实例银行状态
     Status reset();
 
-    /// @brief 更新实例银行状态（在GPU上）
-    /// @param instance_feature 实例特征，形状为(num_querys, embedfeat_dims)
-    /// @param anchor 锚点，形状为(num_querys, query_dims)
-    /// @param confidence 置信度，形状为(num_querys,)
-    /// @param track_ids 跟踪ID数组，形状为(num_querys,)
-    /// @param time_interval 时间间隔（秒）
-    Status updateOnGPU(const CudaWrapper<float>& instance_feature,
-                       const CudaWrapper<float>& anchor,
-                       const CudaWrapper<float>& confidence,
-                       const CudaWrapper<int32_t>& track_ids,
-                       float time_interval,
-                       cudaStream_t stream);
-
-    /// @brief 获取指定时间戳的实例数据（从GPU）
+    /// @brief 获取指定时间戳的实例数据
     /// @param timestamp 时间戳
     /// @param global_to_lidar_mat 全局坐标系到激光雷达坐标系的变换矩阵
     /// @param is_first_frame 是否为第一帧
-    /// @param stream CUDA流
-    /// @return 返回GPU上的实例特征、锚点、置信度等数据
+    /// @return 返回缓存的实例特征、锚点、置信度等数据
     std::tuple<const CudaWrapper<float>&,
-               const CudaWrapper<float>&,
-               const CudaWrapper<float>&,
-               const CudaWrapper<float>&,
-               float,
-               int32_t,
-               const CudaWrapper<int32_t>&>
-    getOnGPU(const double& timestamp, 
-             const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat, 
-             const bool& is_first_frame,
-             cudaStream_t stream);
+                const CudaWrapper<float>&,
+                const CudaWrapper<float>&,
+                const CudaWrapper<float>&,
+                const float&,
+                const std::int32_t&,
+                const CudaWrapper<std::int32_t>&>
+    get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat, const bool& is_first_frame, cudaStream_t stream = 0);
 
-    /// @brief 缓存当前帧的前K个实例特征、锚点和置信度（在GPU上）
+    /// @brief 获取跟踪ID
+    /// @param is_first_frame 是否为第一帧
+    /// @param track_ids 输出参数：跟踪ID数组(900个目标)
+    /// @param stream CUDA流
+    /// @return 操作状态
+    Status getTrackId(const bool& is_first_frame, CudaWrapper<int32_t>& track_ids, cudaStream_t stream = 0);
+
+    /// @brief 缓存当前帧的前K个实例特征、锚点和置信度
     /// @param instance_feature 实例特征，形状为(num_querys, embedfeat_dims)
     /// @param anchor 锚点，形状为(num_querys, query_dims)
     /// @param confidence_logits 置信度logits，形状为(num_querys, class_nums)
     /// @param is_first_frame 是否为第一帧
-    /// @param stream CUDA流
-    Status cacheOnGPU(const CudaWrapper<float>& instance_feature,
-                      const CudaWrapper<float>& anchor,
-                      const CudaWrapper<float>& confidence_logits,
-                      const bool& is_first_frame,
-                      cudaStream_t stream);
-
-    /// @brief 获取跟踪ID（在GPU上）
-    /// @param refined_track_ids 精炼后的跟踪ID数组，形状为(num_querys,)
-    /// @param stream CUDA流
-    /// @return 返回跟踪ID数组
-    CudaWrapper<int32_t> getTrackIdOnGPU(const CudaWrapper<int32_t>& refined_track_ids, cudaStream_t stream);
-    
-    /// @brief 获取跟踪ID（在GPU上）
-    /// @param is_first_frame 是否为第一帧
-    /// @param stream CUDA流
-    /// @return 返回跟踪ID数组
-    CudaWrapper<int32_t> getTrackIdOnGPU(const bool& is_first_frame, cudaStream_t stream);
-
-    /// @brief 获取GPU上的实例特征
-    const CudaWrapper<float>& getGPUInstanceFeature() const { return *gpu_instance_feature_; }
-    
-    /// @brief 获取GPU上的锚点
-    const CudaWrapper<float>& getGPUAnchor() const { return *gpu_anchor_; }
-    
-    /// @brief 获取GPU上的置信度
-    const CudaWrapper<float>& getGPUConfidence() const { return *gpu_confidence_; }
-    
-    /// @brief 获取GPU上的跟踪ID
-    const CudaWrapper<int32_t>& getGPUTrackIds() const { return *gpu_track_ids_; }
-    
-    /// @brief 获取GPU上的缓存特征
-    const CudaWrapper<float>& getGPUCachedFeature() const { return *gpu_cached_feature_; }
-    
-    /// @brief 获取GPU上的缓存锚点
-    const CudaWrapper<float>& getGPUCachedAnchor() const { return *gpu_cached_anchor_; }
-
-    /// @brief 保存InstanceBank缓存数据到文件（从GPU拷贝到CPU后保存）
-    /// @param sample_id 样本ID
-    /// @return 是否保存成功
-    bool saveInstanceBankData(const int sample_id);
-
-private:
-    /// @brief 初始化GPU内存
-    bool initializeGPUMemory();
-    
-    /// @brief 清理GPU内存
-    void cleanupGPUMemory();
-
-    /// @brief 在GPU上更新跟踪ID
-    /// @param track_ids 跟踪ID数组，形状为(num_querys,)
-    /// @param stream CUDA流
-    void updateTrackIdOnGPU(const CudaWrapper<int32_t>& track_ids, cudaStream_t stream);
-
-    /// @brief 在GPU上更新置信度
-    /// @param confidence 置信度，形状为(num_querys,)
-    /// @param stream CUDA流
-    void updateConfidenceOnGPU(const CudaWrapper<float>& confidence, cudaStream_t stream);
-
-    /// @brief GPU上的时空对齐：将t-1时刻的锚点投影到t时刻
-    /// @param temp_anchor 临时锚点，形状为(temp_num_querys, query_dims_)
-    /// @param temp2cur_mat t-1到t时刻的变换矩阵
-    /// @param time_interval 时间间隔
-    /// @param stream CUDA流
-    void anchorProjectionOnGPU(CudaWrapper<float>& temp_anchor,
-                               const Eigen::Matrix<float, 4, 4>& temp2cur_mat,
-                               float time_interval,
-                               cudaStream_t stream);
-
-    /// @brief 在GPU上计算tensor.max(-1).values.sigmoid
-    /// @param confidence_logits 置信度logits，形状为(num_querys, class_nums)
-    /// @param num_querys 查询数量
-    /// @param stream CUDA流
-    /// @return 每个查询的最大置信度分数
-    CudaWrapper<float> getMaxConfidenceScoresOnGPU(const CudaWrapper<float>& confidence_logits,
-                                                   const uint32_t& num_querys,
-                                                   cudaStream_t stream);
-
-    /// @brief 在GPU上应用Sigmoid激活函数
-    /// @param logits 输入logits
-    /// @param stream CUDA流
-    void applySigmoidOnGPU(CudaWrapper<float>& logits, cudaStream_t stream);
+    Status cache(const CudaWrapper<float>& instance_feature,
+                const CudaWrapper<float>& anchor,
+                const CudaWrapper<float>& confidence_logits,
+                const bool& is_first_frame, cudaStream_t stream = 0);
+ private:
+    /// @brief 初始化实例银行
+    void initializeInstanceBank();
 
     /// @brief 从文件加载锚点数据
     /// @param file_path 锚点文件路径
@@ -163,46 +85,73 @@ private:
     /// @return 是否加载成功
     bool loadInstanceFeatureFromFile(const std::string& file_path);
 
+    /// @brief 从文件加载数据到GPU的通用函数
+    /// @param file_path 文件路径
+    /// @param expected_size 期望的数据大小
+    /// @param data GPU数据包装器
+    /// @return 是否加载成功
+    template<typename T>
+    bool loadDataFromFile(const std::string& file_path, size_t expected_size, CudaWrapper<T>& data);
+
+    /// @brief 更新跟踪ID
+    /// @param stream CUDA流
+    void updateTrackId(cudaStream_t stream = 0);
+
+    /// @brief 更新置信度
+    /// @param confidence 置信度，形状为(num_querys,)
+    void updateConfidence(const CudaWrapper<float>& confidence);
+
+    /// @brief 时空对齐：将t-1时刻的锚点投影到t时刻
+    /// @param temp_anchor 临时锚点，形状为(temp_num_querys, query_dims_)
+    /// @param temp_to_cur_mat t-1到t时刻的变换矩阵
+    /// @param time_interval 时间间隔
+    /// @param stream CUDA流
+    void anchorProjection(CudaWrapper<float>& temp_anchor,
+                            const Eigen::Matrix<float, 4, 4>& temp_to_cur_mat,
+                            const float& time_interval,
+                            cudaStream_t stream = 0);
+
+    /// @brief 计算tensor.max(-1).values.sigmoid，tensor形状为(x, y)
+    /// @param confidence_logits 置信度logits，形状为(num_querys,)
+    /// @param num_querys 查询数量
+    /// @return 每个查询的最大置信度分数
+    template <typename T>
+    static CudaWrapper<T> getMaxConfidenceScores(const CudaWrapper<T>& confidence_logits,
+                                                const std::uint32_t& num_anchors);
+
+    /// @brief Sigmoid激活函数
+    template <typename T>
+    static T sigmoid(const T& logits);
+
     // 配置参数
     sparsebev::TaskConfig params_;
-    uint32_t num_querys_;
-    uint32_t query_dims_;
-    uint32_t topk_querys_;
-    float max_time_interval_;
-    float default_time_interval_;
-    float confidence_decay_;
+    uint32_t num_anchors_;                      // 锚点数量 900
+    uint32_t anchor_dims_;                      // 锚点特征维度 11
+    std::vector<float> kmeans_anchors_; 
+    uint32_t topk_anchors_;                     // 前k个锚点数量 600
+    float max_time_interval_;                   // 最大时间间隔 2.0
+    float default_time_interval_;               // 默认时间间隔 0.5
+    float confidence_decay_;                    // 置信度衰减因子
+    uint32_t embedfeat_dims_;                   // 实例特征维度 256
 
-    // GPU内存
-    std::unique_ptr<CudaWrapper<float>> gpu_instance_feature_;
-    std::unique_ptr<CudaWrapper<float>> gpu_anchor_;
-    std::unique_ptr<CudaWrapper<float>> gpu_confidence_;
-    std::unique_ptr<CudaWrapper<int32_t>> gpu_track_ids_;
-    std::unique_ptr<CudaWrapper<float>> gpu_cached_feature_;
-    std::unique_ptr<CudaWrapper<float>> gpu_cached_anchor_;
-    std::unique_ptr<CudaWrapper<float>> gpu_kmeans_anchors_;
-    std::unique_ptr<CudaWrapper<float>> gpu_query_;
-    std::unique_ptr<CudaWrapper<float>> gpu_query_anchor_;
-    std::unique_ptr<CudaWrapper<float>> gpu_query_confidence_;
-    std::unique_ptr<CudaWrapper<int32_t>> gpu_query_track_ids_;
-    
-    // GPU上的状态变量
-    std::unique_ptr<CudaWrapper<int32_t>> gpu_mask_;
-    std::unique_ptr<CudaWrapper<float>> gpu_time_interval_;
-    std::unique_ptr<CudaWrapper<int32_t>> gpu_prev_id_;
-    std::unique_ptr<CudaWrapper<float>> gpu_history_time_;
-    std::unique_ptr<CudaWrapper<float>> gpu_temp_lidar_to_global_mat_;
+    // 实例库状态
+    std::int32_t mask_;
+    float history_time_;                        // 上一帧时间戳
+    float time_interval_;                       // 时间间隔
+    Eigen::Matrix<double, 4, 4> temp_lidar_to_global_mat_; // 上一帧激光雷达到全局坐标系的变换矩阵
+    bool is_first_frame_;                       // 是否为第一帧
+    std::int32_t prev_id_;                      // 前一个ID，用于生成新的跟踪ID
 
-    // CPU上的状态变量（用于调试和保存）
-    int32_t mask_;
-    float history_time_;
-    float time_interval_;
-    Eigen::Matrix<double, 4, 4> temp_lidar_to_global_mat_;
-    bool is_first_frame_;
-    int32_t prev_id_;
+    // GPU内存包装器
+    CudaWrapper<float> m_gpu_instance_feature_;     // 实例特征（900， 256）
+    CudaWrapper<float> m_gpu_anchor_;               // 锚点(900, 11)
+    CudaWrapper<float> m_gpu_confidence_;           // 置信度(900)
+    CudaWrapper<int32_t> m_gpu_track_ids_;          // 跟踪ID(900)
+    CudaWrapper<float> m_gpu_cached_feature_;       // 缓存的特征(600, 256)
+    CudaWrapper<float> m_gpu_cached_anchor_;        // 缓存的锚点(600, 11)
+    CudaWrapper<float> m_gpu_cached_confidence_;    // 缓存的置信度(600)
+    CudaWrapper<int32_t> m_gpu_cached_track_ids_;   // 缓存的跟踪ID(600)
 
-    // 临时CPU向量（用于文件操作）
-    std::vector<float> kmeans_anchors_;
-    std::vector<float> instance_feature_;
+    CudaWrapper<int32_t> m_gpu_prev_id_wrapper_;    // 前一帧目标最大ID值的GPU包装器
 };
-
-#endif  // __INSTANCE_BANK_GPU_H__
+#endif // __INSTANCE_BANK_GPU_H__

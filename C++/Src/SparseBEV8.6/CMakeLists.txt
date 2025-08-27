@@ -49,6 +49,7 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/Src/Common/Factory
     ${CMAKE_SOURCE_DIR}/Src/Common/TensorRT
     ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6
+    ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/data
     ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Preprocess
     ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Postprocess
     ${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/InferenceGPU
@@ -57,6 +58,7 @@ include_directories(
 
 # 源文件 - 使用SparseBEV8.6目录
 aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6 HW_SRC_FILES)
+aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/data HW_SRC_FILES)
 aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Preprocess HW_SRC_FILES)
 aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Postprocess HW_SRC_FILES)
 aux_source_directory(${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/InferenceGPU HW_SRC_FILES)
@@ -71,10 +73,11 @@ file(GLOB TENSORRT_SOURCES
 file(GLOB CUDA_SOURCES 
     "${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Preprocess/*.cu"
     "${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Postprocess/*.cu"
+    "${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/InferenceGPU/*.cu"
 )
 
 # 添加RawInferenceResult源文件
-list(APPEND HW_SRC_FILES "${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/Inference/RawInferenceResult.cpp")
+list(APPEND HW_SRC_FILES "${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/data/RawInferenceResult.cpp")
 
 # 链接库路径
 link_directories(

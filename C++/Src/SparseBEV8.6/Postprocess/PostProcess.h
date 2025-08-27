@@ -26,7 +26,7 @@
 #include "SparseEnd2EndConfig_conf.pb.h"
 #include "CAlgResult.h"
 #include "gpu_nms.h"  // 添加GPU NMS支持
-#include "../Inference/RawInferenceResult.h"  // 添加原始推理结果支持
+#include "../data/RawInferenceResult.h"  // 添加原始推理结果支持
 
 class PostProcessor : public IBaseModule {
 public:

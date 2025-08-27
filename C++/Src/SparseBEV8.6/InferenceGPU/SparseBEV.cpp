@@ -62,16 +62,16 @@ bool SparseBEV::init(void* p_pAlgParam)
                                 m_taskConfig.head1st_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.head1st_engine().output_names().begin(), 
                                 m_taskConfig.head1st_engine().output_names().end()));
-
+    LOG(INFO) << "[INFO] head1st_engine loaded";
     // 第二帧头部引擎
     m_head2nd_engine = std::make_shared<TensorRT>(
         m_taskConfig.head2nd_engine().engine_path(),
         m_taskConfig.head2nd_engine().plugin_path(),
         std::vector<std::string>(m_taskConfig.head2nd_engine().input_names().begin(), 
-                                m_taskConfig.head2nd_engine().output_names().begin()),
+                                m_taskConfig.head2nd_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.head2nd_engine().output_names().begin(), 
                                 m_taskConfig.head2nd_engine().output_names().end()));
-
+    LOG(INFO) << "[INFO] head2nd_engine loaded";
     // 计算各种数据大小
     size_t input_size = m_taskConfig.preprocessor_params().num_cams() * 
                        m_taskConfig.preprocessor_params().model_input_img_c() *
@@ -358,7 +358,7 @@ void SparseBEV::execute()
         // 直接使用GPU版本的InstanceBank，无需数据传输
         auto [gpu_instance_feature, gpu_anchor, gpu_cached_feature, gpu_cached_anchor, 
               time_interval, mask, gpu_cached_track_ids] = 
-            instance_bank_gpu_->getOnGPU(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_, stream);
+            instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_, stream);
         
         instance_bank_end = GetTimeStamp();
         instance_bank_time = instance_bank_end - instance_bank_start;
@@ -366,24 +366,36 @@ void SparseBEV::execute()
         
         // 重要：将GPU版本的InstanceBank返回的数据赋值给相应的GPU内存包装器
         // 这样后续的推理就能使用这些数据了
-        LOG(INFO) << "[INFO] Assigning GPU InstanceBank data to GPU memory wrappers for inference...";
+        LOG(INFO) << "[INFO] Copying GPU InstanceBank data to GPU memory wrappers for inference...";
         
-        // 将返回的GPU数据赋值给相应的包装器
-        m_gpu_instance_feature_wrapper = gpu_instance_feature;
-        m_gpu_anchor_wrapper = gpu_anchor;
-        
-        // 对于第二帧推理需要的时序数据，也需要赋值
+        // 拷贝实例特征数据
+        cudaMemcpyAsync(m_gpu_instance_feature_wrapper.getCudaPtr(), 
+                        gpu_instance_feature.getCudaPtr(),
+                        gpu_instance_feature.getSize() * sizeof(float),
+                        cudaMemcpyDeviceToDevice, stream);
+
+        // 拷贝锚点数据
+        cudaMemcpyAsync(m_gpu_anchor_wrapper.getCudaPtr(), 
+                        gpu_anchor.getCudaPtr(),
+                        gpu_anchor.getSize() * sizeof(float),
+                        cudaMemcpyDeviceToDevice, stream);
+
+        // 对于第二帧推理需要的时序数据
         if (!is_first_frame_ && has_previous_frame_) {
-            // 将缓存的GPU数据赋值给时序数据包装器
-            m_float_temp_instance_feature_wrapper = gpu_cached_feature;
-            m_float_temp_anchor_wrapper = gpu_cached_anchor;
+            // 拷贝缓存的GPU数据到时序数据包装器
+            cudaMemcpyAsync(m_float_temp_instance_feature_wrapper.getCudaPtr(), 
+                            gpu_cached_feature.getCudaPtr(),
+                            gpu_cached_feature.getSize() * sizeof(float),
+                            cudaMemcpyDeviceToDevice, stream);
+            
+            cudaMemcpyAsync(m_float_temp_anchor_wrapper.getCudaPtr(), 
+                            gpu_cached_anchor.getCudaPtr(),
+                            gpu_cached_anchor.getSize() * sizeof(float),
+                            cudaMemcpyDeviceToDevice, stream);
             
             // 将mask值转换为向量并赋值
             std::vector<int32_t> mask_vector = {static_cast<int32_t>(mask)};
             m_float_mask_wrapper.cudaMemUpdateWrap(mask_vector);
-            
-            // 注意：gpu_cached_track_ids在这里不使用，因为m_int32_temp_track_id_wrapper
-            // 是由第一帧推理结果经过getTrackId后输出的结果
         }
         
         // 更新时间间隔
@@ -411,23 +423,22 @@ void SparseBEV::execute()
                 LOG(INFO) << "[INFO] First frame inference completed in " << first_frame_time << "ms, caching results...";
                 
                 // 直接在GPU上缓存结果到InstanceBank
-                instance_bank_gpu_->cacheOnGPU(m_float_pred_instance_feature_wrapper,
+                instance_bank_gpu_->cache(m_float_pred_instance_feature_wrapper,
                                              m_float_pred_anchor_wrapper,
                                              m_float_pred_class_score_wrapper,
                                              is_first_frame_, stream);
                 
                 // 从GPU版本的InstanceBank获取跟踪ID
-                track_ids = instance_bank_gpu_->getTrackIdOnGPU(is_first_frame_, stream);
-                
-                // 重要：将第一帧推理结果产生的跟踪ID赋值给m_int32_temp_track_id_wrapper
-                // 这个数据将在第二帧推理中使用
-                m_int32_temp_track_id_wrapper = track_ids;
+                Status status = instance_bank_gpu_->getTrackId(is_first_frame_,m_int32_temp_track_id_wrapper, stream);
+                if (status != kSuccess) {
+                    LOG(ERROR) << "[ERROR] Failed to get track IDs";
+                }
                 
                 // 标记第一帧已完成
                 is_first_frame_ = false;
                 has_previous_frame_ = true;
                 LOG(INFO) << "[INFO] First frame results cached to GPU InstanceBank";
-                LOG(INFO) << "[INFO] Track IDs from first frame assigned to temp wrapper for second frame inference");
+                LOG(INFO) << "[INFO] Track IDs from first frame assigned to temp wrapper for second frame inference";
             }
         } else {
             LOG(INFO) << "[INFO] Step 3: Second frame head inference";
@@ -449,13 +460,16 @@ void SparseBEV::execute()
                 LOG(INFO) << "[INFO] Second frame inference completed in " << second_frame_time << "ms, caching results...";
                 
                 // 直接在GPU上缓存结果到InstanceBank
-                instance_bank_gpu_->cacheOnGPU(m_float_pred_instance_feature_wrapper,
+                instance_bank_gpu_->cache(m_float_pred_instance_feature_wrapper,
                                              m_float_pred_anchor_wrapper,
                                              m_float_pred_class_score_wrapper,
                                              is_first_frame_, stream);
                 
                 // 获取跟踪ID
-                track_ids = instance_bank_gpu_->getTrackIdOnGPU(is_first_frame_, stream);
+                Status status = instance_bank_gpu_->getTrackId(is_first_frame_, m_int32_temp_track_id_wrapper, stream);
+                if (status != kSuccess) {
+                    LOG(ERROR) << "[ERROR] Failed to get track IDs";
+                }
                 
                 LOG(INFO) << "[INFO] Second frame results cached to GPU InstanceBank";
             }
@@ -770,7 +784,7 @@ Status SparseBEV::headSecondFrame(const CudaWrapper<float>& features,
         return Status::kInferenceErr;
     }
     
-    // 准备输入数据
+    // 准备输入数据 - 使用正确的变量名
     std::vector<void*> input_buffers = {
         const_cast<void*>(static_cast<const void*>(features.getCudaPtr())),
         static_cast<void*>(m_gpu_spatial_shapes_wrapper.getCudaPtr()),
@@ -778,10 +792,10 @@ Status SparseBEV::headSecondFrame(const CudaWrapper<float>& features,
         static_cast<void*>(m_gpu_instance_feature_wrapper.getCudaPtr()),
         static_cast<void*>(m_gpu_anchor_wrapper.getCudaPtr()),
         static_cast<void*>(m_gpu_time_interval_wrapper.getCudaPtr()),
-        static_cast<void*>(m_gpu_cached_feature_wrapper.getCudaPtr()),
-        static_cast<void*>(m_gpu_cached_anchor_wrapper.getCudaPtr()),
-        static_cast<void*>(m_gpu_mask_wrapper.getCudaPtr()),
-        static_cast<void*>(m_gpu_cached_track_ids_wrapper.getCudaPtr()),
+        static_cast<void*>(m_float_temp_instance_feature_wrapper.getCudaPtr()),  // 修正变量名
+        static_cast<void*>(m_float_temp_anchor_wrapper.getCudaPtr()),           // 修正变量名
+        static_cast<void*>(m_float_mask_wrapper.getCudaPtr()),                  // 修正变量名
+        static_cast<void*>(m_int32_temp_track_id_wrapper.getCudaPtr()),         // 修正变量名
         static_cast<void*>(m_gpu_image_wh_wrapper.getCudaPtr()),
         static_cast<void*>(m_gpu_lidar2img_wrapper.getCudaPtr())
     };
