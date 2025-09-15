@@ -177,7 +177,7 @@ Status InstanceBank::reset()
     is_first_frame_ = true;
     
     // 从bin文件加载instance_feature初始值
-    std::string instance_feature_path = "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin";
+    std::string instance_feature_path = "/share/Code/Sparse4d/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin";
     
     if (loadInstanceFeatureFromFile(instance_feature_path)) {
         std::cout << "[INFO] Successfully loaded instance_feature from: " << instance_feature_path << std::endl;

@@ -100,6 +100,12 @@ class InstanceBank {
                const std::vector<float>& confidence_logits,
                const bool& is_first_frame);
 
+  // template<typename T>
+  // bool savePartialFast(const CudaWrapper<T>& gpu, size_t effective_elems, const std::string& path);
+
+  template<typename T>
+  bool saveCpuDataToFile(const std::vector<T>& cpu_data, size_t effective_elems, const std::string& path);
+
  private:
   /// @brief 初始化实例银行
   void initializeInstanceBank();

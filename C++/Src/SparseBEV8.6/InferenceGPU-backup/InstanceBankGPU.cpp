@@ -190,31 +190,48 @@ InstanceBankGPU::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>&
                      const bool& is_first_frame, cudaStream_t stream) {
     // 更新状态
     if (!is_first_frame) {
+        // 修复方法2：转换为float类型的vector
         Eigen::Matrix<float, 4, 4> global_to_lidar_mat_float = global_to_lidar_mat.cast<float>();
         std::vector<float> global_to_lidar_vec(global_to_lidar_mat_float.data(), 
                                             global_to_lidar_mat_float.data() + global_to_lidar_mat_float.size());
-        // if(saveCpuDataToFile(global_to_lidar_vec, 16, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_input_global_to_lidar_mat_4*4_float32.bin"))
-        // {
-        //     LOG(INFO) << "[INFO] cache global_to_lidar_mat saved successfully";
-        // }
+        if(saveCpuDataToFile(global_to_lidar_vec, 16, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_input_global_to_lidar_mat_4*4_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache global_to_lidar_mat saved successfully";
+        }
         time_interval_ = static_cast<float>(std::fabs(timestamp - history_time_) / 1000.0f);
         float epsilon = std::numeric_limits<float>::epsilon();
         mask_ = (time_interval_ < max_time_interval_ || std::fabs(time_interval_ - max_time_interval_) < epsilon) ? 1 : 0;
         time_interval_ = (static_cast<bool>(mask_) && time_interval_ > epsilon) ? time_interval_ : default_time_interval_;
         Eigen::Matrix<double, 4, 4> temp2cur_mat_double = global_to_lidar_mat * temp_lidar_to_global_mat_;
         Eigen::Matrix<float, 4, 4> temp2cur_mat = temp2cur_mat_double.cast<float>();
+        // 打印temp2cur_mat矩阵元素
+        std::cout << "temp2cur_mat (4x4):" << std::endl;
+        for (int r = 0; r < 4; ++r) {
+            for (int c = 0; c < 4; ++c) {
+                std::cout << temp2cur_mat(r, c);
+                if (c < 3) std::cout << " ";
+            }
+            std::cout << std::endl;
+        }
+        
         anchorProjection(m_gpu_cached_anchor_, temp2cur_mat, time_interval_, stream);
-        // if(savePartialFast(m_gpu_cached_anchor_, 6600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_output_anchor_1*600*11_float32.bin"))
-        // {
-        //     LOG(INFO) << "[INFO] cache anchor saved successfully";
-        // }
+        if(savePartialFast(m_gpu_cached_anchor_, 6600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_output_anchor_1*600*11_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache anchor saved successfully";
+        }
+        {
+            cudaError_t err = cudaPeekAtLastError();
+            if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] anchorProjection launch: " << cudaGetErrorString(err); return std::make_tuple(std::ref(m_gpu_instance_feature_), std::ref(m_gpu_anchor_), std::ref(m_gpu_cached_feature_), std::ref(m_gpu_cached_anchor_), time_interval_, mask_, std::ref(m_gpu_cached_track_ids_)); }
+            err = cudaStreamSynchronize(stream);
+            if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] anchorProjection exec: " << cudaGetErrorString(err); return std::make_tuple(std::ref(m_gpu_instance_feature_), std::ref(m_gpu_anchor_), std::ref(m_gpu_cached_feature_), std::ref(m_gpu_cached_anchor_), time_interval_, mask_, std::ref(m_gpu_cached_track_ids_)); }
+        }
+        updateTrackId(stream);    // 修正：传入stream参数
         // {
         //     cudaError_t err = cudaPeekAtLastError();
-        //     if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] anchorProjection launch: " << cudaGetErrorString(err); return std::make_tuple(std::ref(m_gpu_instance_feature_), std::ref(m_gpu_anchor_), std::ref(m_gpu_cached_feature_), std::ref(m_gpu_cached_anchor_), time_interval_, mask_, std::ref(m_gpu_cached_track_ids_)); }
+        //     if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] updateTrackId launch: " << cudaGetErrorString(err); return std::make_tuple(std::ref(m_gpu_instance_feature_), std::ref(m_gpu_anchor_), std::ref(m_gpu_cached_feature_), std::ref(m_gpu_cached_anchor_), time_interval_, mask_, std::ref(m_gpu_cached_track_ids_)); }
         //     err = cudaStreamSynchronize(stream);
-        //     if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] anchorProjection exec: " << cudaGetErrorString(err); return std::make_tuple(std::ref(m_gpu_instance_feature_), std::ref(m_gpu_anchor_), std::ref(m_gpu_cached_feature_), std::ref(m_gpu_cached_anchor_), time_interval_, mask_, std::ref(m_gpu_cached_track_ids_)); }
+        //     if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] updateTrackId exec: " << cudaGetErrorString(err); return std::make_tuple(std::ref(m_gpu_instance_feature_), std::ref(m_gpu_anchor_), std::ref(m_gpu_cached_feature_), std::ref(m_gpu_cached_anchor_), time_interval_, mask_, std::ref(m_gpu_cached_track_ids_)); }
         // }
-        updateTrackId(stream); 
     } else {
         reset();
         time_interval_ = default_time_interval_;
@@ -246,6 +263,34 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
     
     std::cout << "[DEBUG] cache() - Start" << std::endl;
     
+    if(is_first_frame){
+        if(savePartialFast(instance_feature, 230400, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_0_cache_input_instance_feature_1*900*256_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache() instance_feature saved successfully";
+        }
+        if(savePartialFast(anchor, 9900, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_0_cache_input_anchor_1*900*11_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache() anchor saved successfully";
+        }
+        if(savePartialFast(confidence_logits, 9000, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_0_cache_input_confidence_logits_1*900*10_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache() confidence_logits saved successfully";
+        }
+    }else{
+        if(savePartialFast(instance_feature, 230400, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_cache_input_instance_feature_1*900*256_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache() instance_feature saved successfully";
+        }
+        if(savePartialFast(anchor, 9900, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1cache_input_anchor_1*900*11_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache() anchor saved successfully";
+        }
+        if(savePartialFast(confidence_logits, 9000, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_cache_input_confidence_logits_1*900*10_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache() confidence_logits saved successfully";
+        }
+    }
+    
     // 检查指针是否为空
     if (!m_gpu_cached_feature_.getCudaPtr() || !m_gpu_cached_anchor_.getCudaPtr() ||
         !m_gpu_cached_track_ids_.getCudaPtr() || !m_gpu_cached_confidence_.getCudaPtr()) {
@@ -267,15 +312,36 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
         return kInvalidInput;
     }
     
+    std::cout << "[DEBUG] Input validation passed" << std::endl;
+    
     // 1. 获取最大置信度分数
-    // std::cout << "[DEBUG] Getting max confidence scores..." << std::endl;
+    std::cout << "[DEBUG] Getting max confidence scores..." << std::endl;
     CudaWrapper<float> confidence = InstanceBankGPU::getMaxConfidenceScores(confidence_logits, num_anchors_);
+    std::cout << "[DEBUG] Applying confidence decay and fusion..." << std::endl;
+    std::vector<float> cpu_confidence = confidence.cudaMemcpyD2HResWrap();
+    std::cout << "=== cached_cpu_confidence values ===" << std::endl;
+    std::cout << "Size: " << cpu_confidence.size() << " elements" << std::endl;
+    // 只打印前20个元素，避免输出过多
+    for (size_t i = 0; i < std::min(cpu_confidence.size(), size_t(600)); ++i) {
+        std::cout << "[" << i << "] = " << cpu_confidence[i];
+        if ((i + 1) % 10 == 0) {
+            std::cout << std::endl;
+        } else {
+            std::cout << " ";
+        }
+    }
+    if (cpu_confidence.size() % 10 != 0) {
+        std::cout << std::endl;
+    }
+    std::cout << "=== End of cpu_confidence ===" << std::endl;
 
     // 验证confidence对象
     if (!confidence.isValid()) {
         LOG(ERROR) << "[ERROR] Invalid confidence object after getMaxConfidenceScores";
         return kInferenceErr;
     }
+    
+    std::cout << "[DEBUG] Max confidence scores obtained, size: " << confidence.getSize() << std::endl;
     
     // 2. 应用置信度衰减和融合（非第一帧时）
     if (!is_first_frame) {
@@ -309,25 +375,47 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
             LOG(ERROR) << "[ERROR] Failed to fuse confidence on GPU";
             return kInferenceErr;
         }
+        
+        std::cout << "[DEBUG] Confidence decay and fusion completed" << std::endl;
     }
     
+    // // 3. 保存当前置信度用于下次融合
+    // std::cout << "[DEBUG] Saving current confidence..." << std::endl;
+    
+    // if (confidence.getSize() > 0 && m_gpu_cached_confidence_.isValid()) {
+    //     std::cout << "[DEBUG] Copying confidence data..." << std::endl;
+        
+    //     // 使用同步复制而不是异步复制，确保数据完整性
+    //     cudaError_t copy_error = cudaMemcpy(m_gpu_cached_confidence_.getCudaPtr(), 
+    //                                       confidence.getCudaPtr(),
+    //                                       std::min(confidence.getSize(), m_gpu_cached_confidence_.getSize()) * sizeof(float),
+    //                                       cudaMemcpyDeviceToDevice);
+        
+    //     if (copy_error != cudaSuccess) {
+    //         LOG(ERROR) << "[ERROR] Failed to copy confidence data: " << cudaGetErrorString(copy_error);
+    //         return kInferenceErr;
+    //     }
+        
+    //     std::cout << "[DEBUG] Confidence data copied successfully" << std::endl;
+    // }
+    
     // 4. 清空之前的缓存数据
-    // std::cout << "[DEBUG] Clearing previous cache data..." << std::endl;
+    std::cout << "[DEBUG] Clearing previous cache data..." << std::endl;
     m_gpu_cached_feature_.cudaMemSetWrap();
     m_gpu_cached_anchor_.cudaMemSetWrap();
     m_gpu_cached_track_ids_.cudaMemSetWrap();
     m_gpu_cached_track_id_index_.cudaMemSetWrap();
     
     // 5. 获取Top-K实例
-    // std::cout << "[DEBUG] Getting top-k instances..." << std::endl;
-    // std::cout << "[DEBUG] Calling getTopkInstanceOnGPU with parameters:" << std::endl;
-    // std::cout << "  - confidence size: " << confidence.getSize() << std::endl;
-    // std::cout << "  - instance_feature size: " << instance_feature.getSize() << std::endl;
-    // std::cout << "  - anchor size: " << anchor.getSize() << std::endl;
-    // std::cout << "  - num_anchors: " << num_anchors_ << std::endl;
-    // std::cout << "  - anchor_dims: " << anchor_dims_ << std::endl;
-    // std::cout << "  - embedfeat_dims: " << embedfeat_dims_ << std::endl;
-    // std::cout << "  - topk_anchors: " << topk_anchors_ << std::endl;
+    std::cout << "[DEBUG] Getting top-k instances..." << std::endl;
+    std::cout << "[DEBUG] Calling getTopkInstanceOnGPU with parameters:" << std::endl;
+    std::cout << "  - confidence size: " << confidence.getSize() << std::endl;
+    std::cout << "  - instance_feature size: " << instance_feature.getSize() << std::endl;
+    std::cout << "  - anchor size: " << anchor.getSize() << std::endl;
+    std::cout << "  - num_anchors: " << num_anchors_ << std::endl;
+    std::cout << "  - anchor_dims: " << anchor_dims_ << std::endl;
+    std::cout << "  - embedfeat_dims: " << embedfeat_dims_ << std::endl;
+    std::cout << "  - topk_anchors: " << topk_anchors_ << std::endl;
 
     // 验证输入参数的有效性
     if (!confidence.isValid() || !instance_feature.isValid() || !anchor.isValid()) {
@@ -344,6 +432,23 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
         stream
     );
 
+    std::vector<int> cached_track_ids = m_gpu_cached_track_id_index_.cudaMemcpyD2HResWrap();
+    std::cout << "=== m_gpu_cached_track_id_index_ values ===" << std::endl;
+    std::cout << "Size: " << cached_track_ids.size() << " elements" << std::endl;
+    // 只打印前20个元素，避免输出过多
+    for (size_t i = 0; i < std::min(cached_track_ids.size(), size_t(600)); ++i) {
+        std::cout << "[" << i << "] = " << cached_track_ids[i];
+        if ((i + 1) % 10 == 0) {
+            std::cout << std::endl;
+        } else {
+            std::cout << " ";
+        }
+    }
+    if (cached_track_ids.size() % 10 != 0) {
+        std::cout << std::endl;
+    }
+    std::cout << "=== End of m_gpu_cached_track_id_index_ ===" << std::endl;
+
     {
         cudaError_t err = cudaPeekAtLastError();
         if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] getTopkInstanceOnGPU launch: " << cudaGetErrorString(err); return kInferenceErr; }
@@ -355,42 +460,45 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
         LOG(ERROR) << "[ERROR] Failed to get top-k instances";
         return kInferenceErr;
     }
+    // 添加打印调用
+    // printCachedTrackIds();
+    std::cout << "[DEBUG] Top-k instances obtained successfully" << " , m_gpu_cached_track_ids_.getSize() : " << m_gpu_cached_track_ids_.getSize() << std::endl;
     
     // 6. 在同步之前检查CUDA错误
-    // std::cout << "[DEBUG] Checking CUDA errors before synchronization..." << std::endl;
+    std::cout << "[DEBUG] Checking CUDA errors before synchronization..." << std::endl;
     
     // 检查每个GPU内存对象的有效性
-    // std::cout << "[DEBUG] GPU memory validation:" << std::endl;
-    // std::cout << "  - m_gpu_cached_feature_: valid=" << m_gpu_cached_feature_.isValid() 
-    //           << ", size=" << m_gpu_cached_feature_.getSize() 
-    //           << ", ptr=" << m_gpu_cached_feature_.getCudaPtr() << std::endl;
-    // std::cout << "  - m_gpu_cached_anchor_: valid=" << m_gpu_cached_anchor_.isValid() 
-    //           << ", size=" << m_gpu_cached_anchor_.getSize() 
-    //           << ", ptr=" << m_gpu_cached_anchor_.getCudaPtr() << std::endl;
-    // std::cout << "  - m_gpu_cached_track_ids_: valid=" << m_gpu_cached_track_ids_.isValid() 
-    //           << ", size=" << m_gpu_cached_track_ids_.getSize() 
-    //           << ", ptr=" << m_gpu_cached_track_ids_.getCudaPtr() << std::endl;
-    // std::cout << "  - m_gpu_cached_confidence_: valid=" << m_gpu_cached_confidence_.isValid() 
-            //   << ", size=" << m_gpu_cached_confidence_.getSize() 
-            //   << ", ptr=" << m_gpu_cached_confidence_.getCudaPtr() << std::endl;
+    std::cout << "[DEBUG] GPU memory validation:" << std::endl;
+    std::cout << "  - m_gpu_cached_feature_: valid=" << m_gpu_cached_feature_.isValid() 
+              << ", size=" << m_gpu_cached_feature_.getSize() 
+              << ", ptr=" << m_gpu_cached_feature_.getCudaPtr() << std::endl;
+    std::cout << "  - m_gpu_cached_anchor_: valid=" << m_gpu_cached_anchor_.isValid() 
+              << ", size=" << m_gpu_cached_anchor_.getSize() 
+              << ", ptr=" << m_gpu_cached_anchor_.getCudaPtr() << std::endl;
+    std::cout << "  - m_gpu_cached_track_ids_: valid=" << m_gpu_cached_track_ids_.isValid() 
+              << ", size=" << m_gpu_cached_track_ids_.getSize() 
+              << ", ptr=" << m_gpu_cached_track_ids_.getCudaPtr() << std::endl;
+    std::cout << "  - m_gpu_cached_confidence_: valid=" << m_gpu_cached_confidence_.isValid() 
+              << ", size=" << m_gpu_cached_confidence_.getSize() 
+              << ", ptr=" << m_gpu_cached_confidence_.getCudaPtr() << std::endl;
     
-    // // 检查指针对齐
-    // if (m_gpu_cached_feature_.getCudaPtr()) {
-    //     uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_feature_.getCudaPtr());
-    //     std::cout << "[DEBUG] m_gpu_cached_feature_ alignment: " << (ptr_val % 16) << std::endl;
-    // }
-    // if (m_gpu_cached_anchor_.getCudaPtr()) {
-    //     uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_anchor_.getCudaPtr());
-    //     std::cout << "[DEBUG] m_gpu_cached_anchor_ alignment: " << (ptr_val % 16) << std::endl;
-    // }
-    // if (m_gpu_cached_track_ids_.getCudaPtr()) {
-    //     uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_track_ids_.getCudaPtr());
-    //     std::cout << "[DEBUG] m_gpu_cached_track_ids_ alignment: " << (ptr_val % 16) << std::endl;
-    // }
-    // if (m_gpu_cached_confidence_.getCudaPtr()) {
-    //     uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_confidence_.getCudaPtr());
-    //     std::cout << "[DEBUG] m_gpu_cached_confidence_ alignment: " << (ptr_val % 16) << std::endl;
-    // }
+    // 检查指针对齐
+    if (m_gpu_cached_feature_.getCudaPtr()) {
+        uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_feature_.getCudaPtr());
+        std::cout << "[DEBUG] m_gpu_cached_feature_ alignment: " << (ptr_val % 16) << std::endl;
+    }
+    if (m_gpu_cached_anchor_.getCudaPtr()) {
+        uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_anchor_.getCudaPtr());
+        std::cout << "[DEBUG] m_gpu_cached_anchor_ alignment: " << (ptr_val % 16) << std::endl;
+    }
+    if (m_gpu_cached_track_ids_.getCudaPtr()) {
+        uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_track_ids_.getCudaPtr());
+        std::cout << "[DEBUG] m_gpu_cached_track_ids_ alignment: " << (ptr_val % 16) << std::endl;
+    }
+    if (m_gpu_cached_confidence_.getCudaPtr()) {
+        uintptr_t ptr_val = reinterpret_cast<uintptr_t>(m_gpu_cached_confidence_.getCudaPtr());
+        std::cout << "[DEBUG] m_gpu_cached_confidence_ alignment: " << (ptr_val % 16) << std::endl;
+    }
     
     // 检查CUDA错误
     cudaError_t pre_sync_error = cudaGetLastError();
@@ -429,14 +537,42 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
         LOG(ERROR) << "[ERROR] GPU memory objects became invalid after operations";
         return kInferenceErr;
     }
+
+    if(is_first_frame){
+        if(savePartialFast(m_gpu_cached_feature_, 153600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_0_output_cached_feature_1*600*256_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache feature saved successfully";
+        }
+        if(savePartialFast(m_gpu_cached_anchor_, 6600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_0_output_cached_anchor_1*600*11_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache anchor saved successfully";
+        }
+        if(savePartialFast(m_gpu_cached_track_id_index_, 600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_0_output_cached_track_id_1*600_int32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache track_ids saved successfully";
+        }
+    }
+    else{
+        if(savePartialFast(m_gpu_cached_feature_, 153600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_output_cached_feature_1*600*256_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache feature saved successfully";
+        }
+        if(savePartialFast(m_gpu_cached_anchor_, 6600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_output_cached_anchor_1*600*11_float32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache anchor saved successfully";
+        }
+        if(savePartialFast(m_gpu_cached_track_id_index_, 600, "/share/Code/Sparse4d/C++/Output/val_bin_gpu/sample_1_output_cached_track_id_1*600_int32.bin"))
+        {
+            LOG(INFO) << "[INFO] cache track_ids saved successfully";
+        }
+    }
     
     std::cout << "[DEBUG] cache() - Completed successfully" << std::endl;
     return kSuccess;
 }
 
  Status InstanceBankGPU::getTrackId(const bool& is_first_frame, CudaWrapper<int32_t>& track_ids, cudaStream_t stream) {
-    if (is_first_frame) 
-    {
+    if (is_first_frame) {
         // 生成新的跟踪ID
         Status status = UtilsGPU::generateNewTrackIdsOnGPU(
             m_gpu_track_ids_, m_gpu_prev_id_wrapper_, num_anchors_, stream);
@@ -451,8 +587,24 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
         std::vector<int32_t> prev_id_vec = {num_anchors_ - 1};
         m_gpu_prev_id_wrapper_.cudaMemUpdateWrap(prev_id_vec);
         return status;
-    } else 
-    {
+    } else {
+        // std::vector<int> cached_track_ids = m_gpu_cached_track_ids_.cudaMemcpyD2HResWrap();
+        // std::cout << "=== cached_track_ids values ===" << std::endl;
+        // std::cout << "Size: " << cached_track_ids.size() << " elements" << std::endl;
+        // // 只打印前20个元素，避免输出过多
+        // for (size_t i = 0; i < std::min(cached_track_ids.size(), size_t(600)); ++i) {
+        //     std::cout << "[" << i << "] = " << cached_track_ids[i];
+        //     if ((i + 1) % 10 == 0) {
+        //         std::cout << std::endl;
+        //     } else {
+        //         std::cout << " ";
+        //     }
+        // }
+        // if (cached_track_ids.size() % 10 != 0) {
+        //     std::cout << std::endl;
+        // }
+        // std::cout << "=== End of cached_track_ids ===" << std::endl;
+        
         // 更新新的track_ids
         Status status = UtilsGPU::updateNewTrackIdsOnGPU(
             m_gpu_track_ids_, num_anchors_, topk_anchors_, m_gpu_prev_id_wrapper_,stream);
@@ -466,6 +618,26 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
 }
 
 void InstanceBankGPU::updateTrackId(cudaStream_t stream) {
+    // // 直接在GPU上完成索引选择和填充操作
+    // std::cout << "m_gpu_cached_track_ids_.size() :" << m_gpu_cached_track_ids_.getSize() << std::endl;
+
+    // std::vector<int> cached_track_ids = m_gpu_cached_track_ids_.cudaMemcpyD2HResWrap();
+    // std::cout << "=== cached_track_ids values ===" << std::endl;
+    // std::cout << "Size: " << cached_track_ids.size() << " elements" << std::endl;
+    // // 只打印前20个元素，避免输出过多
+    // for (size_t i = 0; i < std::min(cached_track_ids.size(), size_t(600)); ++i) {
+    //     std::cout << "[" << i << "] = " << cached_track_ids[i];
+    //     if ((i + 1) % 10 == 0) {
+    //         std::cout << std::endl;
+    //     } else {
+    //         std::cout << " ";
+    //     }
+    // }
+    // if (cached_track_ids.size() % 10 != 0) {
+    //     std::cout << std::endl;
+    // }
+    // std::cout << "=== End of cached_track_ids ===" << std::endl;
+
     // 根据topk的索引值从m_gpu_track_ids_中按topk顺序更新m_gpu_track_ids_并将后300个位置填充-1
     Status status = UtilsGPU::selectTrackIdsFromIndicesOnGPU(
         m_gpu_track_ids_,                  // 输入输出：当前目标的track_ids(900)， 输出排序后的track_dis(600) + -1(300)
@@ -473,6 +645,31 @@ void InstanceBankGPU::updateTrackId(cudaStream_t stream) {
         topk_anchors_,                     // topk个索引值
         stream                             // 修正：传入stream参数
     );
+
+    
+    // std::vector<int> cached_track_ids = m_gpu_track_ids_.cudaMemcpyD2HResWrap();
+    // std::cout << "=== cached_track_ids values ===" << std::endl;
+    // std::cout << "Size: " << cached_track_ids.size() << " elements" << std::endl;
+    // // 只打印前20个元素，避免输出过多
+    // for (size_t i = 0; i < std::min(cached_track_ids.size(), size_t(600)); ++i) {
+    //     std::cout << "[" << i << "] = " << cached_track_ids[i];
+    //     if ((i + 1) % 10 == 0) {
+    //         std::cout << std::endl;
+    //     } else {
+    //         std::cout << " ";
+    //     }
+    // }
+    // if (cached_track_ids.size() % 10 != 0) {
+    //     std::cout << std::endl;
+    // }
+    // std::cout << "=== End of cached_track_ids ===" << std::endl;
+
+    
+    // if (status != kSuccess) {
+    //     LOG(ERROR) << "[ERROR] Failed to select track IDs from indices on GPU";
+    // } else {
+    //     LOG(INFO) << "[INFO] Successfully updated track IDs in place";
+    // }
 }
 
 void InstanceBankGPU::updateConfidence(const CudaWrapper<float>& confidence) {
@@ -491,6 +688,9 @@ template <typename T>
 CudaWrapper<T> InstanceBankGPU::getMaxConfidenceScores(const CudaWrapper<T>& confidence_logits,
                                                        const std::uint32_t& num_anchors) {
     std::cout << "[DEBUG] getMaxConfidenceScores() - Start" << std::endl;
+    std::cout << "[DEBUG] confidence_logits.getSize(): " << confidence_logits.getSize() 
+              << ", num_anchors: " << num_anchors << std::endl;
+    
     // 验证输入参数
     if (!confidence_logits.isValid() || confidence_logits.getSize() == 0) {
         LOG(ERROR) << "[ERROR] Invalid confidence_logits in getMaxConfidenceScores";
@@ -536,15 +736,15 @@ CudaWrapper<T> InstanceBankGPU::getMaxConfidenceScores(const CudaWrapper<T>& con
     return max_scores;
 }
 
-// template <typename T>
-// T InstanceBankGPU::sigmoid(const T& logits) {
-//     if (logits > 0) {
-//         return static_cast<T>(1.0) / (static_cast<T>(1.0) + std::exp(-logits));
-//     } else {
-//         T exp_x = std::exp(logits);
-//         return exp_x / (static_cast<T>(1.0) + exp_x);
-//     }
-// }
+template <typename T>
+T InstanceBankGPU::sigmoid(const T& logits) {
+    if (logits > 0) {
+        return static_cast<T>(1.0) / (static_cast<T>(1.0) + std::exp(-logits));
+    } else {
+        T exp_x = std::exp(logits);
+        return exp_x / (static_cast<T>(1.0) + exp_x);
+    }
+}
 
 // 添加loadDataFromFile模板函数的实现
 template<typename T>

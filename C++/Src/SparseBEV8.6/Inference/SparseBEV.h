@@ -120,6 +120,8 @@ public:
     void saveTempAnchorData();
     void saveMaskData();
     void saveTrackIdData();
+    template<typename T>
+    bool savePartialFast(const CudaWrapper<T>& gpu, size_t effective_elems, const std::string& path);
 
 private:
     // 设置各种输入数据的方法

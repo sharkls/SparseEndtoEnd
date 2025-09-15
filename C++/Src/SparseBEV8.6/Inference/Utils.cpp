@@ -43,6 +43,10 @@ Status getTopkInstance(const std::vector<float>& confidence,        // Shape is 
                                std::vector<std::uint32_t>& temp_topk_index) {
   std::vector<IndexedValue> indexedValues(num_querys);
 
+  // 清空输出数组，避免重复添加数据
+  temp_topk_confidence.clear();
+  temp_topk_confidence.reserve(num_topk_querys);
+
   for (std::uint32_t i = 0; i < num_querys; ++i) {
     indexedValues[i].value = confidence[i];
     indexedValues[i].index = i;

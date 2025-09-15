@@ -162,7 +162,7 @@ Status InstanceBank::reset()
     is_first_frame_ = true;
     
     // 从bin文件加载instance_feature初始值
-    std::string instance_feature_path = "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin";
+    std::string instance_feature_path = "/share/Code/Sparse4d/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin";
     
     if (loadInstanceFeatureFromFile(instance_feature_path)) {
         std::cout << "[INFO] Successfully loaded instance_feature from: " << instance_feature_path << std::endl;
@@ -318,6 +318,14 @@ InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& gl
   
   // if (!query_anchor_.empty()) {   // 初始化实例时query_anchor_就不为空了
   if (!is_first_frame) {      // 第二帧
+    // 修复方法2：转换为float类型的vector
+    Eigen::Matrix<float, 4, 4> global_to_lidar_mat_float = global_to_lidar_mat.cast<float>();
+    std::vector<float> global_to_lidar_vec(global_to_lidar_mat_float.data(), 
+                                        global_to_lidar_mat_float.data() + global_to_lidar_mat_float.size());
+    if(saveCpuDataToFile(global_to_lidar_vec, 16, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_global_to_lidar_mat_4*4_float32.bin"))
+    {
+        LOG(INFO) << "[INFO] cache global_to_lidar_mat saved successfully";
+    }
     time_interval_ = static_cast<float>(std::fabs(timestamp - history_time_) / 1000.0f);
     float epsilon = std::numeric_limits<float>::epsilon();
     mask_ = (time_interval_ < max_time_interval_ || std::fabs(time_interval_ - max_time_interval_) < epsilon) ? 1 : 0;
@@ -325,6 +333,17 @@ InstanceBank::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& gl
 
     Eigen::Matrix<double, 4, 4> temp2cur_mat_double = global_to_lidar_mat * temp_lidar_to_global_mat_;
     Eigen::Matrix<float, 4, 4> temp2cur_mat = temp2cur_mat_double.cast<float>();
+
+    // 打印temp2cur_mat矩阵元素
+    std::cout << "temp2cur_mat (4x4):" << std::endl;
+    for (int r = 0; r < 4; ++r) {
+        for (int c = 0; c < 4; ++c) {
+            std::cout << temp2cur_mat(r, c);
+            if (c < 3) std::cout << " ";
+        }
+        std::cout << std::endl;
+    }
+
     anchorProjection(query_anchor_, temp2cur_mat, time_interval_);
   } else{       // 第一帧
     reset();
@@ -356,6 +375,34 @@ Status InstanceBank::cache(const std::vector<float>& instance_feature,
                                    const std::vector<float>& anchor,
                                    const std::vector<float>& confidence_logits,
                                    const bool& is_first_frame) {
+  if(is_first_frame){
+      if(saveCpuDataToFile(instance_feature, 230400, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_cache_input_instance_feature_1*900*256_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache() instance_feature saved successfully";
+      }
+      if(saveCpuDataToFile(anchor, 9900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_cache_input_anchor_1*900*11_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache() anchor saved successfully";
+      }
+      if(saveCpuDataToFile(confidence_logits, 9000, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_cache_input_confidence_logits_1*900*10_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache() confidence_logits saved successfully";
+      }
+  }else{
+      if(saveCpuDataToFile(instance_feature, 230400, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_cache_input_instance_feature_1*900*256_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache() instance_feature saved successfully";
+      }
+      if(saveCpuDataToFile(anchor, 9900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1cache_input_anchor_1*900*11_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache() anchor saved successfully";
+      }
+      if(saveCpuDataToFile(confidence_logits, 9000, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_cache_input_confidence_logits_1*900*10_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache() confidence_logits saved successfully";
+      }
+  }
+  
   std::vector<float> confidence = InstanceBank::getMaxConfidenceScores(confidence_logits, num_querys_);
 
   // 应用置信度衰减和融合
@@ -369,9 +416,8 @@ Status InstanceBank::cache(const std::vector<float>& instance_feature,
   }
   
   // 保存当前置信度用于下次融合
-  query_confidence_ = confidence;
-  // updateConfidence(confidence);
-  
+  std::cout << "query_confidence_.size() : " << query_confidence_.size() << " , confidence.size() : " << confidence.size() << std::endl;
+
   // 清空之前的缓存数据
   query_.clear();
   query_anchor_.clear();
@@ -393,6 +439,34 @@ Status InstanceBank::cache(const std::vector<float>& instance_feature,
 //   LOG(INFO) << "[INFO] Cached anchor size: " << query_anchor_.size();
 //   LOG(INFO) << "[INFO] Cached confidence size: " << query_confidence_.size();
 //   LOG(INFO) << "[INFO] Cached track IDs size: " << query_track_ids_.size();
+  if(is_first_frame){
+      if(saveCpuDataToFile(query_, 153600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_cached_feature_1*600*256_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache feature saved successfully";
+      }
+      if(saveCpuDataToFile(query_anchor_, 6600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_cached_anchor_1*600*11_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache anchor saved successfully";
+      }
+      if(saveCpuDataToFile(query_track_ids_, 600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_cached_track_id_1*600_int32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache track_ids saved successfully";
+      }
+  }
+  else{
+      if(saveCpuDataToFile(query_, 153600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_cached_feature_1*600*256_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache feature saved successfully";
+      }
+      if(saveCpuDataToFile(query_anchor_, 6600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_cached_anchor_1*600*11_float32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache anchor saved successfully";
+      }
+      if(saveCpuDataToFile(query_track_ids_, 600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_cached_track_id_1*600_int32.bin"))
+      {
+          LOG(INFO) << "[INFO] cache track_ids saved successfully";
+      }
+  }
 
   return Status::kSuccess;
 }
@@ -640,4 +714,60 @@ bool InstanceBank::saveInstanceBankData(const int sample_id) {
     
     std::cout << "[INFO] Successfully saved all InstanceBank data for sample " << sample_id << std::endl;
     return true;
+}
+
+// /**
+//  * @brief 将CudaWrapper中的数据保存到文件
+//  * @param gpu 要保存的GPU数据
+//  * @param effective_elems 有效元素数量
+//  * @param path 保存文件路径
+//  * @return 保存是否成功
+//  */
+// template<typename T>
+// bool InstanceBank::savePartialFast(const CudaWrapper<T>& gpu, size_t effective_elems, const std::string& path) {
+//     if (!gpu.isValid() || effective_elems == 0 || effective_elems > gpu.getSize()) return false;
+//     std::vector<T> host(effective_elems);
+//     cudaError_t err = cudaMemcpy(host.data(), gpu.getCudaPtr(),
+//                                  effective_elems * sizeof(T),
+//                                  cudaMemcpyDeviceToHost);
+//     if (err != cudaSuccess) return false;
+//     std::ofstream f(path, std::ios::binary);
+//     if (!f.is_open()) return false;
+//     f.write(reinterpret_cast<const char*>(host.data()), effective_elems * sizeof(T));
+//     return f.good();
+// }
+
+/**
+ * @brief 将CPU数据保存到文件
+ * @param cpu_data 要保存的CPU数据
+ * @param effective_elems 有效元素数量
+ * @param path 保存文件路径
+ * @return 保存是否成功
+ */
+template<typename T>
+bool InstanceBank::saveCpuDataToFile(const std::vector<T>& cpu_data, size_t effective_elems, const std::string& path) {
+    if (effective_elems == 0 || effective_elems > cpu_data.size()) {
+        std::cout << "[ERROR] Invalid effective_elems: " << effective_elems 
+                  << ", cpu_data size: " << cpu_data.size() << std::endl;
+        return false;
+    }
+    
+    std::ofstream f(path, std::ios::binary);
+    if (!f.is_open()) {
+        std::cout << "[ERROR] Failed to open file: " << path << std::endl;
+        return false;
+    }
+    
+    f.write(reinterpret_cast<const char*>(cpu_data.data()), effective_elems * sizeof(T));
+    bool success = f.good();
+    f.close();
+    
+    if (success) {
+        std::cout << "[INFO] Successfully saved " << effective_elems 
+                  << " elements to file: " << path << std::endl;
+    } else {
+        std::cout << "[ERROR] Failed to write data to file: " << path << std::endl;
+    }
+    
+    return success;
 }

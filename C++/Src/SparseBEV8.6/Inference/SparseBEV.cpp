@@ -395,7 +395,7 @@ void SparseBEV::execute()
             cudaStreamDestroy(stream);
             return;
         }
-
+    
         // 步骤2：获取temporal信息
         instance_bank_start = GetTimeStamp();
         LOG(INFO) << "[INFO] Step 2: Getting temporal information: current_timestamp_ : " << current_timestamp_;
@@ -404,70 +404,27 @@ void SparseBEV::execute()
         instance_bank_end = GetTimeStamp();
         instance_bank_time = instance_bank_end - instance_bank_start;
         LOG(INFO) << "[INFO] Instance bank completed in " << instance_bank_time << "ms";
-
-        // 智能GPU内存传输策略：根据数据大小选择最佳传输方法
-        LOG(INFO) << "[INFO] Starting intelligent GPU memory transfers...";
         
         // 记录内存拷贝开始时间
         int64_t memory_copy_start = GetTimeStamp();
-        
-        // 计算总传输数据量
-        size_t total_transfer_size = instance_feature.size() + anchor.size() + cached_feature.size() + 
-                                   cached_anchor.size() + 1 + m_time_interval.size(); // +1 for mask
-        
-        LOG(INFO) << "[INFO] Total transfer size: " << total_transfer_size << " elements";
-        
-        // 策略1：对于大数据块，使用同步传输（避免多次小传输的开销）
-        if (instance_feature.size() > 50000) { // 大数据块使用同步传输
-            LOG(INFO) << "[INFO] Using synchronous transfer for large instance_feature data (" << instance_feature.size() << " elements)";
-            m_gpu_instance_feature_wrapper.cudaMemUpdateWrap(instance_feature);
-        } else if (instance_feature.size() > 10000) { // 中等数据块使用优化传输
-            LOG(INFO) << "[INFO] Using optimized transfer for medium instance_feature data (" << instance_feature.size() << " elements)";
-            m_gpu_instance_feature_wrapper.cudaMemUpdateWrapOptimized(instance_feature, stream);
-        } else { // 小数据块使用异步传输
-            m_gpu_instance_feature_wrapper.cudaMemUpdateWrapAsync(instance_feature, stream);
-        }
-        
-        if (anchor.size() > 50000) {
-            LOG(INFO) << "[INFO] Using synchronous transfer for large anchor data (" << anchor.size() << " elements)";
-            m_gpu_anchor_wrapper.cudaMemUpdateWrap(anchor);
-        } else if (anchor.size() > 10000) {
-            LOG(INFO) << "[INFO] Using optimized transfer for medium anchor data (" << anchor.size() << " elements)";
-            m_gpu_anchor_wrapper.cudaMemUpdateWrapOptimized(anchor, stream);
-        } else {
-            m_gpu_anchor_wrapper.cudaMemUpdateWrapAsync(anchor, stream);
-        }
-        
-        // 策略2：对于小数据块，使用异步传输
-        m_float_temp_instance_feature_wrapper.cudaMemUpdateWrapAsync(cached_feature, stream);
-        m_float_temp_anchor_wrapper.cudaMemUpdateWrapAsync(cached_anchor, stream);
-        
+
+        // 将获取的instance_feature和anchor复制到GPU内存包装器中用于推理
+        m_gpu_instance_feature_wrapper.cudaMemUpdateWrap(instance_feature);
+        m_gpu_anchor_wrapper.cudaMemUpdateWrap(anchor);
+        m_float_temp_instance_feature_wrapper.cudaMemUpdateWrap(cached_feature);
+        m_float_temp_anchor_wrapper.cudaMemUpdateWrap(cached_anchor);
         // 将单个mask值转换为向量
-        LOG(INFO) << "mask : " << mask;
+        // LOG(INFO) << "mask : " << mask;
         std::vector<int32_t> mask_vector = {static_cast<int32_t>(mask)};
-        m_float_mask_wrapper.cudaMemUpdateWrapAsync(mask_vector, stream);
-        
+        m_float_mask_wrapper.cudaMemUpdateWrap(mask_vector);
         // 更新当前帧的时间间隔
         m_time_interval[0] = time_interval;
         // 将更新后的时间间隔复制到GPU内存
-        m_gpu_time_interval_wrapper.cudaMemUpdateWrapAsync(m_time_interval, stream);
+        m_gpu_time_interval_wrapper.cudaMemUpdateWrap(m_time_interval);
         
-        // 策略3：使用事件来优化同步，避免阻塞CPU
-        cudaEvent_t transfer_complete;
-        cudaEventCreate(&transfer_complete);
-        cudaEventRecord(transfer_complete, stream);
-        
-        // 等待所有异步拷贝完成
-        cudaEventSynchronize(transfer_complete);
-        cudaEventDestroy(transfer_complete);
-        
-        // 记录内存拷贝结束时间并计算耗时
-        int64_t memory_copy_end = GetTimeStamp();
+
         int64_t memory_copy_time = memory_copy_end - memory_copy_start;
         LOG(INFO) << "[INFO] GPU memory transfers completed in " << memory_copy_time << "ms";
-        
-        // 保存实例特征和锚点数据到成员变量
-        m_instance_feature = instance_feature;
         
         // LOG(INFO) << "[INFO] Updated GPU instance_feature size: " << instance_feature.size() << " floats";
         // LOG(INFO) << "[INFO] Updated GPU anchor size: " << anchor.size() << " floats";
@@ -503,6 +460,9 @@ void SparseBEV::execute()
                 // 从InstanceBank获取跟踪ID
                 track_ids = instance_bank_->getTrackId(is_first_frame_);
                 m_int32_temp_track_id_wrapper.cudaMemUpdateWrap(track_ids);
+                if (savePartialFast(m_int32_temp_track_id_wrapper, 900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_track_id_1*900_int32.bin")) {
+                    LOG(INFO) << "[INFO] track_id saved successfully";
+                }
                 
                 // 标记第一帧已完成
                 is_first_frame_ = false;
@@ -859,6 +819,41 @@ Status SparseBEV::headFirstFrame(const CudaWrapper<float>& features,
         static_cast<void*>(m_gpu_image_wh_wrapper.getCudaPtr()),
         static_cast<void*>(m_gpu_lidar2img_wrapper.getCudaPtr())
     };
+
+        // 保存推理结果
+    if (savePartialFast(m_gpu_spatial_shapes_wrapper, 48,"/share/Code/Sparse4d/C++/Output/val_bin/sample_0_input_spatial_shapes_6*4*2_int32.bin")) {
+        LOG(INFO) << "[INFO] spatial_shapes saved successfully";
+    }
+    if (savePartialFast(m_gpu_level_start_index_wrapper, 24, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_input_level_start_index_6*4_int32.bin")) {
+        LOG(INFO) << "[INFO] level_start_index saved successfully";
+    }
+    if (savePartialFast(m_gpu_instance_feature_wrapper, 230400, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_input_instance_feature_1*900*256_float32.bin")) {
+        LOG(INFO) << "[INFO] instance_feature saved successfully";
+    }
+    if (savePartialFast(m_gpu_anchor_wrapper, 9900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_input_anchor_1*900*11_float32.bin")) {
+        LOG(INFO) << "[INFO] anchor saved successfully";
+    }
+    if (savePartialFast(m_gpu_time_interval_wrapper, 1, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_input_time_interval_1_float32.bin")) {
+        LOG(INFO) << "[INFO] Time interval saved successfully";
+    }
+    // if (savePartialFast(m_float_temp_instance_feature_wrapper, 153600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_temp_instance_feature_1*600*256_float32.bin")) {
+    //     LOG(INFO) << "[INFO] temp_instance_feature saved successfully";
+    // }
+    // if (savePartialFast(m_float_temp_anchor_wrapper, 6600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_temp_anchor_1*600*11_float32.bin")) {
+    //     LOG(INFO) << "[INFO] temp_anchor saved successfully";
+    // }
+    // if (savePartialFast(m_float_mask_wrapper, 1, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_mask_1_int32.bin")) {
+    //     LOG(INFO) << "[INFO] mask saved successfully";
+    // }
+    // if (savePartialFast(m_int32_temp_track_id_wrapper, 900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_track_id_1*900_int32.bin")) {
+    //     LOG(INFO) << "[INFO] pred_track_id saved successfully";
+    // }
+    if (savePartialFast(m_gpu_image_wh_wrapper, 12, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_input_image_wh_1*6*2_float32.bin")) {
+        LOG(INFO) << "[INFO] Image width and height saved successfully";
+    }
+    if (savePartialFast(m_gpu_lidar2img_wrapper, 96, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_input_lidar2img_1*6*4*4_float32.bin")) {
+        LOG(INFO) << "[INFO] Lidar2img saved successfully";
+    }
     
     // 准备输出缓冲区
     std::vector<void*> output_buffers = {
@@ -881,6 +876,19 @@ Status SparseBEV::headFirstFrame(const CudaWrapper<float>& features,
     
     if (success) {
         LOG(INFO) << "[INFO] First frame head inference completed successfully";
+         // 第一帧推理结果保存
+        if (savePartialFast(pred_instance_feature, 230400, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_pred_instance_feature_1*900*256_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_instance_feature saved successfully";
+        }
+        if (savePartialFast(pred_anchor, 9900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_pred_anchor_1*900*11_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_anchor saved successfully";
+        }
+        if (savePartialFast(pred_class_score, 9000, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_pred_class_score_1*900*10_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_class_score saved successfully";
+        }
+        if (savePartialFast(pred_quality_score, 1800, "/share/Code/Sparse4d/C++/Output/val_bin/sample_0_output_pred_quality_score_1*900*2_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_quality_score saved successfully";
+        }
         return Status::kSuccess;
     } else {
         LOG(ERROR) << "[ERROR] First frame head inference failed";
@@ -921,6 +929,41 @@ Status SparseBEV::headSecondFrame(const CudaWrapper<float>& features,
         static_cast<void*>(m_gpu_image_wh_wrapper.getCudaPtr()),
         static_cast<void*>(m_gpu_lidar2img_wrapper.getCudaPtr())
     };
+
+    // 保存推理结果
+    if (savePartialFast(m_gpu_spatial_shapes_wrapper, 48,"/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_spatial_shapes_6*4*2_int32.bin")) {
+        LOG(INFO) << "[INFO] spatial_shapes saved successfully";
+    }
+    if (savePartialFast(m_gpu_level_start_index_wrapper, 24, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_level_start_index_6*4_int32.bin")) {
+        LOG(INFO) << "[INFO] level_start_index saved successfully";
+    }
+    if (savePartialFast(m_gpu_instance_feature_wrapper, 230400, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_instance_feature_1*900*256_float32.bin")) {
+        LOG(INFO) << "[INFO] instance_feature saved successfully";
+    }
+    if (savePartialFast(m_gpu_anchor_wrapper, 9900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_anchor_1*900*11_float32.bin")) {
+        LOG(INFO) << "[INFO] anchor saved successfully";
+    }
+    if (savePartialFast(m_gpu_time_interval_wrapper, 1, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_time_interval_1_float32.bin")) {
+        LOG(INFO) << "[INFO] Time interval saved successfully";
+    }
+    if (savePartialFast(m_float_temp_instance_feature_wrapper, 153600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_temp_instance_feature_1*600*256_float32.bin")) {
+        LOG(INFO) << "[INFO] temp_instance_feature saved successfully";
+    }
+    if (savePartialFast(m_float_temp_anchor_wrapper, 6600, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_temp_anchor_1*600*11_float32.bin")) {
+        LOG(INFO) << "[INFO] temp_anchor saved successfully";
+    }
+    if (savePartialFast(m_float_mask_wrapper, 1, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_mask_1_int32.bin")) {
+        LOG(INFO) << "[INFO] mask saved successfully";
+    }
+    if (savePartialFast(m_int32_temp_track_id_wrapper, 900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_track_id_1*900_int32.bin")) {
+        LOG(INFO) << "[INFO] pred_track_id saved successfully";
+    }
+    if (savePartialFast(m_gpu_image_wh_wrapper, 12, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_image_wh_1*6*2_float32.bin")) {
+        LOG(INFO) << "[INFO] Image width and height saved successfully";
+    }
+    if (savePartialFast(m_gpu_lidar2img_wrapper, 96, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_input_lidar2img_1*6*4*4_float32.bin")) {
+        LOG(INFO) << "[INFO] Lidar2img saved successfully";
+    }
     
     // 准备输出缓冲区
     std::vector<void*> output_buffers = {
@@ -942,6 +985,23 @@ Status SparseBEV::headSecondFrame(const CudaWrapper<float>& features,
     
     if (success) {
         LOG(INFO) << "[INFO] Second frame head inference completed successfully";
+        LOG(INFO) << "[INFO] Second frame head inference completed successfully";
+        // 第二帧推理结果保存
+        if (savePartialFast(pred_track_id, 900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_pred_track_id_1*900_int32.bin")) {
+            LOG(INFO) << "[INFO] pred_track_id saved successfully";
+        }
+        if (savePartialFast(pred_instance_feature, 230400, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_pred_instance_feature_1*900*256_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_instance_feature saved successfully";
+        }
+        if (savePartialFast(pred_anchor, 9900, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_pred_anchor_1*900*11_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_anchor saved successfully";
+        }
+        if (savePartialFast(pred_class_score, 9000, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_pred_class_score_1*900*10_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_class_score saved successfully";
+        }
+        if (savePartialFast(pred_quality_score, 1800, "/share/Code/Sparse4d/C++/Output/val_bin/sample_1_output_pred_quality_score_1*900*2_float32.bin")) {
+            LOG(INFO) << "[INFO] pred_quality_score saved successfully";
+        }
         return Status::kSuccess;
     } else {
         LOG(ERROR) << "[ERROR] Second frame head inference failed";
@@ -972,68 +1032,84 @@ void SparseBEV::convertToOutputFormat(const std::vector<float>& pred_instance_fe
         // 直接使用int32_t类型，与RawInferenceResult.h中的定义保持一致
         raw_result.pred_track_id = std::make_shared<CudaWrapper<int32_t>>(track_ids);
     }
+
+    // std::cout << "=== track_ids values ===" << std::endl;
+    // std::cout << "Size: " << track_ids.size() << " elements" << std::endl;
+    // // 只打印前20个元素，避免输出过多
+    // for (size_t i = 0; i < std::min(track_ids.size(), size_t(900)); ++i) {
+    //     std::cout << "[" << i << "] = " << track_ids[i];
+    //     if ((i + 1) % 10 == 0) {
+    //         std::cout << std::endl;
+    //     } else {
+    //         std::cout << " ";
+    //     }
+    // }
+    // if (track_ids.size() % 10 != 0) {
+    //     std::cout << std::endl;
+    // }
+    // std::cout << "=== End of cached_track_ids ===" << std::endl;
     
     // 设置元数据
     raw_result.num_objects = pred_instance_feature.size() / m_taskConfig.model_cfg_params().embedfeat_dims();
     raw_result.num_classes = m_taskConfig.model_cfg_params().num_classes();
     raw_result.is_first_frame = is_first_frame_;
     
-    // // 调试：打印pred_class_score得分最高的前10个object信息
-    // {
-    //     const int num_objects = raw_result.num_objects;
-    //     const int num_classes = raw_result.num_classes;
+    // 调试：打印pred_class_score得分最高的前10个object信息
+    {
+        const int num_objects = raw_result.num_objects;
+        const int num_classes = raw_result.num_classes;
         
-    //     // 计算每个object在类别维的最大分数
-    //     std::vector<std::pair<float, size_t>> object_scores;
-    //     object_scores.reserve(num_objects);
+        // 计算每个object在类别维的最大分数
+        std::vector<std::pair<float, size_t>> object_scores;
+        object_scores.reserve(num_objects);
         
-    //     for (int i = 0; i < num_objects; ++i) {
-    //         const size_t base = i * num_classes;
-    //         float max_score = -std::numeric_limits<float>::infinity();
-    //         int best_class = 0;
+        for (int i = 0; i < num_objects; ++i) {
+            const size_t base = i * num_classes;
+            float max_score = -std::numeric_limits<float>::infinity();
+            int best_class = 0;
             
-    //         // 在类别维找最大分数
-    //         for (int c = 0; c < num_classes; ++c) {
-    //             float score = pred_class_score[base + c];
-    //             if (score > max_score) {
-    //                 max_score = score;
-    //                 best_class = c;
-    //             }
-    //         }
-    //         object_scores.emplace_back(max_score, i);
-    //     }
+            // 在类别维找最大分数
+            for (int c = 0; c < num_classes; ++c) {
+                float score = pred_class_score[base + c];
+                if (score > max_score) {
+                    max_score = score;
+                    best_class = c;
+                }
+            }
+            object_scores.emplace_back(max_score, i);
+        }
         
-    //     // 按分数排序，取前10
-    //     std::sort(object_scores.begin(), object_scores.end(), 
-    //               [](const auto& a, const auto& b) { return a.first > b.first; });
+        // 按分数排序，取前10
+        std::sort(object_scores.begin(), object_scores.end(), 
+                  [](const auto& a, const auto& b) { return a.first > b.first; });
         
-    //     const int show_count = std::min(10, num_objects);
-    //     LOG(INFO) << "[DEBUG] Top-" << show_count << " objects by class score:";
+        const int show_count = std::min(10, num_objects);
+        LOG(INFO) << "[DEBUG] Top-" << show_count << " objects by class score:";
         
-    //     for (int k = 0; k < show_count; ++k) {
-    //         const size_t obj_idx = object_scores[k].second;
-    //         const float score = object_scores[k].first;
+        for (int k = 0; k < show_count; ++k) {
+            const size_t obj_idx = object_scores[k].second;
+            const float score = object_scores[k].first;
             
-    //         // 解码对应的anchor信息
-    //         const size_t anchor_offset = obj_idx * 11; // anchor_dims = 11
-    //         const float x = pred_anchor[anchor_offset + 0];
-    //         const float y = pred_anchor[anchor_offset + 1];
-    //         const float z = pred_anchor[anchor_offset + 2];
-    //         const float w = std::exp(pred_anchor[anchor_offset + 3]);
-    //         const float l = std::exp(pred_anchor[anchor_offset + 4]);
-    //         const float h = std::exp(pred_anchor[anchor_offset + 5]);
-    //         const float sin_yaw = pred_anchor[anchor_offset + 6];
-    //         const float cos_yaw = pred_anchor[anchor_offset + 7];
-    //         const float yaw = std::atan2(sin_yaw, cos_yaw);
+            // 解码对应的anchor信息
+            const size_t anchor_offset = obj_idx * 11; // anchor_dims = 11
+            const float x = pred_anchor[anchor_offset + 0];
+            const float y = pred_anchor[anchor_offset + 1];
+            const float z = pred_anchor[anchor_offset + 2];
+            const float w = std::exp(pred_anchor[anchor_offset + 3]);
+            const float l = std::exp(pred_anchor[anchor_offset + 4]);
+            const float h = std::exp(pred_anchor[anchor_offset + 5]);
+            const float sin_yaw = pred_anchor[anchor_offset + 6];
+            const float cos_yaw = pred_anchor[anchor_offset + 7];
+            const float yaw = std::atan2(sin_yaw, cos_yaw);
             
-    //         LOG(INFO) << "[DEBUG] Object " << k << ": idx=" << obj_idx 
-    //                   << ", score=" << score 
-    //                   << ", xyz=(" << x << "," << y << "," << z << ")"
-    //                   << ", wlh=(" << w << "," << l << "," << h << ")"
-    //                   << ", yaw=" << yaw
-    //                   << ", track_id=" << track_ids[obj_idx];
-    //     }
-    // }
+            LOG(INFO) << "[DEBUG] Object " << k << ": idx=" << obj_idx 
+                      << ", score=" << score 
+                      << ", xyz=(" << x << "," << y << "," << z << ")"
+                      << ", wlh=(" << w << "," << l << "," << h << ")"
+                      << ", yaw=" << yaw
+                      << ", track_id=" << track_ids[obj_idx];
+        }
+    }
     
     LOG(INFO) << "[INFO] Converted output format with " << raw_result.num_objects << " objects";
 }
@@ -1537,7 +1613,7 @@ void SparseBEV::saveTempInstanceFeatureData() {
         std::string save_dir = "/share/Code/SparseEnd2End/C++/Output/val_bin/";
         std::filesystem::create_directories(save_dir);
         
-        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_temp_instance_feature_1*600*256_float32.bin";
+        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_input_temp_instance_feature_1*600*256_float32.bin";
         
         // 强制使用float精度获取临时实例特征数据
         std::vector<float> temp_data = m_float_temp_instance_feature_wrapper.cudaMemcpyD2HResWrap();
@@ -1564,7 +1640,7 @@ void SparseBEV::saveTempAnchorData() {
         std::string save_dir = "/share/Code/SparseEnd2End/C++/Output/val_bin/";
         std::filesystem::create_directories(save_dir);
         
-        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_temp_anchor_1*600*11_float32.bin";
+        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_input_temp_anchor_1*600*11_float32.bin";
         
         // 强制使用float精度获取临时锚点数据
         std::vector<float> temp_data = m_float_temp_anchor_wrapper.cudaMemcpyD2HResWrap();
@@ -1591,7 +1667,7 @@ void SparseBEV::saveMaskData() {
         std::string save_dir = "/share/Code/SparseEnd2End/C++/Output/val_bin/";
         std::filesystem::create_directories(save_dir);
         
-        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_mask_1_int32.bin";
+        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_input_mask_1_int32.bin";
         
         // 强制使用float精度获取掩码数据
         std::vector<int32_t> mask_data = m_float_mask_wrapper.cudaMemcpyD2HResWrap();
@@ -1618,7 +1694,7 @@ void SparseBEV::saveTrackIdData() {
         std::string save_dir = "/share/Code/SparseEnd2End/C++/Output/val_bin/";
         std::filesystem::create_directories(save_dir);
         
-        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_track_id_1*900_int32.bin";
+        std::string filename = save_dir + "sample_" + std::to_string(current_sample_index_) + "_input_track_id_1*900_int32.bin";
         
         // 使用int32_t类型的临时跟踪ID包装器
         std::vector<int32_t> track_id_data = m_int32_temp_track_id_wrapper.cudaMemcpyD2HResWrap();
@@ -2035,4 +2111,25 @@ void SparseBEV::saveInputLidar2imgData(const std::vector<float>& lidar2img) {
     } catch (const std::exception& e) {
         LOG(ERROR) << "[ERROR] 保存输入Lidar2img变换矩阵数据时发生异常: " << e.what();
     }
+}
+
+/**
+ * @brief 将CudaWrapper中的数据保存到文件
+ * @param gpu 要保存的GPU数据
+ * @param effective_elems 有效元素数量
+ * @param path 保存文件路径
+ * @return 保存是否成功
+ */
+template<typename T>
+bool SparseBEV::savePartialFast(const CudaWrapper<T>& gpu, size_t effective_elems, const std::string& path) {
+    if (!gpu.isValid() || effective_elems == 0 || effective_elems > gpu.getSize()) return false;
+    std::vector<T> host(effective_elems);
+    cudaError_t err = cudaMemcpy(host.data(), gpu.getCudaPtr(),
+                                 effective_elems * sizeof(T),
+                                 cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) return false;
+    std::ofstream f(path, std::ios::binary);
+    if (!f.is_open()) return false;
+    f.write(reinterpret_cast<const char*>(host.data()), effective_elems * sizeof(T));
+    return f.good();
 }

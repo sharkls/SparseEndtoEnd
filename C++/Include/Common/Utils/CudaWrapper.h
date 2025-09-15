@@ -242,12 +242,20 @@ class CudaWrapper<T, typename std::enable_if_t<std::is_trivial<T>::value && std:
     size_ = size;
     capacity_ = size;
     
+    // 使用cudaMalloc确保16字节对齐
     cudaError_t err = cudaMalloc((void **)&ptr_, getSizeBytes());
     if (err != cudaSuccess) {
       size_ = 0U;
       capacity_ = 0U;
       ptr_ = nullptr;
       return false;
+    }
+    
+    // 验证内存对齐
+    uintptr_t ptr_val = reinterpret_cast<uintptr_t>(ptr_);
+    if (ptr_val % 16 != 0) {
+      std::cout << "[WARNING] GPU memory not 16-byte aligned: " << ptr_ 
+                << " (alignment: " << (ptr_val % 16) << ")" << std::endl;
     }
     
     checkCudaErrors(cudaMemset(ptr_, 0, getSizeBytes()));
