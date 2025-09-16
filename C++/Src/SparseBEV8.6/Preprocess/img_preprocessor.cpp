@@ -157,10 +157,9 @@ void ImagePreprocessor::execute()
     }
     
     // 根据精度选择调用相应的forward函数，使用预先分配的成员变量
-    Status result;
     LOG(INFO) << "[INFO] Using float precision for image preprocessing";
     // 直接使用原始uint8数据进行预处理
-    result = forward(raw_imgs_wrapper, stream, m_float_output_wrapper);
+    Status result = forward(raw_imgs_wrapper, stream, m_float_output_wrapper);
     
     // 清理CUDA流
     cudaStreamDestroy(stream);
@@ -180,7 +179,6 @@ void ImagePreprocessor::execute()
     m_output_wrapper = createInputWrapper();
     
     LOG(INFO) << "[INFO] Image preprocessing completed successfully";
-    LOG(INFO) << "[INFO] Created complete input data wrapper for SparseBEV";
 }
 
 /**

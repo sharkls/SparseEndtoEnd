@@ -381,20 +381,12 @@ void SparseBEV::execute()
         // 直接使用GPU版本的InstanceBank，无需数据传输
         auto [gpu_instance_feature, gpu_anchor, gpu_cached_feature, gpu_cached_anchor, 
               time_interval, mask, gpu_cached_track_ids] = 
-            instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_, stream);
+            // instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_, stream);
+            instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, has_previous_frame_, stream);
 
         instance_bank_end = GetTimeStamp();
         instance_bank_time = instance_bank_end - instance_bank_start;
         LOG(INFO) << "[INFO] GPU InstanceBank completed in " << instance_bank_time << "ms, time_interval: " << time_interval << ", mask: " << mask;
-        
-        // 重要：将GPU版本的InstanceBank返回的数据赋值给相应的GPU内存包装器
-        // 这样后续的推理就能使用这些数据了
-        LOG(INFO) << "[INFO] Copying GPU InstanceBank data to GPU memory wrappers for inference...";
-        
-        // LOG(INFO) << "gpu_instance_feature.getSize() * sizeof(float): " << gpu_instance_feature.getSize() * sizeof(float);
-        // LOG(INFO) << "gpu_anchor.getSize() * sizeof(float): " << gpu_anchor.getSize() * sizeof(float);
-        // LOG(INFO) << "m_gpu_instance_feature_wrapper.getSize() * sizeof(float): " << m_gpu_instance_feature_wrapper.getSize() * sizeof(float);
-        // LOG(INFO) << "m_gpu_anchor_wrapper.getSize() * sizeof(float): " << m_gpu_anchor_wrapper.getSize() * sizeof(float);
         
         // 拷贝实例特征数据
         cudaMemcpyAsync(m_gpu_instance_feature_wrapper.getCudaPtr(),
@@ -411,15 +403,6 @@ void SparseBEV::execute()
         LOG(INFO) << "[INFO] Copying GPU InstanceBank data to GPU memory wrappers for first head inference: finish...";
         // 对于第二帧推理需要的时序数据
         if (!is_first_frame_ && has_previous_frame_) {
-            // LOG(INFO) << "gpu_cached_feature.getSize() * sizeof(float): " << gpu_cached_feature.getSize() * sizeof(float);
-            // LOG(INFO) << "gpu_cached_anchor.getSize() * sizeof(float): " << gpu_cached_anchor.getSize() * sizeof(float);
-            // LOG(INFO) << "gpu_cached_track_ids.getSize() * sizeof(int32_t): " << gpu_cached_track_ids.getSize() * sizeof(int32_t);
-            // LOG(INFO) << "mask : " << mask;
-            // LOG(INFO) << "m_float_temp_instance_feature_wrapper.getSize() * sizeof(float): " << m_float_temp_instance_feature_wrapper.getSize() * sizeof(float);
-            // LOG(INFO) << "m_float_temp_anchor_wrapper.getSize() * sizeof(float): " << m_float_temp_anchor_wrapper.getSize() * sizeof(float);
-            // LOG(INFO) << "m_int_mask_wrapper.getSize() * sizeof(int32_t): " << m_int_mask_wrapper.getSize() * sizeof(int32_t);
-            // LOG(INFO) << "m_int32_temp_track_id_wrapper.getSize() * sizeof(int32_t): " << m_int32_temp_track_id_wrapper.getSize() * sizeof(int32_t);
-
             // 拷贝缓存的GPU数据到时序数据包装器
             cudaMemcpyAsync(m_float_temp_instance_feature_wrapper.getCudaPtr(), 
                             gpu_cached_feature.getCudaPtr(),
@@ -429,11 +412,6 @@ void SparseBEV::execute()
             // 先抓 launch 级错误
             cudaError_t err = cudaPeekAtLastError();
             if (err != cudaSuccess) { LOG(ERROR) << cudaGetErrorString(err); return; }
-
-            // // 同步以暴露设备侧非法访问
-            // err = cudaStreamSynchronize(stream);
-            // if (err != cudaSuccess) { LOG(ERROR) << cudaGetErrorString(err); return; }
-
             LOG(INFO) << "finish copy gpu_cached_feature";
 
             // 拷贝 anchor
@@ -445,11 +423,7 @@ void SparseBEV::execute()
             // 复用同一个 err 变量即可（不要重复定义）
             err = cudaPeekAtLastError();
             if (err != cudaSuccess) { LOG(ERROR) << cudaGetErrorString(err); return; }
-
-            // err = cudaStreamSynchronize(stream);
-            // if (err != cudaSuccess) { LOG(ERROR) << cudaGetErrorString(err); return; }
             
-            LOG(INFO) << "finish copy gpu_cached_anchor";
             LOG(INFO) << "finish copy gpu_cached_anchor";
             // 将mask值转换为向量并赋值（改为异步H2D）
             int32_t mask_host = static_cast<int32_t>(mask);
@@ -458,15 +432,8 @@ void SparseBEV::execute()
                             sizeof(int32_t),
                             cudaMemcpyHostToDevice,
                             stream);
-            // // 将mask值转换为向量并赋值
-            // std::vector<int32_t> mask_vector = {static_cast<int32_t>(mask)};
-            // m_int_mask_wrapper.cudaMemUpdateWrap(mask_vector);
         }
         
-        // LOG(INFO) << "[INFO] Copying GPU InstanceBank data to GPU memory wrappers for first head inference: time_interval update...";
-        // // 更新时间间隔
-        // m_time_interval[0] = time_interval;
-        // m_gpu_time_interval_wrapper.cudaMemUpdateWrap(m_time_interval);
         // 更新时间间隔（改为异步H2D）
         m_time_interval[0] = time_interval;
         cudaMemcpyAsync(m_gpu_time_interval_wrapper.getCudaPtr(),
@@ -476,6 +443,8 @@ void SparseBEV::execute()
                         stream);
         
         LOG(INFO) << "[INFO] GPU InstanceBank data successfully assigned to GPU memory wrappers";
+        auto data_process_time = GetTimeStamp() - instance_bank_end;
+        LOG(INFO) << "[INFO] Data process and copy to GPU memory wrappers time: " << data_process_time << "ms";
         
         // 步骤3：根据是否为第一帧选择不同的推理路径
         if (is_first_frame_ || !has_previous_frame_) {
@@ -513,8 +482,6 @@ void SparseBEV::execute()
                 // 标记第一帧已完成
                 is_first_frame_ = false;
                 has_previous_frame_ = true;
-                // LOG(INFO) << "[INFO] First frame results cached to GPU InstanceBank";
-                // LOG(INFO) << "[INFO] Track IDs from first frame assigned to temp wrapper for second frame inference";
             }
         } else {
             LOG(INFO) << "[INFO] Step 3: Second frame head inference";
@@ -577,14 +544,6 @@ void SparseBEV::execute()
         previous_timestamp_ = current_timestamp_;
         previous_global_to_lidar_mat_ = current_global_to_lidar_mat_;
         
-        // // 计算总体推理耗时
-        // int64_t total_inference_time = 0;
-        // if (is_first_frame_ || !has_previous_frame_) {
-        //     total_inference_time = feature_extraction_time + first_frame_time;
-        // } else {
-        //     total_inference_time = feature_extraction_time + second_frame_time;
-        // }
-        
         LOG(INFO) << "[INFO] ========== Inference Time Summary ==========";
         LOG(INFO) << "[INFO] Feature extraction time: " << feature_extraction_time << "ms";
         LOG(INFO) << "[INFO] GPU InstanceBank time: " << instance_bank_time << "ms";
@@ -593,10 +552,7 @@ void SparseBEV::execute()
         } else {
             LOG(INFO) << "[INFO] Second frame inference time: " << second_frame_time << "ms";
         }
-        // LOG(INFO) << "[INFO] Total inference time: " << total_inference_time << "ms";
         LOG(INFO) << "[INFO] ===========================================";
-        
-        // LOG(INFO) << "[INFO] SparseBEV inference completed successfully with GPU InstanceBank";
         
     } catch (const std::exception& e) {
         LOG(ERROR) << "[ERROR] Exception during inference: " << e.what();
