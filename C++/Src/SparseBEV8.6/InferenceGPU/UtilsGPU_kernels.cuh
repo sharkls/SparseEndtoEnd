@@ -18,6 +18,13 @@
 #include "GlobalContext.h"
 #include "../../../Include/Common/Utils/CudaWrapper.h"
 
+// ==================== CUDA Kernel实现 ====================
+
+// 用于按值传递到 kernel 的 4x4 矩阵（列主序/与原始索引一致）
+struct Mat4 {
+    float m[16];
+};
+
 // ==================== CUDA Kernel声明 ====================
 // 获取前K个实例
 __global__ void getTopkInstanceKernel(const float* confidence,
@@ -75,6 +82,12 @@ __global__ void anchorProjectionKernel(float* temp_anchor,
                                        float time_interval,
                                        uint32_t topk_querys,
                                        uint32_t query_dims);
+
+__global__ void anchorProjectionKernel(float* temp_anchor,
+                                      Mat4 transform,
+                                      float time_interval,
+                                      uint32_t topk_querys,
+                                      uint32_t query_dims);
 
 // 最大置信度
 __global__ void getMaxConfidenceScoresKernel(const float* confidence_logits,

@@ -17,7 +17,7 @@ onnx will save in deploy/onnxlog like below:
 ## STEP2. Compile Custom operator: deformableAttentionAggrPlugin.so
 Firstly, you need to set env for youself in 01_setEnv.sh, then run below:
 ```bash
-. deploy/dfa_plugin/tools/01_setEnv.sh
+. tools/01_setEnv.sh
 ```
 env setting likes below:
 ```bash
@@ -42,6 +42,7 @@ env setting likes below:
 then you need to export share library:
 ```bash
 cd deploy/dfa_plugin
+mkdir build && cd build
 make -j8
 ```
 make log likes below:  

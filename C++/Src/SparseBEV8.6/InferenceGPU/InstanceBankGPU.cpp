@@ -62,11 +62,11 @@ InstanceBankGPU::InstanceBankGPU(const sparsebev::TaskConfig& params)
         throw std::runtime_error("Anchor size too large");
     }
     
-    std::cout << "[INFO] Memory sizes:" << std::endl;
-    std::cout << "  - Instance feature: " << instance_feature_size << " floats (" << (instance_feature_size * sizeof(float)) << " bytes)" << std::endl;
-    std::cout << "  - Anchor: " << anchor_size << " floats (" << (anchor_size * sizeof(float)) << " bytes)" << std::endl;
-    std::cout << "  - Cached feature: " << cached_feature_size << " floats (" << (cached_feature_size * sizeof(float)) << " bytes)" << std::endl;
-    std::cout << "  - Cached anchor: " << cached_anchor_size << " floats (" << (cached_anchor_size * sizeof(float)) << " bytes)" << std::endl;
+    // std::cout << "[INFO] Memory sizes:" << std::endl;
+    // std::cout << "  - Instance feature: " << instance_feature_size << " floats (" << (instance_feature_size * sizeof(float)) << " bytes)" << std::endl;
+    // std::cout << "  - Anchor: " << anchor_size << " floats (" << (anchor_size * sizeof(float)) << " bytes)" << std::endl;
+    // std::cout << "  - Cached feature: " << cached_feature_size << " floats (" << (cached_feature_size * sizeof(float)) << " bytes)" << std::endl;
+    // std::cout << "  - Cached anchor: " << cached_anchor_size << " floats (" << (cached_anchor_size * sizeof(float)) << " bytes)" << std::endl;
     
     // 初始化实例库
     initializeInstanceBank();
@@ -99,12 +99,12 @@ void InstanceBankGPU::initializeInstanceBank() {
             cached_anchor_size = ((cached_anchor_size + alignment - 1) / alignment) * alignment;
         }
         
-        std::cout << "[INFO] Allocating GPU memory with 16-byte alignment..." << std::endl;
-        std::cout << "[INFO] Original vs Aligned sizes:" << std::endl;
-        std::cout << "  - Instance feature: " << (num_anchors_ * embedfeat_dims_) << " -> " << instance_feature_size << " floats" << std::endl;
-        std::cout << "  - Anchor: " << (num_anchors_ * anchor_dims_) << " -> " << anchor_size << " floats" << std::endl;
-        std::cout << "  - Cached feature: " << original_cached_feature_size << " -> " << cached_feature_size << " floats" << std::endl;
-        std::cout << "  - Cached anchor: " << original_cached_anchor_size << " -> " << cached_anchor_size << " floats" << std::endl;
+        // std::cout << "[INFO] Allocating GPU memory with 16-byte alignment..." << std::endl;
+        // std::cout << "[INFO] Original vs Aligned sizes:" << std::endl;
+        // std::cout << "  - Instance feature: " << (num_anchors_ * embedfeat_dims_) << " -> " << instance_feature_size << " floats" << std::endl;
+        // std::cout << "  - Anchor: " << (num_anchors_ * anchor_dims_) << " -> " << anchor_size << " floats" << std::endl;
+        // std::cout << "  - Cached feature: " << original_cached_feature_size << " -> " << cached_feature_size << " floats" << std::endl;
+        // std::cout << "  - Cached anchor: " << original_cached_anchor_size << " -> " << cached_anchor_size << " floats" << std::endl;
         
         // 分配GPU内存
         m_gpu_instance_feature_ = CudaWrapper<float>(instance_feature_size);
@@ -131,7 +131,7 @@ void InstanceBankGPU::initializeInstanceBank() {
         std::vector<int32_t> prev_id_vec = {prev_id_};
         m_gpu_prev_id_wrapper_.cudaMemUpdateWrap(prev_id_vec);
         
-        std::cout << "[INFO] GPU memory allocation completed successfully with 16-byte alignment" << std::endl;
+        // std::cout << "[INFO] GPU memory allocation completed successfully with 16-byte alignment" << std::endl;
         
     } catch (const std::exception& e) {
         std::cout << "[ERROR] Failed to initialize GPU memory: " << e.what() << std::endl;
@@ -187,7 +187,9 @@ std::tuple<const CudaWrapper<float>&, const CudaWrapper<float>&,
            const CudaWrapper<float>&, const CudaWrapper<float>&, 
            const float, const std::int32_t, const CudaWrapper<std::int32_t>&>
 InstanceBankGPU::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>& global_to_lidar_mat, 
-                     const bool& is_first_frame, cudaStream_t stream) {
+                     const bool& is_first_frame, cudaStream_t stream) 
+{   
+    auto begin_time = GetTimeStamp();
     // 更新状态
     if (!is_first_frame) {
         Eigen::Matrix<float, 4, 4> global_to_lidar_mat_float = global_to_lidar_mat.cast<float>();
@@ -214,6 +216,7 @@ InstanceBankGPU::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>&
         //     err = cudaStreamSynchronize(stream);
         //     if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] anchorProjection exec: " << cudaGetErrorString(err); return std::make_tuple(std::ref(m_gpu_instance_feature_), std::ref(m_gpu_anchor_), std::ref(m_gpu_cached_feature_), std::ref(m_gpu_cached_anchor_), time_interval_, mask_, std::ref(m_gpu_cached_track_ids_)); }
         // }
+
         updateTrackId(stream); 
     } else {
         reset();
@@ -225,8 +228,10 @@ InstanceBankGPU::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>&
     temp_lidar_to_global_mat_ = global_to_lidar_mat.inverse(); 
     is_first_frame_ = is_first_frame;
     
-    std::cout << " time_interval_ :  " << time_interval_ << " , mask_ :" << mask_ << std::endl;
-
+    // std::cout << " time_interval_ :  " << time_interval_ << " , mask_ :" << mask_ << std::endl;
+    auto end_time = GetTimeStamp();
+    auto total_time = end_time - begin_time;
+    LOG(INFO) << "[INFO] get completed in " << total_time << "ms";
     // 返回缓存的数据
     return std::make_tuple(
         std::ref(m_gpu_instance_feature_),
@@ -240,12 +245,10 @@ InstanceBankGPU::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>&
 }
 
 Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
-                                  const CudaWrapper<float>& anchor,
-                                  const CudaWrapper<float>& confidence_logits,
-                             const bool& is_first_frame, cudaStream_t stream) {
-    
-    std::cout << "[DEBUG] cache() - Start" << std::endl;
-    
+                                const CudaWrapper<float>& anchor,
+                                const CudaWrapper<float>& confidence_logits,
+                                const bool& is_first_frame, cudaStream_t stream) 
+{
     // 检查指针是否为空
     if (!m_gpu_cached_feature_.getCudaPtr() || !m_gpu_cached_anchor_.getCudaPtr() ||
         !m_gpu_cached_track_ids_.getCudaPtr() || !m_gpu_cached_confidence_.getCudaPtr()) {
@@ -344,13 +347,19 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
         stream
     );
 
-    {
-        cudaError_t err = cudaPeekAtLastError();
-        if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] getTopkInstanceOnGPU launch: " << cudaGetErrorString(err); return kInferenceErr; }
-        err = cudaStreamSynchronize(stream);
-        if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] getTopkInstanceOnGPU exec: " << cudaGetErrorString(err); return kInferenceErr; }
+    // {
+    //     cudaError_t err = cudaPeekAtLastError();
+    //     if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] getTopkInstanceOnGPU launch: " << cudaGetErrorString(err); return kInferenceErr; }
+    //     // err = cudaStreamSynchronize(stream);
+    //     if (err != cudaSuccess) { LOG(ERROR) << "[ERROR] getTopkInstanceOnGPU exec: " << cudaGetErrorString(err); return kInferenceErr; }
+    // }
+    // 只检查启动错误，不同步
+    cudaError_t err = cudaPeekAtLastError();
+    if (err != cudaSuccess) { 
+        LOG(ERROR) << "[ERROR] getTopkInstanceOnGPU launch: " << cudaGetErrorString(err); 
+        return kInferenceErr; 
     }
-    
+
     if (status != kSuccess) {
         LOG(ERROR) << "[ERROR] Failed to get top-k instances";
         return kInferenceErr;
@@ -400,21 +409,21 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
     }
     
     // 7. 同步CUDA流确保所有操作完成
-    std::cout << "[DEBUG] Synchronizing CUDA device..." << std::endl;
+    // std::cout << "[DEBUG] Synchronizing CUDA device..." << std::endl;
     
-    // 使用cudaDeviceSynchronize()来获取更详细的错误信息
-    cudaError_t sync_error = cudaDeviceSynchronize();
-    if (sync_error != cudaSuccess) {
-        LOG(ERROR) << "[ERROR] CUDA device synchronization failed: " << cudaGetErrorString(sync_error);
+    // // 使用cudaDeviceSynchronize()来获取更详细的错误信息
+    // cudaError_t sync_error = cudaDeviceSynchronize();
+    // if (sync_error != cudaSuccess) {
+    //     LOG(ERROR) << "[ERROR] CUDA device synchronization failed: " << cudaGetErrorString(sync_error);
         
-        // 获取更多错误信息
-        cudaDeviceProp prop;
-        cudaGetDeviceProperties(&prop, 0);
-        std::cout << "[ERROR] GPU device: " << prop.name << std::endl;
-        std::cout << "[ERROR] CUDA capability: " << prop.major << "." << prop.minor << std::endl;
+    //     // 获取更多错误信息
+    //     cudaDeviceProp prop;
+    //     cudaGetDeviceProperties(&prop, 0);
+    //     std::cout << "[ERROR] GPU device: " << prop.name << std::endl;
+    //     std::cout << "[ERROR] CUDA capability: " << prop.major << "." << prop.minor << std::endl;
         
-        return kInferenceErr;
-    }
+    //     return kInferenceErr;
+    // }
     
     // 检查CUDA错误
     cudaError_t cuda_error = cudaGetLastError();
@@ -430,7 +439,7 @@ Status InstanceBankGPU::cache(const CudaWrapper<float>& instance_feature,
         return kInferenceErr;
     }
     
-    std::cout << "[DEBUG] cache() - Completed successfully" << std::endl;
+    // std::cout << "[DEBUG] cache() - Completed successfully" << std::endl;
     return kSuccess;
 }
 
@@ -490,7 +499,7 @@ void InstanceBankGPU::anchorProjection(CudaWrapper<float>& temp_anchor,
 template <typename T>
 CudaWrapper<T> InstanceBankGPU::getMaxConfidenceScores(const CudaWrapper<T>& confidence_logits,
                                                        const std::uint32_t& num_anchors) {
-    std::cout << "[DEBUG] getMaxConfidenceScores() - Start" << std::endl;
+    // std::cout << "[DEBUG] getMaxConfidenceScores() - Start" << std::endl;
     // 验证输入参数
     if (!confidence_logits.isValid() || confidence_logits.getSize() == 0) {
         LOG(ERROR) << "[ERROR] Invalid confidence_logits in getMaxConfidenceScores";
@@ -501,10 +510,10 @@ CudaWrapper<T> InstanceBankGPU::getMaxConfidenceScores(const CudaWrapper<T>& con
     uint32_t output_size = num_anchors;
     uint32_t num_classes = confidence_logits.getSize() / num_anchors;
     
-    std::cout << "[DEBUG] Calculated num_classes: " << num_classes << ", output_size: " << output_size << std::endl;
+    // std::cout << "[DEBUG] Calculated num_classes: " << num_classes << ", output_size: " << output_size << std::endl;
     
     CudaWrapper<T> max_scores(output_size);
-    std::cout << "[DEBUG] Created max_scores wrapper with size: " << max_scores.getSize() << std::endl;
+    // std::cout << "[DEBUG] Created max_scores wrapper with size: " << max_scores.getSize() << std::endl;
     
     // 验证max_scores对象是否有效
     if (!max_scores.isValid()) {
@@ -532,19 +541,9 @@ CudaWrapper<T> InstanceBankGPU::getMaxConfidenceScores(const CudaWrapper<T>& con
         return CudaWrapper<T>(0);
     }
     
-    std::cout << "[DEBUG] getMaxConfidenceScores() - Completed successfully" << std::endl;
+    // std::cout << "[DEBUG] getMaxConfidenceScores() - Completed successfully" << std::endl;
     return max_scores;
 }
-
-// template <typename T>
-// T InstanceBankGPU::sigmoid(const T& logits) {
-//     if (logits > 0) {
-//         return static_cast<T>(1.0) / (static_cast<T>(1.0) + std::exp(-logits));
-//     } else {
-//         T exp_x = std::exp(logits);
-//         return exp_x / (static_cast<T>(1.0) + exp_x);
-//     }
-// }
 
 // 添加loadDataFromFile模板函数的实现
 template<typename T>

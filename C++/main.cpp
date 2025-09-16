@@ -71,7 +71,7 @@ std::unique_ptr<TestUnit> createTestUnit(const std::string& task) {
 int main() {
     try {
         // 读取配置文件
-        std::string config_path = "/share/Code/Sparse4d/C++/Output/Configs/Alg/TestConfig.conf";
+        std::string config_path = "/share/Code/Sparse4dE2E/C++/Output/Configs/Alg/TestConfig.conf";
         std::ifstream config_file(config_path);
         if (!config_file.is_open()) {
             LOG(ERROR) << "无法打开配置文件: " << config_path;

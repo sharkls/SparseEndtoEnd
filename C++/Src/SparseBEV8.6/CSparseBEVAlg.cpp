@@ -156,9 +156,9 @@ void CSparseBEVAlg::runAlgorithm(void* p_pSrcData)
     // 5. 更新性能统计
     endTimer("total");
     updateMemoryUsage();
-    calculateDetailedDelays();  // 计算详细延时
+    // calculateDetailedDelays();  // 计算详细延时
     logPerformanceReport();
-    logDetailedPerformanceInfo();  // 记录详细性能信息
+    // logDetailedPerformanceInfo();  // 记录详细性能信息
 
     // 6. 通过回调函数返回结果
     if (m_algCallback) {
@@ -276,12 +276,15 @@ bool CSparseBEVAlg::executeModuleChain()
         switch (module_type) {
             case ModuleType::PRE_PROCESS:
                 m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_PREPROCESS_BEGIN] = GetTimeStamp();
+                // LOG(INFO) << "[INFO] BEV Preprocess module begin: " << m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_PREPROCESS_BEGIN];
                 break;
             case ModuleType::INFERENCE:
                 m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_INFERENCE_BEGIN] = GetTimeStamp();
+                // LOG(INFO) << "[INFO] BEV Inference module begin: " << m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_INFERENCE_BEGIN];
                 break;
             case ModuleType::POST_PROCESS:
                 m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_POSTPROCESS_BEGIN] = GetTimeStamp();
+                // LOG(INFO) << "[INFO] BEV Postprocess module begin: " << m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_POSTPROCESS_BEGIN];
                 break;
             default:
                 break;
@@ -309,15 +312,15 @@ bool CSparseBEVAlg::executeModuleChain()
         switch (module_type) {
             case ModuleType::PRE_PROCESS:
                 m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_PREPROCESS_END] = GetTimeStamp();
-                LOG(INFO) << "[INFO] BEV Preprocess module completed: " << module_name;
+                // LOG(INFO) << "[INFO] BEV Preprocess module completed: " << m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_PREPROCESS_END];
                 break;
             case ModuleType::INFERENCE:
                 m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_INFERENCE_END] = GetTimeStamp();
-                LOG(INFO) << "[INFO] BEV Inference module completed: " << module_name;
+                // LOG(INFO) << "[INFO] BEV Inference module completed: " << m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_INFERENCE_END];
                 break;
             case ModuleType::POST_PROCESS:
                 m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_POSTPROCESS_END] = GetTimeStamp();
-                LOG(INFO) << "[INFO] BEV Postprocess module completed: " << module_name;
+                // LOG(INFO) << "[INFO] BEV Postprocess module completed: " << m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_POSTPROCESS_END];
                 break;
             default:
                 LOG(INFO) << "[INFO] Unknown module type completed: " << module_name;
@@ -327,7 +330,18 @@ bool CSparseBEVAlg::executeModuleChain()
 
     // 直接获取最终结果，避免多次转换
     if (auto* resultPtr = static_cast<CAlgResult*>(currentData)) {
+        // 保存时间戳信息
+        auto saved_timestamps = m_currentOutput.mapTimeStamp();
+        auto saved_delays = m_currentOutput.mapDelay();
+        auto saved_fps = m_currentOutput.mapFps();
+        
+        // 更新结果数据
         m_currentOutput = *resultPtr;
+        
+        // 恢复时间戳信息
+        m_currentOutput.mapTimeStamp() = saved_timestamps;
+        m_currentOutput.mapDelay() = saved_delays;
+        m_currentOutput.mapFps() = saved_fps;
     } else if (auto* rawResultPtr = static_cast<RawInferenceResult*>(currentData)) {
         // 如果最后一个模块输出RawInferenceResult，直接转换
         convertRawResultToAlgResult(*rawResultPtr, m_currentOutput);
@@ -336,16 +350,18 @@ bool CSparseBEVAlg::executeModuleChain()
         return false;
     }
     
+    // 耗时统计
     m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_END] = GetTimeStamp();
-
+    m_currentOutput.mapDelay()[DELAY_TYPE_BEV] = GetTimeStamp() - m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_BEGIN];
+    m_currentOutput.mapDelay()[DELAY_TYPE_BEV_PREPROCESS] = m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_PREPROCESS_END] - m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_PREPROCESS_BEGIN];
+    m_currentOutput.mapDelay()[DELAY_TYPE_BEV_INFERENCE] = m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_INFERENCE_END] - m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_INFERENCE_BEGIN];
+    m_currentOutput.mapDelay()[DELAY_TYPE_BEV_POSTPROCESS] = m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_POSTPROCESS_END] - m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_POSTPROCESS_BEGIN];   
     // 结果穿透
     if (!m_currentOutput.vecFrameResult().empty()) {
         m_currentOutput.lTimeStamp() = m_currentInput->vecVideoSrcData()[0].lTimeStamp();
         m_currentOutput.vecFrameResult()[0].lTimeStamp() = m_currentInput->vecVideoSrcData()[0].lTimeStamp();
         m_currentOutput.vecFrameResult()[0].eDataType(DATA_TYPE_BEV_RESULT);  // 设置为BEV结果类型
         m_currentOutput.vecFrameResult()[0].eDataSourceType(DATA_SOURCE_ONLINE);  // 设置为在线数据源
-        m_currentOutput.vecFrameResult()[0].mapTimeStamp()[TIMESTAMP_BEV_END] = GetTimeStamp();
-        m_currentOutput.vecFrameResult()[0].mapDelay()[DELAY_TYPE_BEV] = GetTimeStamp() - m_currentOutput.mapTimeStamp()[TIMESTAMP_BEV_BEGIN];
     }
 
     return true;
@@ -505,37 +521,37 @@ void CSparseBEVAlg::calculateDetailedDelays() {
 void CSparseBEVAlg::logDetailedPerformanceInfo() const {
     LOG(INFO) << "[DETAILED_PERFORMANCE] === BEV Detailed Performance Info ===";
     
-    // 记录各阶段时间戳
-    for (const auto& timestamp : m_currentOutput.mapTimeStamp()) {
-        switch (timestamp.first) {
-            case TIMESTAMP_BEV_BEGIN:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Begin: " << timestamp.second << " ms";
-                break;
-            case TIMESTAMP_BEV_PREPROCESS_BEGIN:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Preprocess Begin: " << timestamp.second << " ms";
-                break;
-            case TIMESTAMP_BEV_PREPROCESS_END:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Preprocess End: " << timestamp.second << " ms";
-                break;
-            case TIMESTAMP_BEV_INFERENCE_BEGIN:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Inference Begin: " << timestamp.second << " ms";
-                break;
-            case TIMESTAMP_BEV_INFERENCE_END:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Inference End: " << timestamp.second << " ms";
-                break;
-            case TIMESTAMP_BEV_POSTPROCESS_BEGIN:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Postprocess Begin: " << timestamp.second << " ms";
-                break;
-            case TIMESTAMP_BEV_POSTPROCESS_END:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Postprocess End: " << timestamp.second << " ms";
-                break;
-            case TIMESTAMP_BEV_END:
-                LOG(INFO) << "[DETAILED_PERFORMANCE] BEV End: " << timestamp.second << " ms";
-                break;
-            default:
-                break;
-        }
-    }
+    // // 记录各阶段时间戳
+    // for (const auto& timestamp : m_currentOutput.mapTimeStamp()) {
+    //     switch (timestamp.first) {
+    //         case TIMESTAMP_BEV_BEGIN:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Begin: " << timestamp.second << " ms";
+    //             break;
+    //         case TIMESTAMP_BEV_PREPROCESS_BEGIN:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Preprocess Begin: " << timestamp.second << " ms";
+    //             break;
+    //         case TIMESTAMP_BEV_PREPROCESS_END:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Preprocess End: " << timestamp.second << " ms";
+    //             break;
+    //         case TIMESTAMP_BEV_INFERENCE_BEGIN:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Inference Begin: " << timestamp.second << " ms";
+    //             break;
+    //         case TIMESTAMP_BEV_INFERENCE_END:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Inference End: " << timestamp.second << " ms";
+    //             break;
+    //         case TIMESTAMP_BEV_POSTPROCESS_BEGIN:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Postprocess Begin: " << timestamp.second << " ms";
+    //             break;
+    //         case TIMESTAMP_BEV_POSTPROCESS_END:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV Postprocess End: " << timestamp.second << " ms";
+    //             break;
+    //         case TIMESTAMP_BEV_END:
+    //             LOG(INFO) << "[DETAILED_PERFORMANCE] BEV End: " << timestamp.second << " ms";
+    //             break;
+    //         default:
+    //             break;
+    //     }
+    // }
     
     // 记录各阶段延时
     for (const auto& delay : m_currentOutput.mapDelay()) {

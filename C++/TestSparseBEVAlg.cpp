@@ -1107,9 +1107,9 @@ void visualizeBEV(const std::vector<Point3D>& points,
 void main_sparse_bev() {
     try {
         // 设置默认路径
-        std::string deploy_path = "/share/Code/Sparse4d/C++/Output/";
+        std::string deploy_path = "/share/Code/Sparse4dE2E/C++/Output/";
         sparse_bev::g_save_dir = deploy_path + "vis/";
-        std::string data_path = "/share/Code/Sparse4d/C++/Data/sparse/";  // 匹配Python脚本输出路径
+        std::string data_path = "/share/Code/Sparse4dE2E/C++/Data/sparse/";  // 匹配Python脚本输出路径
 
         // 算法接口调用流程基本如下：
         ISparseBEVAlg* l_pObj = CreateSparseBEVAlgObj(deploy_path);

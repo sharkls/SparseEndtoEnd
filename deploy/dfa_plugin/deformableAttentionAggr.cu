@@ -149,9 +149,9 @@ int thomas_deform_attn_cuda_forward(cudaStream_t stream,
     cudaError_t err = cudaSuccess;
 
     // 打印调试信息
-    printf("[DFA-PLUGIN-DEBUG] Parameters: batch_size=%d, num_cams=%d, num_feat=%d, num_embeds=%d, num_scale=%d, num_anchors=%d, num_pts=%d, num_groups=%d\n",
-           batch_size, num_cams, num_feat, num_embeds, num_scale, num_anchors, num_pts, num_groups);
-    printf("[DFA-PLUGIN-DEBUG] num_kernels=%d, output_size=%d\n", num_kernels, output_size);
+    // printf("[DFA-PLUGIN-DEBUG] Parameters: batch_size=%d, num_cams=%d, num_feat=%d, num_embeds=%d, num_scale=%d, num_anchors=%d, num_pts=%d, num_groups=%d\n",
+    //        batch_size, num_cams, num_feat, num_embeds, num_scale, num_anchors, num_pts, num_groups);
+    // printf("[DFA-PLUGIN-DEBUG] num_kernels=%d, output_size=%d\n", num_kernels, output_size);
 
     // 初始化输出内存为零
     err = cudaMemsetAsync(output, 0, output_size * sizeof(float), stream);

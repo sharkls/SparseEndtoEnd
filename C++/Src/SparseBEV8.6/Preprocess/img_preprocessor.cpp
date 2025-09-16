@@ -455,12 +455,12 @@ std::shared_ptr<sparsebev::SparseBEVInputWrapper> ImagePreprocessor::createInput
     auto wrapper = std::make_shared<sparsebev::SparseBEVInputWrapper>(input_data);
     
     LOG(INFO) << "[INFO] Created SparseBEVInputWrapper with:";
-    LOG(INFO) << "[INFO] - Image data valid: " << (image_data.processed_image != nullptr ? "Yes" : "No");
+    // LOG(INFO) << "[INFO] - Image data valid: " << (image_data.processed_image != nullptr ? "Yes" : "No");
     LOG(INFO) << "[INFO] - Number of cameras: " << m_taskConfig.preprocessor_params().num_cams();
     LOG(INFO) << "[INFO] - Image size: " << m_taskConfig.preprocessor_params().model_input_img_w() << "x" << m_taskConfig.preprocessor_params().model_input_img_h() << "x" << m_taskConfig.preprocessor_params().model_input_img_c();
-    LOG(INFO) << "[INFO] - Timestamp passed: " << input_timestamp_ms << " ms";
-    LOG(INFO) << "[INFO] - Overall data valid: " << (input_data->data_valid ? "Yes" : "No");
-    LOG(INFO) << "[INFO] - Is first frame: " << (input_data->isFirstFrame() ? "Yes" : "No");
+    // LOG(INFO) << "[INFO] - Timestamp passed: " << input_timestamp_ms << " ms";
+    // LOG(INFO) << "[INFO] - Overall data valid: " << (input_data->data_valid ? "Yes" : "No");
+    // LOG(INFO) << "[INFO] - Is first frame: " << (input_data->isFirstFrame() ? "Yes" : "No");
     
     return wrapper;
 }

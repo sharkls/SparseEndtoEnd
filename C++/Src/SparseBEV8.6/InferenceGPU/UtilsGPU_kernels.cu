@@ -187,9 +187,105 @@ __global__ void fuseConfidenceKernel(float* output_confidence,
     }
 }
 
+// // 锚点投影
+// __global__ void anchorProjectionKernel(float* temp_anchor,
+//                                       const float* transform_matrix,
+//                                       float time_interval,
+//                                       uint32_t topk_querys,
+//                                       uint32_t query_dims) {
+    
+//     uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+//     if (idx >= topk_querys) return;
+    
+//     // 使用共享内存缓存变换矩阵
+//     __shared__ float shared_matrix[16];
+//     if (threadIdx.x < 16) {
+//         shared_matrix[threadIdx.x] = transform_matrix[threadIdx.x];
+//     }
+//     __syncthreads();
+    
+//     float* anchor_ptr = temp_anchor + idx * query_dims;
+    
+//     // 提取锚点数据
+//     float center_x = anchor_ptr[0];
+//     float center_y = anchor_ptr[1];
+//     float center_z = anchor_ptr[2];
+//     float size_x = anchor_ptr[3];
+//     float size_y = anchor_ptr[4];
+//     float size_z = anchor_ptr[5];
+//     float yaw_x = anchor_ptr[6];  // 注意：这里对应yaw的第一列
+//     float yaw_y = anchor_ptr[7];  // 注意：这里对应yaw的第二列
+//     float vel_x = anchor_ptr[8];
+//     float vel_y = anchor_ptr[9];
+//     float vel_z = anchor_ptr[10];
+    
+//     // 时间投影
+//     float time_vel_x = vel_x * time_interval;
+//     float time_vel_y = vel_y * time_interval;
+//     float time_vel_z = vel_z * time_interval;
+    
+//     center_x = center_x + time_vel_x;
+//     center_y = center_y + time_vel_y;
+//     center_z = center_z + time_vel_z;
+    
+//     // 矩阵变换 - 使用转置后的矩阵（注意索引顺序）
+//     float new_center_x = center_x * shared_matrix[0] + 
+//                          center_y * shared_matrix[4] + 
+//                          center_z * shared_matrix[8] + 
+//                          shared_matrix[12];
+    
+//     float new_center_y = center_x * shared_matrix[1] + 
+//                          center_y * shared_matrix[5] + 
+//                          center_z * shared_matrix[9] + 
+//                          shared_matrix[13];
+    
+//     float new_center_z = center_x * shared_matrix[2] + 
+//                          center_y * shared_matrix[6] + 
+//                          center_z * shared_matrix[10] + 
+//                          shared_matrix[14];
+    
+//     // 速度变换 - 使用转置后的3x3矩阵
+//     float new_vel_x = vel_x * shared_matrix[0] + 
+//                       vel_y * shared_matrix[4] + 
+//                       vel_z * shared_matrix[8];
+    
+//     float new_vel_y = vel_x * shared_matrix[1] + 
+//                       vel_y * shared_matrix[5] + 
+//                       vel_z * shared_matrix[9];
+    
+//     float new_vel_z = vel_x * shared_matrix[2] + 
+//                       vel_y * shared_matrix[6] + 
+//                       vel_z * shared_matrix[10];
+    
+//     // Yaw变换 - 先交换列，然后使用转置后的2x2矩阵
+//     float temp_yaw_x = yaw_x;
+//     float temp_yaw_y = yaw_y;
+//     yaw_x = temp_yaw_y;  // 交换
+//     yaw_y = temp_yaw_x;  // 交换
+    
+//     float new_yaw_x = yaw_x * shared_matrix[0] + 
+//                       yaw_y * shared_matrix[4];
+    
+//     float new_yaw_y = yaw_x * shared_matrix[1] + 
+//                       yaw_y * shared_matrix[5];
+    
+//     // 更新锚点数据
+//     anchor_ptr[0] = new_center_x;
+//     anchor_ptr[1] = new_center_y;
+//     anchor_ptr[2] = new_center_z;
+//     anchor_ptr[3] = size_x;
+//     anchor_ptr[4] = size_y;
+//     anchor_ptr[5] = size_z;
+//     anchor_ptr[6] = new_yaw_x;
+//     anchor_ptr[7] = new_yaw_y;
+//     anchor_ptr[8] = new_vel_x;
+//     anchor_ptr[9] = new_vel_y;
+//     anchor_ptr[10] = new_vel_z;
+// }
+
 // 锚点投影
 __global__ void anchorProjectionKernel(float* temp_anchor,
-                                      const float* transform_matrix,
+                                      Mat4 transform,
                                       float time_interval,
                                       uint32_t topk_querys,
                                       uint32_t query_dims) {
@@ -197,10 +293,10 @@ __global__ void anchorProjectionKernel(float* temp_anchor,
     uint32_t idx = blockIdx.x * blockDim.x + threadIdx.x;
     if (idx >= topk_querys) return;
     
-    // 使用共享内存缓存变换矩阵
+    // 使用共享内存缓存变换矩阵（从按值参数读取）
     __shared__ float shared_matrix[16];
     if (threadIdx.x < 16) {
-        shared_matrix[threadIdx.x] = transform_matrix[threadIdx.x];
+        shared_matrix[threadIdx.x] = transform.m[threadIdx.x];
     }
     __syncthreads();
     
@@ -570,6 +666,50 @@ Status fuseConfidenceOnGPU(const CudaWrapper<float>& current_confidence,
     return kSuccess;
 }
 
+// Status anchorProjectionOnGPU(CudaWrapper<float>& temp_anchor,
+//                              const Eigen::Matrix<float, 4, 4>& temp_to_cur_mat,
+//                              float time_interval,
+//                              uint32_t topk_querys,
+//                              uint32_t query_dims,
+//                              cudaStream_t stream) {
+    
+//     uint32_t block_size = 256;
+//     uint32_t grid_size = (topk_querys + block_size - 1) / block_size;
+
+//     // 将主机侧矩阵复制到设备缓冲区，避免将主机指针传入设备代码
+//     float* d_transform_matrix = nullptr;
+//     cudaError_t err_alloc = cudaMalloc((void**)&d_transform_matrix, 16 * sizeof(float));
+//     if (err_alloc != cudaSuccess) {
+//         return kInferenceErr;
+//     }
+//     cudaError_t err_copy = cudaMemcpyAsync(d_transform_matrix, temp_to_cur_mat.data(), 16 * sizeof(float), cudaMemcpyHostToDevice, stream);
+//     if (err_copy != cudaSuccess) {
+//         cudaFree(d_transform_matrix);
+//         return kInferenceErr;
+//     }
+
+//     anchorProjectionKernel<<<grid_size, block_size, 0, stream>>>(
+//         temp_anchor.getCudaPtr(), d_transform_matrix, time_interval, topk_querys, query_dims
+//     );
+    
+//     // 检查并同步，确保内核完成后再释放矩阵缓冲
+//     cudaError_t launch_err = cudaPeekAtLastError();
+//     if (launch_err != cudaSuccess) {
+//         cudaFree(d_transform_matrix);
+//         return kInferenceErr;
+//     }
+//     cudaError_t sync_err = cudaStreamSynchronize(stream);
+//     cudaFree(d_transform_matrix);
+//     if (sync_err != cudaSuccess) {
+//         return kInferenceErr;
+//     }
+    
+//     if (!checkCudaError(cudaGetLastError())) {
+//         return kInferenceErr;
+//     }
+//     return kSuccess;
+// }
+
 Status anchorProjectionOnGPU(CudaWrapper<float>& temp_anchor,
                              const Eigen::Matrix<float, 4, 4>& temp_to_cur_mat,
                              float time_interval,
@@ -580,35 +720,20 @@ Status anchorProjectionOnGPU(CudaWrapper<float>& temp_anchor,
     uint32_t block_size = 256;
     uint32_t grid_size = (topk_querys + block_size - 1) / block_size;
 
-    // 将主机侧矩阵复制到设备缓冲区，避免将主机指针传入设备代码
-    float* d_transform_matrix = nullptr;
-    cudaError_t err_alloc = cudaMalloc((void**)&d_transform_matrix, 16 * sizeof(float));
-    if (err_alloc != cudaSuccess) {
-        return kInferenceErr;
-    }
-    cudaError_t err_copy = cudaMemcpyAsync(d_transform_matrix, temp_to_cur_mat.data(), 16 * sizeof(float), cudaMemcpyHostToDevice, stream);
-    if (err_copy != cudaSuccess) {
-        cudaFree(d_transform_matrix);
-        return kInferenceErr;
+    // 将矩阵按值传给kernel，避免设备侧alloc/copy/sync
+    Mat4 hmat;
+    const float* src = temp_to_cur_mat.data();
+    #pragma unroll
+    for (int i = 0; i < 16; ++i) {
+        hmat.m[i] = src[i];
     }
 
     anchorProjectionKernel<<<grid_size, block_size, 0, stream>>>(
-        temp_anchor.getCudaPtr(), d_transform_matrix, time_interval, topk_querys, query_dims
+        temp_anchor.getCudaPtr(), hmat, time_interval, topk_querys, query_dims
     );
     
-    // 检查并同步，确保内核完成后再释放矩阵缓冲
-    cudaError_t launch_err = cudaPeekAtLastError();
-    if (launch_err != cudaSuccess) {
-        cudaFree(d_transform_matrix);
-        return kInferenceErr;
-    }
-    cudaError_t sync_err = cudaStreamSynchronize(stream);
-    cudaFree(d_transform_matrix);
-    if (sync_err != cudaSuccess) {
-        return kInferenceErr;
-    }
-    
-    if (!checkCudaError(cudaGetLastError())) {
+    // 仅检查启动错误，不阻塞流
+    if (!checkCudaError(cudaPeekAtLastError())) {
         return kInferenceErr;
     }
     return kSuccess;
@@ -668,39 +793,82 @@ Status generateNewTrackIdsOnGPU(CudaWrapper<int32_t>& track_ids,
     return kSuccess;
 }
 
+// Status selectTrackIdsFromIndicesOnGPU(CudaWrapper<int32_t>& track_ids,
+//                                       const CudaWrapper<int32_t>& cached_indices,
+//                                       uint32_t topk,
+//                                       cudaStream_t stream) {
+//     uint32_t source_length = track_ids.getSize();
+    
+//     // 创建临时数组存储原始数据
+//     CudaWrapper<int32_t> temp_track_ids(source_length);
+    
+//     // 复制原始数据到临时数组
+//     cudaError_t copy_error = cudaMemcpyAsync(temp_track_ids.getCudaPtr(), 
+//                                             track_ids.getCudaPtr(),
+//                                             source_length * sizeof(int32_t),
+//                                             cudaMemcpyDeviceToDevice, stream);
+//     if (copy_error != cudaSuccess) {
+//         return kInferenceErr;
+//     }
+
+//     uint32_t block_size = 256;
+//     uint32_t grid_size = (source_length + block_size - 1) / block_size;
+
+//     // 修改kernel调用，使用临时数组作为源数据
+//     selectTrackIdsFromIndicesKernelSafe<<<grid_size, block_size, 0, stream>>>(
+//         track_ids.getCudaPtr(),            // 输出：重排序后的数组
+//         temp_track_ids.getCudaPtr(),       // 输入：原始数据的副本
+//         cached_indices.getCudaPtr(),       // 输入：索引数组
+//         source_length,
+//         topk
+//     );
+    
+//     if (!checkCudaError(cudaGetLastError())) {
+//         return kInferenceErr;
+//     }
+//     return kSuccess;
+// }
+
 Status selectTrackIdsFromIndicesOnGPU(CudaWrapper<int32_t>& track_ids,
                                       const CudaWrapper<int32_t>& cached_indices,
                                       uint32_t topk,
                                       cudaStream_t stream) {
     uint32_t source_length = track_ids.getSize();
-    
-    // 创建临时数组存储原始数据
-    CudaWrapper<int32_t> temp_track_ids(source_length);
-    
-    // 复制原始数据到临时数组
-    cudaError_t copy_error = cudaMemcpyAsync(temp_track_ids.getCudaPtr(), 
-                                            track_ids.getCudaPtr(),
-                                            source_length * sizeof(int32_t),
-                                            cudaMemcpyDeviceToDevice, stream);
-    if (copy_error != cudaSuccess) {
+
+    // 临时缓冲：使用流有序分配/释放，避免隐式全局同步
+    int32_t* temp_track_ids = nullptr;
+    if (cudaMallocAsync((void**)&temp_track_ids, source_length * sizeof(int32_t), stream) != cudaSuccess) {
+        return kInferenceErr;
+    }
+
+    // D2D 异步拷贝，仍在同一 stream 上
+    if (cudaMemcpyAsync(temp_track_ids,
+                        track_ids.getCudaPtr(),
+                        source_length * sizeof(int32_t),
+                        cudaMemcpyDeviceToDevice, stream) != cudaSuccess) {
+        cudaFreeAsync(temp_track_ids, stream);
         return kInferenceErr;
     }
 
     uint32_t block_size = 256;
     uint32_t grid_size = (source_length + block_size - 1) / block_size;
 
-    // 修改kernel调用，使用临时数组作为源数据
     selectTrackIdsFromIndicesKernelSafe<<<grid_size, block_size, 0, stream>>>(
-        track_ids.getCudaPtr(),            // 输出：重排序后的数组
-        temp_track_ids.getCudaPtr(),       // 输入：原始数据的副本
+        track_ids.getCudaPtr(),            // 输出
+        temp_track_ids,                    // 输入：原始数据副本
         cached_indices.getCudaPtr(),       // 输入：索引数组
         source_length,
         topk
     );
-    
-    if (!checkCudaError(cudaGetLastError())) {
+
+    // 启动错误检查（不阻塞流）
+    if (!checkCudaError(cudaPeekAtLastError())) {
+        cudaFreeAsync(temp_track_ids, stream);
         return kInferenceErr;
     }
+
+    // 释放按流顺序进行，不会提前释放
+    cudaFreeAsync(temp_track_ids, stream);
     return kSuccess;
 }
 
@@ -741,7 +909,7 @@ Status updateNewTrackIdsOnGPU(CudaWrapper<int32_t>& track_ids,
         // 从GPU读取当前prev_id值
         std::vector<int32_t> current_prev_id = prev_id.cudaMemcpyD2HResWrap();
         int32_t updated_prev_id = current_prev_id[0] + new_ids_count;
-        std::cout << "updated_prev_id : " << updated_prev_id << "current_prev_id : " << current_prev_id[0] << std::endl;
+        // std::cout << "updated_prev_id : " << updated_prev_id << "current_prev_id : " << current_prev_id[0] << std::endl;
         
         // 将更新后的值写回GPU
         std::vector<int32_t> updated_prev_id_vec = {updated_prev_id};

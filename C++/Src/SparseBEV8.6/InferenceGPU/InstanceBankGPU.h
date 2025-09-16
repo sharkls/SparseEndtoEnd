@@ -15,8 +15,6 @@
 #include <device_launch_parameters.h>
 #include <device_atomic_functions.h>
 
-
-
 #include <vector>
 #include <cstdint>
 // 使用条件编译避免重复包含Eigen
@@ -25,6 +23,7 @@
 #include <Eigen/Dense>
 #endif
 
+#include "../../Common/Core/FunctionHub.h"
 #include "GlobalContext.h"
 #include "SparseEnd2EndConfig_conf.pb.h"
 #include "../../../Include/Common/Utils/CudaWrapper.h"
