@@ -79,7 +79,7 @@ def parse_args():
     )
     parser.add_argument(
         "--generate_expected_output",
-        default=True,
+        default=False,
         help="是否生成预期输出文件用于模型部署验证"
     )
     parser.add_argument(

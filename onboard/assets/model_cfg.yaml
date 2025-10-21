@@ -1,8 +1,8 @@
-# Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
+# Copyright (c) 2024 Sparse4dE2E. All rights reserved @author: Thomas Von Wu.
 # Using vscode pluging : YAML:AML Language Support by Red Hat, with built-in Kubernetes syntax.
 OfflineOnboardBinFilePath:
-  - KmeansAnchorsPath: "/share/Code/SparseEnd2End/onboard/assets/bin_file/kmeans_anchors_900x11_float32.bin"
-  - Lidar2ImagePath: "/share/Code/SparseEnd2End/onboard/assets/bin_file/lidar2img_5*6*4*4_float32.bin"
+  - KmeansAnchorsPath: "/share/Code/Sparse4dE2E/onboard/assets/bin_file/kmeans_anchors_900x11_float32.bin"
+  - Lidar2ImagePath: "/share/Code/Sparse4dE2E/onboard/assets/bin_file/lidar2img_5*6*4*4_float32.bin"
 SparseE2E:
   TaskCameraFrameID:
     - CAM_FRONT
@@ -16,14 +16,15 @@ SparseE2E:
     - ModelInputImgShape_CHW: [3, 256, 704]
   EmbedFeatDims: 256
   Sparse4dExtractFeatTrtEngine:
-    - EnginePath: "/share/Code/SparseEnd2End/deploy/engine/sparse4dbackbone.engine"
+    - EnginePath: "/share/Code/Sparse4dE2E/deploy/engine/sparse4dbackbone.engine"
     - EngineInputNames: ["img"]
     - EngineOutputNames: ["feature"]
     - Sparse4dExtractFeatShape_LC: [89760, 256]
     - Sparse4dExtractFeatSpatialShapes_LD: [64, 176, 32, 88, 16, 44, 8, 22]
-  MultiViewMultiScaleDeformableAttentionAggregationPath: "/share/Code/SparseEnd2End/onboard/assets/trt_engine/deformableAttentionAggr.so"
+  MultiViewMultiScaleDeformableAttentionAggregationPath: "/share/Code/Sparse4dE2E/onboard/assets/trt_engine/deformableAttentionAggr.so"
   Sparse4dHeadFirstFrameEngine:
-    - EnginePath: "/share/Code/SparseEnd2End/deploy/engine/sparse4dhead1st.engine"
+    # - EnginePath: "/share/Code/Sparse4dE2E/deploy/engine/sparse4dhead1st.engine"
+    - EnginePath: "/share/Code/Sparse4dE2E/deploy/engine/sparse4dhead1st.engine"
     - EngineInputNames:
         [
           "feature",
@@ -43,7 +44,8 @@ SparseE2E:
           "pred_quality_score",
         ]
   Sparse4dHeadSecondFrameEngine:
-    - EnginePath: "/share/Code/SparseEnd2End/onboard/assets/trt_engine/sparse4dhead2nd.engine"
+    # - EnginePath: "/share/Code/Sparse4dE2E/onboard/assets/trt_engine/sparse4dhead2nd.engine"
+    - EnginePath: "/share/Code/Sparse4dE2E/deploy/engine/sparse4dhead2nd.engine"
     - EngineInputNames:
         [
           "feature",

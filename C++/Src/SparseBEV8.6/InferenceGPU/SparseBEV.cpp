@@ -381,8 +381,8 @@ void SparseBEV::execute()
         // 直接使用GPU版本的InstanceBank，无需数据传输
         auto [gpu_instance_feature, gpu_anchor, gpu_cached_feature, gpu_cached_anchor, 
               time_interval, mask, gpu_cached_track_ids] = 
-            // instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_, stream);
-            instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, has_previous_frame_, stream);
+            instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, is_first_frame_, stream);
+            // instance_bank_gpu_->get(current_timestamp_, current_global_to_lidar_mat_, has_previous_frame_, stream);
 
         instance_bank_end = GetTimeStamp();
         instance_bank_time = instance_bank_end - instance_bank_start;

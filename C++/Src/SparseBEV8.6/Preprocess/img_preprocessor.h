@@ -72,6 +72,14 @@ private:
     // GPU内存包装器
     CudaWrapper<float> m_float_output_wrapper;     // float精度输出GPU内存包装器
     
+    // 新增：原始图像GPU缓冲（复用，避免每帧分配）
+    CudaWrapper<std::uint8_t> m_raw_imgs_wrapper;
+
+    // 新增：pinned 主机侧拼接缓冲（一次性 H2D）
+    std::uint8_t* h_pinned_ = nullptr;
+    size_t h_pinned_bytes_ = 0;
+    cudaStream_t persistent_stream_ = nullptr;
+    
     // 新增成员：完整的输入数据包装器
     std::shared_ptr<sparsebev::SparseBEVInputWrapper> m_output_wrapper;
 

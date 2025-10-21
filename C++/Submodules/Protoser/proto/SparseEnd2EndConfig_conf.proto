@@ -13,8 +13,8 @@ message TaskConfig {
     E2ETrtEngine head1st_engine = 6;
     E2ETrtEngine head2nd_engine = 7;
     string homography_path = 8;
-    bool run_status = 9;                    // 程序运行方式
-    bool use_half_precision = 10;            // 是否使用半精度，默认false
+    bool run_status = 9;                                        // 程序运行方式
+    bool use_half_precision = 10;                               // 数据类型float
 }
 
 // 模型配置参数

@@ -23,6 +23,11 @@ REGISTER_MODULE("SparseBEV", ImagePreprocessor, ImagePreprocessor)
  */
 ImagePreprocessor::~ImagePreprocessor() {
     // 清理资源
+    if (h_pinned_) {
+        cudaFreeHost(h_pinned_);
+        h_pinned_ = nullptr;
+        h_pinned_bytes_ = 0;
+    }
 }
 
 /**
@@ -51,6 +56,27 @@ bool ImagePreprocessor::init(void* p_pAlgParam) {
         return status_;
     }
     LOG(INFO) << "[INFO] Pre-allocated float precision GPU memory, size: " << output_size;
+    
+    // 预分配原始图像 GPU 缓冲与 pinned 主机缓冲（一次拷贝）
+    size_t raw_size = m_taskConfig.preprocessor_params().num_cams() * 
+                     m_taskConfig.preprocessor_params().raw_img_c() *
+                     m_taskConfig.preprocessor_params().raw_img_h() * 
+                     m_taskConfig.preprocessor_params().raw_img_w();
+
+    if (!m_raw_imgs_wrapper.allocate(raw_size)) {
+        LOG(ERROR) << "[ERROR] Failed to allocate GPU memory for raw images!";
+        status_ = false;
+        return status_;
+    }
+    if (!h_pinned_ || h_pinned_bytes_ != raw_size) {
+        if (h_pinned_) cudaFreeHost(h_pinned_);
+        if (cudaSuccess != cudaHostAlloc(reinterpret_cast<void**>(&h_pinned_), raw_size, cudaHostAllocDefault)) {
+            LOG(ERROR) << "[ERROR] Failed to allocate pinned host buffer!";
+            status_ = false;
+            return status_;
+        }
+        h_pinned_bytes_ = raw_size;
+    }
     
     status_ = true;
     return status_;
@@ -129,37 +155,53 @@ void ImagePreprocessor::execute()
         return;
     }
     
-    // 创建GPU内存包装器用于输入数据
-    CudaWrapper<std::uint8_t> raw_imgs_wrapper;
-    
-    // 分配GPU内存用于输入数据
-    if (!raw_imgs_wrapper.allocate(expected_size)) {
-        LOG(ERROR) << "[ERROR] Failed to allocate GPU memory for raw images!";
+    // 检查 pinned 缓冲大小是否匹配（按字节数）
+    size_t expected_bytes = expected_size * sizeof(std::uint8_t);
+    if (h_pinned_bytes_ != expected_bytes) {
+        LOG(ERROR) << "[ERROR] Pinned buffer size mismatch! Expected: " << expected_bytes 
+                   << " bytes, Got: " << h_pinned_bytes_ << " bytes";
         return;
     }
     
-    // 将输入数据复制到GPU
+    // 将输入数据复制到 pinned 主机缓冲（一次性 H2D）
     size_t offset = 0;
     for (const auto& video_data : m_inputImage.vecVideoSrcData()) {
-        if (!raw_imgs_wrapper.copyFromHost(video_data.vecImageBuf().data(), 
-                                         offset, video_data.vecImageBuf().size())) {
-            LOG(ERROR) << "[ERROR] Failed to copy video data to GPU!";
-            return;
-        }
-        offset += video_data.vecImageBuf().size();
+        const auto& buf = video_data.vecImageBuf();
+        memcpy(h_pinned_ + offset, buf.data(), buf.size());
+        offset += buf.size();
     }
     
-    // 创建CUDA流
+    // 创建CUDA流（非阻塞）
     cudaStream_t stream;
-    if (cudaStreamCreate(&stream) != cudaSuccess) {
+    if (cudaStreamCreateWithFlags(&stream, cudaStreamNonBlocking) != cudaSuccess) {
         LOG(ERROR) << "[ERROR] Failed to create CUDA stream!";
         return;
     }
-    
+
+    // 一次性 H2D 拷贝到 GPU
+    cudaError_t h2d = cudaMemcpyAsync(m_raw_imgs_wrapper.getCudaPtr(),
+                                      h_pinned_,
+                                      h_pinned_bytes_,
+                                      cudaMemcpyHostToDevice,
+                                      stream);
+    if (h2d != cudaSuccess) {
+        LOG(ERROR) << "[ERROR] Failed to H2D copy raw images: " << cudaGetErrorString(h2d);
+        cudaStreamDestroy(stream);
+        return;
+    }
+
+    // 等待H2D拷贝完成，确保数据完全传输后再执行kernel
+    cudaError_t sync_result = cudaStreamSynchronize(stream);
+    if (sync_result != cudaSuccess) {
+        LOG(ERROR) << "[ERROR] Failed to synchronize H2D copy: " << cudaGetErrorString(sync_result);
+        cudaStreamDestroy(stream);
+        return;
+    }
+
     // 根据精度选择调用相应的forward函数，使用预先分配的成员变量
     LOG(INFO) << "[INFO] Using float precision for image preprocessing";
     // 直接使用原始uint8数据进行预处理
-    Status result = forward(raw_imgs_wrapper, stream, m_float_output_wrapper);
+    Status result = forward(m_raw_imgs_wrapper, stream, m_float_output_wrapper);
     
     // 清理CUDA流
     cudaStreamDestroy(stream);

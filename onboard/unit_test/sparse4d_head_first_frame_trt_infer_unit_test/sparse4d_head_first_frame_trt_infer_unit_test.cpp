@@ -133,18 +133,18 @@ TEST(Sparse4dHeadFisrstFrameTrtInferUnitTest, TrtInferConsistencyVerification) {
   std::tuple<std::string, std::string, std::string, std::string, std::string, std::string, std::string, std::string,
              std::string, std::string, std::string, std::string>
       test_sample{
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_feature_1*89760*256_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_spatial_shapes_6*4*2_int32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_level_start_index_6*4_int32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_anchor_1*900*11_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_time_interval_1_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_image_wh_1*6*2_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_lidar2img_1*6*4*4_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_pred_instance_feature_1*900*256_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_pred_anchor_1*900*11_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_pred_class_score_1*900*10_float32.bin",
-          "/share/Code/SparseEnd2End/script/tutorial/asset/sample_0_pred_quality_score_1*900*2_float32.bin"};
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_feature_1*89760*256_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_spatial_shapes_6*4*2_int32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_level_start_index_6*4_int32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_anchor_1*900*11_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_time_interval_1_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_image_wh_1*6*2_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_lidar2img_1*6*4*4_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_pred_instance_feature_1*900*256_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_pred_anchor_1*900*11_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_pred_class_score_1*900*10_float32.bin",
+          "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_pred_quality_score_1*900*2_float32.bin"};
 
   // 7.读取测试样本
   const auto feature = common::readfile_wrapper<float>(std::get<0>(test_sample));

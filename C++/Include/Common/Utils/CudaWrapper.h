@@ -262,6 +262,49 @@ class CudaWrapper<T, typename std::enable_if_t<std::is_trivial<T>::value && std:
     return true;
   }
 
+  /// @brief Allocate GPU memory with specified size and data type
+  /// @param size Size to allocate
+  /// @param data_type Data type
+  /// @return true if allocation successful, false otherwise
+  template<typename U>
+  bool allocate(std::uint64_t size, U data_type) {
+    if (size == 0) {
+      return false;
+    }
+    
+    // Free existing memory if any
+    if (ptr_ != nullptr) {
+      checkCudaErrors(cudaFree(ptr_));
+      ptr_ = nullptr;
+    }
+    
+    size_ = size;
+    capacity_ = size;
+    
+    // 根据数据类型计算字节大小
+    size_t element_size = sizeof(data_type);
+    size_t total_bytes = size * element_size;
+    
+    // 使用cudaMalloc确保16字节对齐
+    cudaError_t err = cudaMalloc((void **)&ptr_, total_bytes);
+    if (err != cudaSuccess) {
+      size_ = 0U;
+      capacity_ = 0U;
+      ptr_ = nullptr;
+      return false;
+    }
+    
+    // 验证内存对齐
+    uintptr_t ptr_val = reinterpret_cast<uintptr_t>(ptr_);
+    if (ptr_val % 16 != 0) {
+      std::cout << "[WARNING] GPU memory not 16-byte aligned: " << ptr_ 
+                << " (alignment: " << (ptr_val % 16) << ")" << std::endl;
+    }
+    
+    checkCudaErrors(cudaMemset(ptr_, 0, total_bytes));
+    return true;
+  }
+
   /// @brief Copy data from host to device
   /// @param host_data Host data pointer
   /// @param offset Offset in device memory

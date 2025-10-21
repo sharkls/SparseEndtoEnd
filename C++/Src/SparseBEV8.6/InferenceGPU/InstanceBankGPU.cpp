@@ -171,7 +171,7 @@ Status InstanceBankGPU::reset() {
         return kInvalidInput;
     }
     
-    std::string instance_feature_path = "/share/Code/Sparse4d/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin";
+    std::string instance_feature_path = "/share/Code/Sparse4dE2E/script/tutorial/asset/sample_0_instance_feature_1*900*256_float32.bin";
     if(loadDataFromFile(instance_feature_path, num_anchors_ * embedfeat_dims_, m_gpu_instance_feature_)) {
         LOG(INFO) << "[INFO] Successfully loaded instance feature data from file";
     } else {

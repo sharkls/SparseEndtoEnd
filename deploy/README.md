@@ -64,7 +64,7 @@ cd deploy
 . deploy/tools/set_env.sh
 cd deploy
 . tools/set_env.sh
-bash build_sparse4d_engine.sh
+bash build_sparse4d_engine.sh fp32/fp16/int8
 ```
 trt log likes below:
 >deploy/engine  

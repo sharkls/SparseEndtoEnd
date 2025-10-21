@@ -64,18 +64,20 @@ link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/glog/lib)
 # 子目录的路径
 add_subdirectory(Submodules/FastddsSer)
 add_subdirectory(Submodules/ProtoSer)
+add_subdirectory(Src)
 
-# 条件添加SparseBEV子目录
-if(BUILD_SPARSEBEV)
-    add_subdirectory(Src/SparseBEV)
-endif()
+# # 条件添加SparseBEV子目录
+# if(BUILD_SPARSEBEV)
+#     add_subdirectory(Src/SparseBEV)
+# endif()
 
-if(BUILD_SPARSEBEV8_6)
-    add_subdirectory(Src/SparseBEV8.6)
-endif()
+# if(BUILD_SPARSEBEV8_6)
+#     add_subdirectory(Src/SparseBEV8.6)
+#     # add_subdirectory(Src/SparseBEVFP16)
+# endif()
 
-# 添加Common模块（总是需要）
-add_subdirectory(Src/Common)
+# # 添加Common模块（总是需要）
+# add_subdirectory(Src/Common)
 
 # 源文件的路径
 aux_source_directory(. HW_SRC_FILES)
@@ -122,6 +124,7 @@ if(CMAKE_PLATFORM MATCHES "86")
     
     if(BUILD_SPARSEBEV8_6)
         target_link_libraries(${PROJECT_NAME} PRIVATE SparseBEVAlg8.6)
+        # target_link_libraries(${PROJECT_NAME} PRIVATE SparseBEVAlgFP16)
     endif()
 
 endif()

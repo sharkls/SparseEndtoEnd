@@ -116,7 +116,7 @@ std::tuple<std::vector<float>, std::vector<int32_t>, std::vector<int32_t>,
            std::vector<int32_t>, std::vector<float>, std::vector<float>, 
            std::vector<float>, std::vector<float>>
 ReadSampleData(int sample_id) {
-  std::string prefix = "/share/Code/SparseEnd2End/script/tutorial/asset/";
+  std::string prefix = "/share/Code/Sparse4dE2E/script/tutorial/asset/";
   
   // 输入数据
   auto feature = common::readfile_wrapper<float>(prefix + "sample_" + std::to_string(sample_id) + "_feature_1*89760*256_float32.bin");
