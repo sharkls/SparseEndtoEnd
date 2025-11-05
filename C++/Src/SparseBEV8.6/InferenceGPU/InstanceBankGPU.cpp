@@ -228,7 +228,7 @@ InstanceBankGPU::get(const double& timestamp, const Eigen::Matrix<double, 4, 4>&
     temp_lidar_to_global_mat_ = global_to_lidar_mat.inverse(); 
     is_first_frame_ = is_first_frame;
     
-    // std::cout << " time_interval_ :  " << time_interval_ << " , mask_ :" << mask_ << std::endl;
+    std::cout << " time_interval_ :  " << time_interval_ << " , mask_ :" << mask_ << std::endl;
     auto end_time = GetTimeStamp();
     auto total_time = end_time - begin_time;
     LOG(INFO) << "[INFO] get completed in " << total_time << "ms";

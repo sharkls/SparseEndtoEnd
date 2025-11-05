@@ -55,6 +55,18 @@ enum Status : uint8_t
     kImgPreprocesParamErr,           // 图像预处理参数错误
     kImgPreprocesMaxErr,             // 图像预处理最大错误码
 
+    kBackboneParamErr,               // 骨干网络参数错误
+
+    kInstanceBankParamErr,           // 实例银行参数错误
+    kInstanceBankForwardErr,         // 实例银行前向错误
+
+    kBackboneEngineLoadErr,          // 骨干网络引擎加载错误
+    kFirstHeadEngineLoadErr,         // 第一帧头部引擎加载错误
+    kSecondHeadEngineLoadErr,        // 第二帧头部引擎加载错误
+
+    kPostprocessorParamErr,          // 后处理参数错误
+    kPostprocessorForwardErr,        // 后处理前向错误
+
     kImgPreprocessLaunchErr = 2U,
 
     kBackboneInferErr = 20U,

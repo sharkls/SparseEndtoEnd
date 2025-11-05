@@ -214,7 +214,7 @@ Status imgPreprocessLauncher(const std::uint8_t* raw_imgs_cuda_ptr,
                                      float* model_input_imgs_cuda_ptr)
 
 {
-  const std::uint32_t thread_num = 32U;
+  const std::uint32_t thread_num = 16U;
   dim3 blocks_dim_in_each_grid(num_cams, DIVUP(model_input_img_h, thread_num), DIVUP(model_input_img_w, thread_num));
   dim3 threads_dim_in_each_block(thread_num, thread_num);
 
@@ -243,7 +243,7 @@ Status imgPreprocessLauncher(const std::uint8_t* raw_imgs_cuda_ptr,
                                      half* model_input_imgs_cuda_ptr)
 
 {
-  const std::uint32_t thread_num = 32U;
+  const std::uint32_t thread_num = 16U;
   dim3 blocks_dim_in_each_grid(num_cams, DIVUP(model_input_img_h, thread_num), DIVUP(model_input_img_w, thread_num));
   dim3 threads_dim_in_each_block(thread_num, thread_num);
 

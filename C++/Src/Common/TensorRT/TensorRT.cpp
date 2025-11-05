@@ -48,13 +48,13 @@ void TensorRT::init() {
 
   initLibNvInferPlugins(&gLogger, "");
   runtime_ = std::unique_ptr<nvinfer1::IRuntime>(nvinfer1::createInferRuntime(gLogger));                                             // 创建推理运行时
-  engine_ = std::unique_ptr<nvinfer1::ICudaEngine>(runtime_->deserializeCudaEngine(engine_data.data(), engine_data.size()));   // 反序列化CUDA引擎
+  engine_ = std::unique_ptr<nvinfer1::ICudaEngine>(runtime_->deserializeCudaEngine(engine_data.data(), engine_data.size()));            // 反序列化CUDA引擎
   context_ = std::unique_ptr<nvinfer1::IExecutionContext>(engine_->createExecutionContext());                                                 // 创建执行上下文
 
   // 自动检测引擎中的所有输入和输出张量
   auto_detect_tensors();
 
-  getEngineInfo();
+  // getEngineInfo();
 
   if (!runtime_ || !engine_ || !context_) {
     std::cout << "[ERROR] TensorRT engine initialized failed!" << std::endl;
@@ -130,7 +130,7 @@ bool TensorRT::infer(void* const* input_buffers, void* const* output_buffers, co
   
   if (numBindings > 0) {
     // TensorRT 8.x版本 - 使用binding索引和enqueueV2
-    std::cout << "[DEBUG] Using TensorRT 8.x enqueueV2 method" << std::endl;
+    // std::cout << "[DEBUG] Using TensorRT 8.x enqueueV2 method" << std::endl;
     
     // 获取输入输出binding索引
     std::vector<int> input_indices;
@@ -172,8 +172,6 @@ bool TensorRT::infer(void* const* input_buffers, void* const* output_buffers, co
     bool result = context_->enqueueV2(all_buffers.data(), stream, nullptr);
     if (!result) {
       std::cout << "[ERROR] enqueueV2 failed!" << std::endl;
-    } else {
-      std::cout << "[DEBUG] enqueueV2 succeeded!" << std::endl;
     }
     return result;
     

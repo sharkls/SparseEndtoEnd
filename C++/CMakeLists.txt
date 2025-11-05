@@ -88,6 +88,7 @@ if(CMAKE_PLATFORM MATCHES "86")
                                 # TestSparseBEVAlg.cpp
                                 # TestSparseBEVAlgv2.cpp
                                 TestSparseBEV8.6.cpp
+                                TestSparse4D.cpp
     )
 
     # 首先链接protobuf相关库
@@ -124,7 +125,8 @@ if(CMAKE_PLATFORM MATCHES "86")
     
     if(BUILD_SPARSEBEV8_6)
         target_link_libraries(${PROJECT_NAME} PRIVATE SparseBEVAlg8.6)
-        # target_link_libraries(${PROJECT_NAME} PRIVATE SparseBEVAlgFP16)
+        # Ensure the factory symbol CreateCoreObj is not dropped by --as-needed
+        target_link_libraries(${PROJECT_NAME} PRIVATE "-Wl,--no-as-needed" Sparse4DAlg "-Wl,--as-needed")
     endif()
 
 endif()

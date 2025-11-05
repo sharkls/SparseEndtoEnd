@@ -10,6 +10,7 @@
 // void main_sparse_bev();
 // void main_sparse_bev_v2();
 void main_sparse_bev_8_6();
+void main_sparse_4d();
 
 // 测试单元基类
 class TestUnit {
@@ -55,6 +56,18 @@ public:
     }
 };
 
+// Sparse4D测试单元
+class Sparse4DTest : public TestUnit {
+public:
+    void run() override {
+        try {
+            main_sparse_4d();
+        } catch (const std::exception& e) {
+            LOG(ERROR) << "Sparse4D测试错误: " << e.what();
+        }
+    }
+};
+
 // 创建测试单元工厂
 std::unique_ptr<TestUnit> createTestUnit(const std::string& task) {
     // if (task == "SparseBEV") {
@@ -64,6 +77,8 @@ std::unique_ptr<TestUnit> createTestUnit(const std::string& task) {
     // } else 
     if (task == "SparseBEV_8_6") {
         return std::make_unique<SparseBEVTest8_6>();
+    } else if (task == "Sparse4D") {
+        return std::make_unique<Sparse4DTest>();
     }
     return nullptr;
 }
