@@ -164,7 +164,7 @@ std::vector<float> loadBinFile(const std::string& filepath, const std::vector<in
         return data;
     }
     
-    LOG(INFO) << "Loaded " << data.size() << " elements from " << filepath;
+    // LOG(INFO) << "Loaded " << data.size() << " elements from " << filepath;
     return data;
 }
 
@@ -248,7 +248,7 @@ std::vector<double> loadBinFileFloat64(const std::string& filepath, const std::v
     data.resize(actual_elements);
     file.read(reinterpret_cast<char*>(data.data()), file_size);
     
-    LOG(INFO) << "Loaded " << data.size() << " float64 elements from " << filepath;
+    // LOG(INFO) << "Loaded " << data.size() << " float64 elements from " << filepath;
     return data;
 }
 
@@ -310,7 +310,7 @@ CTimeMatchSrcData loadAssetData(std::string asset_path, int index)
         video_src_data.vecImageBuf(img_vec);
         
         video_data.push_back(video_src_data);
-        LOG(INFO) << "Loaded image for camera " << cam_idx << " (size: 1600x900x3)";
+        // LOG(INFO) << "Loaded image for camera " << cam_idx << " (size: 1600x900x3)";
     }
     
     data.vecVideoSrcData(video_data);
@@ -384,7 +384,7 @@ CTimeMatchSrcData loadAssetData(std::string asset_path, int index)
         calib_data.matrix_size(16);
         data.calibration_data(calib_data);
         
-        LOG(INFO) << "Loaded lidar2img matrices: " << reshaped_matrices.size() << " floats";
+        // LOG(INFO) << "Loaded lidar2img matrices: " << reshaped_matrices.size() << " floats";
     } else {
         LOG(WARNING) << "Failed to load lidar2img matrices, using default values";
         // 使用默认的单位矩阵
@@ -415,7 +415,7 @@ CTimeMatchSrcData loadAssetData(std::string asset_path, int index)
         test_data.img_width(704);
         test_data.test_data_path(asset_path);
         test_data.test_data_type(0); // 0表示asset数据
-        LOG(INFO) << "Loaded preprocessed images to test data: " << preprocessed_imgs.size() << " floats (6*3*256*704)";
+        // LOG(INFO) << "Loaded preprocessed images to test data: " << preprocessed_imgs.size() << " floats (6*3*256*704)";
     } else {
         LOG(WARNING) << "Failed to load preprocessed images, using empty test data";
         test_data.preprocessed_imgs(std::vector<float>());
@@ -850,7 +850,7 @@ void main_sparse_4d() {
         int num_samples = 10;  // asset中有多个样本
         for (int i = 0; i < num_samples; i++)
         {
-            LOG(INFO) << "Processing sample " << i << " with Sparse4D";
+            // LOG(INFO) << "Processing sample " << i << " with Sparse4D";
             
             // 设置当前样本索引
             sparse4d_test::g_current_frame_index = i;

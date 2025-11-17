@@ -1645,6 +1645,7 @@ class TaskConfig final : public ::google::protobuf::Message
   // accessors -------------------------------------------------------
   enum : int {
     kHomographyPathFieldNumber = 8,
+    kPrecisionTypeFieldNumber = 11,
     kModelCfgParamsFieldNumber = 1,
     kPreprocessorParamsFieldNumber = 2,
     kInstanceBankParamsFieldNumber = 3,
@@ -1668,6 +1669,21 @@ class TaskConfig final : public ::google::protobuf::Message
   const std::string& _internal_homography_path() const;
   PROTOBUF_ALWAYS_INLINE void _internal_set_homography_path(const std::string& value);
   std::string* PROTOBUF_NONNULL _internal_mutable_homography_path();
+
+  public:
+  // string precision_type = 11;
+  void clear_precision_type() ;
+  const std::string& precision_type() const;
+  template <typename Arg_ = const std::string&, typename... Args_>
+  void set_precision_type(Arg_&& arg, Args_... args);
+  std::string* PROTOBUF_NONNULL mutable_precision_type();
+  [[nodiscard]] std::string* PROTOBUF_NULLABLE release_precision_type();
+  void set_allocated_precision_type(std::string* PROTOBUF_NULLABLE value);
+
+  private:
+  const std::string& _internal_precision_type() const;
+  PROTOBUF_ALWAYS_INLINE void _internal_set_precision_type(const std::string& value);
+  std::string* PROTOBUF_NONNULL _internal_mutable_precision_type();
 
   public:
   // .sparse4d.ModelCfgParams model_cfg_params = 1;
@@ -1799,8 +1815,8 @@ class TaskConfig final : public ::google::protobuf::Message
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
-  static const ::google::protobuf::internal::TcParseTable<4, 10,
-                                   7, 51,
+  static const ::google::protobuf::internal::TcParseTable<4, 11,
+                                   7, 65,
                                    2>
       _table_;
 
@@ -1822,6 +1838,7 @@ class TaskConfig final : public ::google::protobuf::Message
     ::google::protobuf::internal::HasBits<1> _has_bits_;
     ::google::protobuf::internal::CachedSize _cached_size_;
     ::google::protobuf::internal::ArenaStringPtr homography_path_;
+    ::google::protobuf::internal::ArenaStringPtr precision_type_;
     ::sparse4d::ModelCfgParams* PROTOBUF_NULLABLE model_cfg_params_;
     ::sparse4d::PreprocessorParams* PROTOBUF_NULLABLE preprocessor_params_;
     ::sparse4d::InstanceBankParams* PROTOBUF_NULLABLE instance_bank_params_;
@@ -1857,14 +1874,14 @@ extern const ::google::protobuf::internal::ClassDataFull TaskConfig_class_data_;
 
 // .sparse4d.ModelCfgParams model_cfg_params = 1;
 inline bool TaskConfig::has_model_cfg_params() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000002u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000004u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.model_cfg_params_ != nullptr);
   return value;
 }
 inline void TaskConfig::clear_model_cfg_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.model_cfg_params_ != nullptr) _impl_.model_cfg_params_->Clear();
-  _impl_._has_bits_[0] &= ~0x00000002u;
+  _impl_._has_bits_[0] &= ~0x00000004u;
 }
 inline const ::sparse4d::ModelCfgParams& TaskConfig::_internal_model_cfg_params() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
@@ -1883,16 +1900,16 @@ inline void TaskConfig::unsafe_arena_set_allocated_model_cfg_params(
   }
   _impl_.model_cfg_params_ = reinterpret_cast<::sparse4d::ModelCfgParams*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000002u;
+    _impl_._has_bits_[0] |= 0x00000004u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000002u;
+    _impl_._has_bits_[0] &= ~0x00000004u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:sparse4d.TaskConfig.model_cfg_params)
 }
 inline ::sparse4d::ModelCfgParams* PROTOBUF_NULLABLE TaskConfig::release_model_cfg_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000002u;
+  _impl_._has_bits_[0] &= ~0x00000004u;
   ::sparse4d::ModelCfgParams* released = _impl_.model_cfg_params_;
   _impl_.model_cfg_params_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -1912,7 +1929,7 @@ inline ::sparse4d::ModelCfgParams* PROTOBUF_NULLABLE TaskConfig::unsafe_arena_re
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.model_cfg_params)
 
-  _impl_._has_bits_[0] &= ~0x00000002u;
+  _impl_._has_bits_[0] &= ~0x00000004u;
   ::sparse4d::ModelCfgParams* temp = _impl_.model_cfg_params_;
   _impl_.model_cfg_params_ = nullptr;
   return temp;
@@ -1927,7 +1944,7 @@ inline ::sparse4d::ModelCfgParams* PROTOBUF_NONNULL TaskConfig::_internal_mutabl
 }
 inline ::sparse4d::ModelCfgParams* PROTOBUF_NONNULL TaskConfig::mutable_model_cfg_params()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000002u;
+  _impl_._has_bits_[0] |= 0x00000004u;
   ::sparse4d::ModelCfgParams* _msg = _internal_mutable_model_cfg_params();
   // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.model_cfg_params)
   return _msg;
@@ -1944,9 +1961,9 @@ inline void TaskConfig::set_allocated_model_cfg_params(::sparse4d::ModelCfgParam
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000002u;
+    _impl_._has_bits_[0] |= 0x00000004u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000002u;
+    _impl_._has_bits_[0] &= ~0x00000004u;
   }
 
   _impl_.model_cfg_params_ = reinterpret_cast<::sparse4d::ModelCfgParams*>(value);
@@ -1955,14 +1972,14 @@ inline void TaskConfig::set_allocated_model_cfg_params(::sparse4d::ModelCfgParam
 
 // .sparse4d.PreprocessorParams preprocessor_params = 2;
 inline bool TaskConfig::has_preprocessor_params() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000004u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000008u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.preprocessor_params_ != nullptr);
   return value;
 }
 inline void TaskConfig::clear_preprocessor_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.preprocessor_params_ != nullptr) _impl_.preprocessor_params_->Clear();
-  _impl_._has_bits_[0] &= ~0x00000004u;
+  _impl_._has_bits_[0] &= ~0x00000008u;
 }
 inline const ::sparse4d::PreprocessorParams& TaskConfig::_internal_preprocessor_params() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
@@ -1981,16 +1998,16 @@ inline void TaskConfig::unsafe_arena_set_allocated_preprocessor_params(
   }
   _impl_.preprocessor_params_ = reinterpret_cast<::sparse4d::PreprocessorParams*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000004u;
+    _impl_._has_bits_[0] |= 0x00000008u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000004u;
+    _impl_._has_bits_[0] &= ~0x00000008u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:sparse4d.TaskConfig.preprocessor_params)
 }
 inline ::sparse4d::PreprocessorParams* PROTOBUF_NULLABLE TaskConfig::release_preprocessor_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000004u;
+  _impl_._has_bits_[0] &= ~0x00000008u;
   ::sparse4d::PreprocessorParams* released = _impl_.preprocessor_params_;
   _impl_.preprocessor_params_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -2010,7 +2027,7 @@ inline ::sparse4d::PreprocessorParams* PROTOBUF_NULLABLE TaskConfig::unsafe_aren
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.preprocessor_params)
 
-  _impl_._has_bits_[0] &= ~0x00000004u;
+  _impl_._has_bits_[0] &= ~0x00000008u;
   ::sparse4d::PreprocessorParams* temp = _impl_.preprocessor_params_;
   _impl_.preprocessor_params_ = nullptr;
   return temp;
@@ -2025,7 +2042,7 @@ inline ::sparse4d::PreprocessorParams* PROTOBUF_NONNULL TaskConfig::_internal_mu
 }
 inline ::sparse4d::PreprocessorParams* PROTOBUF_NONNULL TaskConfig::mutable_preprocessor_params()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000004u;
+  _impl_._has_bits_[0] |= 0x00000008u;
   ::sparse4d::PreprocessorParams* _msg = _internal_mutable_preprocessor_params();
   // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.preprocessor_params)
   return _msg;
@@ -2042,9 +2059,9 @@ inline void TaskConfig::set_allocated_preprocessor_params(::sparse4d::Preprocess
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000004u;
+    _impl_._has_bits_[0] |= 0x00000008u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000004u;
+    _impl_._has_bits_[0] &= ~0x00000008u;
   }
 
   _impl_.preprocessor_params_ = reinterpret_cast<::sparse4d::PreprocessorParams*>(value);
@@ -2053,14 +2070,14 @@ inline void TaskConfig::set_allocated_preprocessor_params(::sparse4d::Preprocess
 
 // .sparse4d.InstanceBankParams instance_bank_params = 3;
 inline bool TaskConfig::has_instance_bank_params() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000008u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000010u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.instance_bank_params_ != nullptr);
   return value;
 }
 inline void TaskConfig::clear_instance_bank_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.instance_bank_params_ != nullptr) _impl_.instance_bank_params_->Clear();
-  _impl_._has_bits_[0] &= ~0x00000008u;
+  _impl_._has_bits_[0] &= ~0x00000010u;
 }
 inline const ::sparse4d::InstanceBankParams& TaskConfig::_internal_instance_bank_params() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
@@ -2079,16 +2096,16 @@ inline void TaskConfig::unsafe_arena_set_allocated_instance_bank_params(
   }
   _impl_.instance_bank_params_ = reinterpret_cast<::sparse4d::InstanceBankParams*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000008u;
+    _impl_._has_bits_[0] |= 0x00000010u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000008u;
+    _impl_._has_bits_[0] &= ~0x00000010u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:sparse4d.TaskConfig.instance_bank_params)
 }
 inline ::sparse4d::InstanceBankParams* PROTOBUF_NULLABLE TaskConfig::release_instance_bank_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000008u;
+  _impl_._has_bits_[0] &= ~0x00000010u;
   ::sparse4d::InstanceBankParams* released = _impl_.instance_bank_params_;
   _impl_.instance_bank_params_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -2108,7 +2125,7 @@ inline ::sparse4d::InstanceBankParams* PROTOBUF_NULLABLE TaskConfig::unsafe_aren
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.instance_bank_params)
 
-  _impl_._has_bits_[0] &= ~0x00000008u;
+  _impl_._has_bits_[0] &= ~0x00000010u;
   ::sparse4d::InstanceBankParams* temp = _impl_.instance_bank_params_;
   _impl_.instance_bank_params_ = nullptr;
   return temp;
@@ -2123,7 +2140,7 @@ inline ::sparse4d::InstanceBankParams* PROTOBUF_NONNULL TaskConfig::_internal_mu
 }
 inline ::sparse4d::InstanceBankParams* PROTOBUF_NONNULL TaskConfig::mutable_instance_bank_params()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000008u;
+  _impl_._has_bits_[0] |= 0x00000010u;
   ::sparse4d::InstanceBankParams* _msg = _internal_mutable_instance_bank_params();
   // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.instance_bank_params)
   return _msg;
@@ -2140,9 +2157,9 @@ inline void TaskConfig::set_allocated_instance_bank_params(::sparse4d::InstanceB
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000008u;
+    _impl_._has_bits_[0] |= 0x00000010u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000008u;
+    _impl_._has_bits_[0] &= ~0x00000010u;
   }
 
   _impl_.instance_bank_params_ = reinterpret_cast<::sparse4d::InstanceBankParams*>(value);
@@ -2151,14 +2168,14 @@ inline void TaskConfig::set_allocated_instance_bank_params(::sparse4d::InstanceB
 
 // .sparse4d.PostprocessorParams postprocessor_params = 4;
 inline bool TaskConfig::has_postprocessor_params() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000010u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000020u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.postprocessor_params_ != nullptr);
   return value;
 }
 inline void TaskConfig::clear_postprocessor_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.postprocessor_params_ != nullptr) _impl_.postprocessor_params_->Clear();
-  _impl_._has_bits_[0] &= ~0x00000010u;
+  _impl_._has_bits_[0] &= ~0x00000020u;
 }
 inline const ::sparse4d::PostprocessorParams& TaskConfig::_internal_postprocessor_params() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
@@ -2177,16 +2194,16 @@ inline void TaskConfig::unsafe_arena_set_allocated_postprocessor_params(
   }
   _impl_.postprocessor_params_ = reinterpret_cast<::sparse4d::PostprocessorParams*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000010u;
+    _impl_._has_bits_[0] |= 0x00000020u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000010u;
+    _impl_._has_bits_[0] &= ~0x00000020u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:sparse4d.TaskConfig.postprocessor_params)
 }
 inline ::sparse4d::PostprocessorParams* PROTOBUF_NULLABLE TaskConfig::release_postprocessor_params() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000010u;
+  _impl_._has_bits_[0] &= ~0x00000020u;
   ::sparse4d::PostprocessorParams* released = _impl_.postprocessor_params_;
   _impl_.postprocessor_params_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -2206,7 +2223,7 @@ inline ::sparse4d::PostprocessorParams* PROTOBUF_NULLABLE TaskConfig::unsafe_are
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.postprocessor_params)
 
-  _impl_._has_bits_[0] &= ~0x00000010u;
+  _impl_._has_bits_[0] &= ~0x00000020u;
   ::sparse4d::PostprocessorParams* temp = _impl_.postprocessor_params_;
   _impl_.postprocessor_params_ = nullptr;
   return temp;
@@ -2221,7 +2238,7 @@ inline ::sparse4d::PostprocessorParams* PROTOBUF_NONNULL TaskConfig::_internal_m
 }
 inline ::sparse4d::PostprocessorParams* PROTOBUF_NONNULL TaskConfig::mutable_postprocessor_params()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000010u;
+  _impl_._has_bits_[0] |= 0x00000020u;
   ::sparse4d::PostprocessorParams* _msg = _internal_mutable_postprocessor_params();
   // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.postprocessor_params)
   return _msg;
@@ -2238,9 +2255,9 @@ inline void TaskConfig::set_allocated_postprocessor_params(::sparse4d::Postproce
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000010u;
+    _impl_._has_bits_[0] |= 0x00000020u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000010u;
+    _impl_._has_bits_[0] &= ~0x00000020u;
   }
 
   _impl_.postprocessor_params_ = reinterpret_cast<::sparse4d::PostprocessorParams*>(value);
@@ -2249,14 +2266,14 @@ inline void TaskConfig::set_allocated_postprocessor_params(::sparse4d::Postproce
 
 // .sparse4d.E2ETrtEngine backbone_engine = 5;
 inline bool TaskConfig::has_backbone_engine() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000020u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000040u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.backbone_engine_ != nullptr);
   return value;
 }
 inline void TaskConfig::clear_backbone_engine() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.backbone_engine_ != nullptr) _impl_.backbone_engine_->Clear();
-  _impl_._has_bits_[0] &= ~0x00000020u;
+  _impl_._has_bits_[0] &= ~0x00000040u;
 }
 inline const ::sparse4d::E2ETrtEngine& TaskConfig::_internal_backbone_engine() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
@@ -2275,16 +2292,16 @@ inline void TaskConfig::unsafe_arena_set_allocated_backbone_engine(
   }
   _impl_.backbone_engine_ = reinterpret_cast<::sparse4d::E2ETrtEngine*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000020u;
+    _impl_._has_bits_[0] |= 0x00000040u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000020u;
+    _impl_._has_bits_[0] &= ~0x00000040u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:sparse4d.TaskConfig.backbone_engine)
 }
 inline ::sparse4d::E2ETrtEngine* PROTOBUF_NULLABLE TaskConfig::release_backbone_engine() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000020u;
+  _impl_._has_bits_[0] &= ~0x00000040u;
   ::sparse4d::E2ETrtEngine* released = _impl_.backbone_engine_;
   _impl_.backbone_engine_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -2304,7 +2321,7 @@ inline ::sparse4d::E2ETrtEngine* PROTOBUF_NULLABLE TaskConfig::unsafe_arena_rele
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.backbone_engine)
 
-  _impl_._has_bits_[0] &= ~0x00000020u;
+  _impl_._has_bits_[0] &= ~0x00000040u;
   ::sparse4d::E2ETrtEngine* temp = _impl_.backbone_engine_;
   _impl_.backbone_engine_ = nullptr;
   return temp;
@@ -2319,7 +2336,7 @@ inline ::sparse4d::E2ETrtEngine* PROTOBUF_NONNULL TaskConfig::_internal_mutable_
 }
 inline ::sparse4d::E2ETrtEngine* PROTOBUF_NONNULL TaskConfig::mutable_backbone_engine()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000020u;
+  _impl_._has_bits_[0] |= 0x00000040u;
   ::sparse4d::E2ETrtEngine* _msg = _internal_mutable_backbone_engine();
   // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.backbone_engine)
   return _msg;
@@ -2336,9 +2353,9 @@ inline void TaskConfig::set_allocated_backbone_engine(::sparse4d::E2ETrtEngine* 
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000020u;
+    _impl_._has_bits_[0] |= 0x00000040u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000020u;
+    _impl_._has_bits_[0] &= ~0x00000040u;
   }
 
   _impl_.backbone_engine_ = reinterpret_cast<::sparse4d::E2ETrtEngine*>(value);
@@ -2347,14 +2364,14 @@ inline void TaskConfig::set_allocated_backbone_engine(::sparse4d::E2ETrtEngine* 
 
 // .sparse4d.E2ETrtEngine head1st_engine = 6;
 inline bool TaskConfig::has_head1st_engine() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000040u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000080u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.head1st_engine_ != nullptr);
   return value;
 }
 inline void TaskConfig::clear_head1st_engine() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.head1st_engine_ != nullptr) _impl_.head1st_engine_->Clear();
-  _impl_._has_bits_[0] &= ~0x00000040u;
+  _impl_._has_bits_[0] &= ~0x00000080u;
 }
 inline const ::sparse4d::E2ETrtEngine& TaskConfig::_internal_head1st_engine() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
@@ -2373,16 +2390,16 @@ inline void TaskConfig::unsafe_arena_set_allocated_head1st_engine(
   }
   _impl_.head1st_engine_ = reinterpret_cast<::sparse4d::E2ETrtEngine*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000040u;
+    _impl_._has_bits_[0] |= 0x00000080u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000040u;
+    _impl_._has_bits_[0] &= ~0x00000080u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:sparse4d.TaskConfig.head1st_engine)
 }
 inline ::sparse4d::E2ETrtEngine* PROTOBUF_NULLABLE TaskConfig::release_head1st_engine() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000040u;
+  _impl_._has_bits_[0] &= ~0x00000080u;
   ::sparse4d::E2ETrtEngine* released = _impl_.head1st_engine_;
   _impl_.head1st_engine_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -2402,7 +2419,7 @@ inline ::sparse4d::E2ETrtEngine* PROTOBUF_NULLABLE TaskConfig::unsafe_arena_rele
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.head1st_engine)
 
-  _impl_._has_bits_[0] &= ~0x00000040u;
+  _impl_._has_bits_[0] &= ~0x00000080u;
   ::sparse4d::E2ETrtEngine* temp = _impl_.head1st_engine_;
   _impl_.head1st_engine_ = nullptr;
   return temp;
@@ -2417,7 +2434,7 @@ inline ::sparse4d::E2ETrtEngine* PROTOBUF_NONNULL TaskConfig::_internal_mutable_
 }
 inline ::sparse4d::E2ETrtEngine* PROTOBUF_NONNULL TaskConfig::mutable_head1st_engine()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000040u;
+  _impl_._has_bits_[0] |= 0x00000080u;
   ::sparse4d::E2ETrtEngine* _msg = _internal_mutable_head1st_engine();
   // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.head1st_engine)
   return _msg;
@@ -2434,9 +2451,9 @@ inline void TaskConfig::set_allocated_head1st_engine(::sparse4d::E2ETrtEngine* P
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000040u;
+    _impl_._has_bits_[0] |= 0x00000080u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000040u;
+    _impl_._has_bits_[0] &= ~0x00000080u;
   }
 
   _impl_.head1st_engine_ = reinterpret_cast<::sparse4d::E2ETrtEngine*>(value);
@@ -2445,14 +2462,14 @@ inline void TaskConfig::set_allocated_head1st_engine(::sparse4d::E2ETrtEngine* P
 
 // .sparse4d.E2ETrtEngine head2nd_engine = 7;
 inline bool TaskConfig::has_head2nd_engine() const {
-  bool value = (_impl_._has_bits_[0] & 0x00000080u) != 0;
+  bool value = (_impl_._has_bits_[0] & 0x00000100u) != 0;
   PROTOBUF_ASSUME(!value || _impl_.head2nd_engine_ != nullptr);
   return value;
 }
 inline void TaskConfig::clear_head2nd_engine() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   if (_impl_.head2nd_engine_ != nullptr) _impl_.head2nd_engine_->Clear();
-  _impl_._has_bits_[0] &= ~0x00000080u;
+  _impl_._has_bits_[0] &= ~0x00000100u;
 }
 inline const ::sparse4d::E2ETrtEngine& TaskConfig::_internal_head2nd_engine() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
@@ -2471,16 +2488,16 @@ inline void TaskConfig::unsafe_arena_set_allocated_head2nd_engine(
   }
   _impl_.head2nd_engine_ = reinterpret_cast<::sparse4d::E2ETrtEngine*>(value);
   if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000080u;
+    _impl_._has_bits_[0] |= 0x00000100u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000080u;
+    _impl_._has_bits_[0] &= ~0x00000100u;
   }
   // @@protoc_insertion_point(field_unsafe_arena_set_allocated:sparse4d.TaskConfig.head2nd_engine)
 }
 inline ::sparse4d::E2ETrtEngine* PROTOBUF_NULLABLE TaskConfig::release_head2nd_engine() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
 
-  _impl_._has_bits_[0] &= ~0x00000080u;
+  _impl_._has_bits_[0] &= ~0x00000100u;
   ::sparse4d::E2ETrtEngine* released = _impl_.head2nd_engine_;
   _impl_.head2nd_engine_ = nullptr;
   if (::google::protobuf::internal::DebugHardenForceCopyInRelease()) {
@@ -2500,7 +2517,7 @@ inline ::sparse4d::E2ETrtEngine* PROTOBUF_NULLABLE TaskConfig::unsafe_arena_rele
   ::google::protobuf::internal::TSanWrite(&_impl_);
   // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.head2nd_engine)
 
-  _impl_._has_bits_[0] &= ~0x00000080u;
+  _impl_._has_bits_[0] &= ~0x00000100u;
   ::sparse4d::E2ETrtEngine* temp = _impl_.head2nd_engine_;
   _impl_.head2nd_engine_ = nullptr;
   return temp;
@@ -2515,7 +2532,7 @@ inline ::sparse4d::E2ETrtEngine* PROTOBUF_NONNULL TaskConfig::_internal_mutable_
 }
 inline ::sparse4d::E2ETrtEngine* PROTOBUF_NONNULL TaskConfig::mutable_head2nd_engine()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  _impl_._has_bits_[0] |= 0x00000080u;
+  _impl_._has_bits_[0] |= 0x00000100u;
   ::sparse4d::E2ETrtEngine* _msg = _internal_mutable_head2nd_engine();
   // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.head2nd_engine)
   return _msg;
@@ -2532,9 +2549,9 @@ inline void TaskConfig::set_allocated_head2nd_engine(::sparse4d::E2ETrtEngine* P
     if (message_arena != submessage_arena) {
       value = ::google::protobuf::internal::GetOwnedMessage(message_arena, value, submessage_arena);
     }
-    _impl_._has_bits_[0] |= 0x00000080u;
+    _impl_._has_bits_[0] |= 0x00000100u;
   } else {
-    _impl_._has_bits_[0] &= ~0x00000080u;
+    _impl_._has_bits_[0] &= ~0x00000100u;
   }
 
   _impl_.head2nd_engine_ = reinterpret_cast<::sparse4d::E2ETrtEngine*>(value);
@@ -2610,7 +2627,7 @@ inline void TaskConfig::set_allocated_homography_path(std::string* PROTOBUF_NULL
 inline void TaskConfig::clear_enable_timer() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.enable_timer_ = false;
-  _impl_._has_bits_[0] &= ~0x00000100u;
+  _impl_._has_bits_[0] &= ~0x00000200u;
 }
 inline bool TaskConfig::enable_timer() const {
   // @@protoc_insertion_point(field_get:sparse4d.TaskConfig.enable_timer)
@@ -2618,7 +2635,7 @@ inline bool TaskConfig::enable_timer() const {
 }
 inline void TaskConfig::set_enable_timer(bool value) {
   _internal_set_enable_timer(value);
-  _impl_._has_bits_[0] |= 0x00000100u;
+  _impl_._has_bits_[0] |= 0x00000200u;
   // @@protoc_insertion_point(field_set:sparse4d.TaskConfig.enable_timer)
 }
 inline bool TaskConfig::_internal_enable_timer() const {
@@ -2634,7 +2651,7 @@ inline void TaskConfig::_internal_set_enable_timer(bool value) {
 inline void TaskConfig::clear_use_half_precision() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.use_half_precision_ = false;
-  _impl_._has_bits_[0] &= ~0x00000200u;
+  _impl_._has_bits_[0] &= ~0x00000400u;
 }
 inline bool TaskConfig::use_half_precision() const {
   // @@protoc_insertion_point(field_get:sparse4d.TaskConfig.use_half_precision)
@@ -2642,7 +2659,7 @@ inline bool TaskConfig::use_half_precision() const {
 }
 inline void TaskConfig::set_use_half_precision(bool value) {
   _internal_set_use_half_precision(value);
-  _impl_._has_bits_[0] |= 0x00000200u;
+  _impl_._has_bits_[0] |= 0x00000400u;
   // @@protoc_insertion_point(field_set:sparse4d.TaskConfig.use_half_precision)
 }
 inline bool TaskConfig::_internal_use_half_precision() const {
@@ -2652,6 +2669,71 @@ inline bool TaskConfig::_internal_use_half_precision() const {
 inline void TaskConfig::_internal_set_use_half_precision(bool value) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
   _impl_.use_half_precision_ = value;
+}
+
+// string precision_type = 11;
+inline void TaskConfig::clear_precision_type() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_.precision_type_.ClearToEmpty();
+  _impl_._has_bits_[0] &= ~0x00000002u;
+}
+inline const std::string& TaskConfig::precision_type() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:sparse4d.TaskConfig.precision_type)
+  return _internal_precision_type();
+}
+template <typename Arg_, typename... Args_>
+PROTOBUF_ALWAYS_INLINE void TaskConfig::set_precision_type(Arg_&& arg, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000002u;
+  _impl_.precision_type_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
+  // @@protoc_insertion_point(field_set:sparse4d.TaskConfig.precision_type)
+}
+inline std::string* PROTOBUF_NONNULL TaskConfig::mutable_precision_type()
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  std::string* _s = _internal_mutable_precision_type();
+  // @@protoc_insertion_point(field_mutable:sparse4d.TaskConfig.precision_type)
+  return _s;
+}
+inline const std::string& TaskConfig::_internal_precision_type() const {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return _impl_.precision_type_.Get();
+}
+inline void TaskConfig::_internal_set_precision_type(const std::string& value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000002u;
+  _impl_.precision_type_.Set(value, GetArena());
+}
+inline std::string* PROTOBUF_NONNULL TaskConfig::_internal_mutable_precision_type() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  _impl_._has_bits_[0] |= 0x00000002u;
+  return _impl_.precision_type_.Mutable( GetArena());
+}
+inline std::string* PROTOBUF_NULLABLE TaskConfig::release_precision_type() {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  // @@protoc_insertion_point(field_release:sparse4d.TaskConfig.precision_type)
+  if ((_impl_._has_bits_[0] & 0x00000002u) == 0) {
+    return nullptr;
+  }
+  _impl_._has_bits_[0] &= ~0x00000002u;
+  auto* released = _impl_.precision_type_.Release();
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
+    _impl_.precision_type_.Set("", GetArena());
+  }
+  return released;
+}
+inline void TaskConfig::set_allocated_precision_type(std::string* PROTOBUF_NULLABLE value) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  if (value != nullptr) {
+    _impl_._has_bits_[0] |= 0x00000002u;
+  } else {
+    _impl_._has_bits_[0] &= ~0x00000002u;
+  }
+  _impl_.precision_type_.SetAllocated(value, GetArena());
+  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.precision_type_.IsDefault()) {
+    _impl_.precision_type_.Set("", GetArena());
+  }
+  // @@protoc_insertion_point(field_set_allocated:sparse4d.TaskConfig.precision_type)
 }
 
 // -------------------------------------------------------------------

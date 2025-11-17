@@ -200,6 +200,9 @@ inline constexpr TaskConfig::Impl_::Impl_(
         homography_path_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()),
+        precision_type_(
+            &::google::protobuf::internal::fixed_address_empty_string,
+            ::_pbi::ConstantInitialized()),
         model_cfg_params_{nullptr},
         preprocessor_params_{nullptr},
         instance_bank_params_{nullptr},
@@ -255,16 +258,18 @@ const ::uint32_t
         PROTOBUF_FIELD_OFFSET(::sparse4d::TaskConfig, _impl_.homography_path_),
         PROTOBUF_FIELD_OFFSET(::sparse4d::TaskConfig, _impl_.enable_timer_),
         PROTOBUF_FIELD_OFFSET(::sparse4d::TaskConfig, _impl_.use_half_precision_),
-        1,
+        PROTOBUF_FIELD_OFFSET(::sparse4d::TaskConfig, _impl_.precision_type_),
         2,
         3,
         4,
         5,
         6,
         7,
-        0,
         8,
+        0,
         9,
+        10,
+        1,
         PROTOBUF_FIELD_OFFSET(::sparse4d::ModelCfgParams, _impl_._has_bits_),
         PROTOBUF_FIELD_OFFSET(::sparse4d::ModelCfgParams, _internal_metadata_),
         ~0u,  // no _extensions_
@@ -379,12 +384,12 @@ const ::uint32_t
 
 static const ::_pbi::MigrationSchema
     schemas[] ABSL_ATTRIBUTE_SECTION_VARIABLE(protodesc_cold) = {
-        {0, 18, -1, sizeof(::sparse4d::TaskConfig)},
-        {28, 43, -1, sizeof(::sparse4d::ModelCfgParams)},
-        {50, 62, -1, sizeof(::sparse4d::E2ETrtEngine)},
-        {66, 84, -1, sizeof(::sparse4d::PreprocessorParams)},
-        {94, 111, -1, sizeof(::sparse4d::InstanceBankParams)},
-        {120, 133, -1, sizeof(::sparse4d::PostprocessorParams)},
+        {0, 19, -1, sizeof(::sparse4d::TaskConfig)},
+        {30, 45, -1, sizeof(::sparse4d::ModelCfgParams)},
+        {52, 64, -1, sizeof(::sparse4d::E2ETrtEngine)},
+        {68, 86, -1, sizeof(::sparse4d::PreprocessorParams)},
+        {96, 113, -1, sizeof(::sparse4d::InstanceBankParams)},
+        {122, 135, -1, sizeof(::sparse4d::PostprocessorParams)},
 };
 static const ::_pb::Message* PROTOBUF_NONNULL const file_default_instances[] = {
     &::sparse4d::_TaskConfig_default_instance_._instance,
@@ -396,7 +401,7 @@ static const ::_pb::Message* PROTOBUF_NONNULL const file_default_instances[] = {
 };
 const char descriptor_table_protodef_Sparse4D_5fconf_2eproto[] ABSL_ATTRIBUTE_SECTION_VARIABLE(
     protodesc_cold) = {
-    "\n\023Sparse4D_conf.proto\022\010sparse4d\"\320\003\n\nTask"
+    "\n\023Sparse4D_conf.proto\022\010sparse4d\"\350\003\n\nTask"
     "Config\0222\n\020model_cfg_params\030\001 \001(\0132\030.spars"
     "e4d.ModelCfgParams\0229\n\023preprocessor_param"
     "s\030\002 \001(\0132\034.sparse4d.PreprocessorParams\022:\n"
@@ -408,40 +413,40 @@ const char descriptor_table_protodef_Sparse4D_5fconf_2eproto[] ABSL_ATTRIBUTE_SE
     "4d.E2ETrtEngine\022.\n\016head2nd_engine\030\007 \001(\0132"
     "\026.sparse4d.E2ETrtEngine\022\027\n\017homography_pa"
     "th\030\010 \001(\t\022\024\n\014enable_timer\030\t \001(\010\022\032\n\022use_ha"
-    "lf_precision\030\n \001(\010\"\240\002\n\016ModelCfgParams\022\026\n"
-    "\016embedfeat_dims\030\001 \001(\r\022&\n\036sparse4d_extrac"
-    "t_feat_shape_lc\030\002 \003(\r\022/\n\'sparse4d_extrac"
-    "t_feat_spatial_shapes_ld\030\003 \003(\r\022/\n\'sparse"
-    "4d_extract_feat_level_start_index\030\004 \003(\r\022"
-    "B\n:multiview_multiscale_deformable_atten"
-    "tion_aggregation_path\030\005 \001(\t\022\023\n\013num_class"
-    "es\030\006 \001(\r\022\023\n\013class_names\030\007 \003(\t\"c\n\014E2ETrtE"
-    "ngine\022\023\n\013engine_path\030\001 \001(\t\022\023\n\013plugin_pat"
-    "h\030\002 \001(\t\022\023\n\013input_names\030\003 \003(\t\022\024\n\014output_n"
-    "ames\030\004 \003(\t\"\357\001\n\022PreprocessorParams\022\020\n\010num"
-    "_cams\030\001 \001(\r\022\021\n\traw_img_c\030\002 \001(\r\022\021\n\traw_im"
-    "g_h\030\003 \001(\r\022\021\n\traw_img_w\030\004 \001(\r\022\031\n\021model_in"
-    "put_img_c\030\005 \001(\r\022\031\n\021model_input_img_h\030\006 \001"
-    "(\r\022\031\n\021model_input_img_w\030\007 \001(\r\022\024\n\014resize_"
-    "ratio\030\010 \001(\002\022\023\n\013crop_height\030\t \001(\r\022\022\n\ncrop"
-    "_width\030\n \001(\r\"\204\002\n\022InstanceBankParams\022\022\n\nn"
-    "um_querys\030\001 \001(\r\022\022\n\nquery_dims\030\002 \001(\r\022\026\n\016k"
-    "means_anchors\030\003 \003(\002\022\023\n\013topk_querys\030\004 \001(\r"
-    "\022\031\n\021max_time_interval\030\005 \001(\002\022\035\n\025default_t"
-    "ime_interval\030\006 \001(\002\022\030\n\020confidence_decay\030\007"
-    " \001(\002\022!\n\031instance_bank_anchor_path\030\010 \001(\t\022"
-    "\"\n\032instance_bank_feature_path\030\t \001(\t\"\236\001\n\023"
-    "PostprocessorParams\022\035\n\025post_process_out_"
-    "nums\030\001 \001(\r\022\036\n\026post_process_threshold\030\002 \001"
-    "(\002\022\023\n\013use_gpu_nms\030\003 \001(\010\022\031\n\021gpu_nms_thres"
-    "hold\030\004 \001(\002\022\030\n\020max_output_boxes\030\005 \001(\rb\006pr"
-    "oto3"
+    "lf_precision\030\n \001(\010\022\026\n\016precision_type\030\013 \001"
+    "(\t\"\240\002\n\016ModelCfgParams\022\026\n\016embedfeat_dims\030"
+    "\001 \001(\r\022&\n\036sparse4d_extract_feat_shape_lc\030"
+    "\002 \003(\r\022/\n\'sparse4d_extract_feat_spatial_s"
+    "hapes_ld\030\003 \003(\r\022/\n\'sparse4d_extract_feat_"
+    "level_start_index\030\004 \003(\r\022B\n:multiview_mul"
+    "tiscale_deformable_attention_aggregation"
+    "_path\030\005 \001(\t\022\023\n\013num_classes\030\006 \001(\r\022\023\n\013clas"
+    "s_names\030\007 \003(\t\"c\n\014E2ETrtEngine\022\023\n\013engine_"
+    "path\030\001 \001(\t\022\023\n\013plugin_path\030\002 \001(\t\022\023\n\013input"
+    "_names\030\003 \003(\t\022\024\n\014output_names\030\004 \003(\t\"\357\001\n\022P"
+    "reprocessorParams\022\020\n\010num_cams\030\001 \001(\r\022\021\n\tr"
+    "aw_img_c\030\002 \001(\r\022\021\n\traw_img_h\030\003 \001(\r\022\021\n\traw"
+    "_img_w\030\004 \001(\r\022\031\n\021model_input_img_c\030\005 \001(\r\022"
+    "\031\n\021model_input_img_h\030\006 \001(\r\022\031\n\021model_inpu"
+    "t_img_w\030\007 \001(\r\022\024\n\014resize_ratio\030\010 \001(\002\022\023\n\013c"
+    "rop_height\030\t \001(\r\022\022\n\ncrop_width\030\n \001(\r\"\204\002\n"
+    "\022InstanceBankParams\022\022\n\nnum_querys\030\001 \001(\r\022"
+    "\022\n\nquery_dims\030\002 \001(\r\022\026\n\016kmeans_anchors\030\003 "
+    "\003(\002\022\023\n\013topk_querys\030\004 \001(\r\022\031\n\021max_time_int"
+    "erval\030\005 \001(\002\022\035\n\025default_time_interval\030\006 \001"
+    "(\002\022\030\n\020confidence_decay\030\007 \001(\002\022!\n\031instance"
+    "_bank_anchor_path\030\010 \001(\t\022\"\n\032instance_bank"
+    "_feature_path\030\t \001(\t\"\236\001\n\023PostprocessorPar"
+    "ams\022\035\n\025post_process_out_nums\030\001 \001(\r\022\036\n\026po"
+    "st_process_threshold\030\002 \001(\002\022\023\n\013use_gpu_nm"
+    "s\030\003 \001(\010\022\031\n\021gpu_nms_threshold\030\004 \001(\002\022\030\n\020ma"
+    "x_output_boxes\030\005 \001(\rb\006proto3"
 };
 static ::absl::once_flag descriptor_table_Sparse4D_5fconf_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_Sparse4D_5fconf_2eproto = {
     false,
     false,
-    1564,
+    1588,
     descriptor_table_protodef_Sparse4D_5fconf_2eproto,
     "Sparse4D_conf.proto",
     &descriptor_table_Sparse4D_5fconf_2eproto_once,
@@ -480,7 +485,8 @@ PROTOBUF_NDEBUG_INLINE TaskConfig::Impl_::Impl_(
     const ::sparse4d::TaskConfig& from_msg)
       : _has_bits_{from._has_bits_},
         _cached_size_{0},
-        homography_path_(arena, from.homography_path_) {}
+        homography_path_(arena, from.homography_path_),
+        precision_type_(arena, from.precision_type_) {}
 
 TaskConfig::TaskConfig(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -496,25 +502,25 @@ TaskConfig::TaskConfig(
       from._internal_metadata_);
   new (&_impl_) Impl_(internal_visibility(), arena, from._impl_, from);
   ::uint32_t cached_has_bits = _impl_._has_bits_[0];
-  _impl_.model_cfg_params_ = ((cached_has_bits & 0x00000002u) != 0)
+  _impl_.model_cfg_params_ = ((cached_has_bits & 0x00000004u) != 0)
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.model_cfg_params_)
                 : nullptr;
-  _impl_.preprocessor_params_ = ((cached_has_bits & 0x00000004u) != 0)
+  _impl_.preprocessor_params_ = ((cached_has_bits & 0x00000008u) != 0)
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.preprocessor_params_)
                 : nullptr;
-  _impl_.instance_bank_params_ = ((cached_has_bits & 0x00000008u) != 0)
+  _impl_.instance_bank_params_ = ((cached_has_bits & 0x00000010u) != 0)
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.instance_bank_params_)
                 : nullptr;
-  _impl_.postprocessor_params_ = ((cached_has_bits & 0x00000010u) != 0)
+  _impl_.postprocessor_params_ = ((cached_has_bits & 0x00000020u) != 0)
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.postprocessor_params_)
                 : nullptr;
-  _impl_.backbone_engine_ = ((cached_has_bits & 0x00000020u) != 0)
+  _impl_.backbone_engine_ = ((cached_has_bits & 0x00000040u) != 0)
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.backbone_engine_)
                 : nullptr;
-  _impl_.head1st_engine_ = ((cached_has_bits & 0x00000040u) != 0)
+  _impl_.head1st_engine_ = ((cached_has_bits & 0x00000080u) != 0)
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.head1st_engine_)
                 : nullptr;
-  _impl_.head2nd_engine_ = ((cached_has_bits & 0x00000080u) != 0)
+  _impl_.head2nd_engine_ = ((cached_has_bits & 0x00000100u) != 0)
                 ? ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.head2nd_engine_)
                 : nullptr;
   ::memcpy(reinterpret_cast<char *>(&_impl_) +
@@ -531,7 +537,8 @@ PROTOBUF_NDEBUG_INLINE TaskConfig::Impl_::Impl_(
     ::google::protobuf::internal::InternalVisibility visibility,
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
       : _cached_size_{0},
-        homography_path_(arena) {}
+        homography_path_(arena),
+        precision_type_(arena) {}
 
 inline void TaskConfig::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
@@ -551,6 +558,7 @@ inline void TaskConfig::SharedDtor(MessageLite& self) {
   this_._internal_metadata_.Delete<::google::protobuf::UnknownFieldSet>();
   ABSL_DCHECK(this_.GetArena() == nullptr);
   this_._impl_.homography_path_.Destroy();
+  this_._impl_.precision_type_.Destroy();
   delete this_._impl_.model_cfg_params_;
   delete this_._impl_.preprocessor_params_;
   delete this_._impl_.instance_bank_params_;
@@ -604,16 +612,16 @@ const ::google::protobuf::internal::ClassData* PROTOBUF_NONNULL TaskConfig::GetC
   return TaskConfig_class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<4, 10, 7, 51, 2>
+const ::_pbi::TcParseTable<4, 11, 7, 65, 2>
 TaskConfig::_table_ = {
   {
     PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_._has_bits_),
     0, // no _extensions_
-    10, 120,  // max_field_number, fast_idx_mask
+    11, 120,  // max_field_number, fast_idx_mask
     offsetof(decltype(_table_), field_lookup_table),
-    4294966272,  // skipmap
+    4294965248,  // skipmap
     offsetof(decltype(_table_), field_entries),
-    10,  // num_field_entries
+    11,  // num_field_entries
     7,  // num_aux_entries
     offsetof(decltype(_table_), aux_entries),
     TaskConfig_class_data_.base(),
@@ -626,35 +634,37 @@ TaskConfig::_table_ = {
     {::_pbi::TcParser::MiniParse, {}},
     // .sparse4d.ModelCfgParams model_cfg_params = 1;
     {::_pbi::TcParser::FastMtS1,
-     {10, 1, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.model_cfg_params_)}},
+     {10, 2, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.model_cfg_params_)}},
     // .sparse4d.PreprocessorParams preprocessor_params = 2;
     {::_pbi::TcParser::FastMtS1,
-     {18, 2, 1, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.preprocessor_params_)}},
+     {18, 3, 1, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.preprocessor_params_)}},
     // .sparse4d.InstanceBankParams instance_bank_params = 3;
     {::_pbi::TcParser::FastMtS1,
-     {26, 3, 2, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.instance_bank_params_)}},
+     {26, 4, 2, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.instance_bank_params_)}},
     // .sparse4d.PostprocessorParams postprocessor_params = 4;
     {::_pbi::TcParser::FastMtS1,
-     {34, 4, 3, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.postprocessor_params_)}},
+     {34, 5, 3, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.postprocessor_params_)}},
     // .sparse4d.E2ETrtEngine backbone_engine = 5;
     {::_pbi::TcParser::FastMtS1,
-     {42, 5, 4, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.backbone_engine_)}},
+     {42, 6, 4, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.backbone_engine_)}},
     // .sparse4d.E2ETrtEngine head1st_engine = 6;
     {::_pbi::TcParser::FastMtS1,
-     {50, 6, 5, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head1st_engine_)}},
+     {50, 7, 5, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head1st_engine_)}},
     // .sparse4d.E2ETrtEngine head2nd_engine = 7;
     {::_pbi::TcParser::FastMtS1,
-     {58, 7, 6, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head2nd_engine_)}},
+     {58, 8, 6, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head2nd_engine_)}},
     // string homography_path = 8;
     {::_pbi::TcParser::FastUS1,
      {66, 0, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.homography_path_)}},
     // bool enable_timer = 9;
-    {::_pbi::TcParser::SingularVarintNoZag1<bool, offsetof(TaskConfig, _impl_.enable_timer_), 8>(),
-     {72, 8, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.enable_timer_)}},
+    {::_pbi::TcParser::SingularVarintNoZag1<bool, offsetof(TaskConfig, _impl_.enable_timer_), 9>(),
+     {72, 9, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.enable_timer_)}},
     // bool use_half_precision = 10;
-    {::_pbi::TcParser::SingularVarintNoZag1<bool, offsetof(TaskConfig, _impl_.use_half_precision_), 9>(),
-     {80, 9, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.use_half_precision_)}},
-    {::_pbi::TcParser::MiniParse, {}},
+    {::_pbi::TcParser::SingularVarintNoZag1<bool, offsetof(TaskConfig, _impl_.use_half_precision_), 10>(),
+     {80, 10, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.use_half_precision_)}},
+    // string precision_type = 11;
+    {::_pbi::TcParser::FastUS1,
+     {90, 1, 0, PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.precision_type_)}},
     {::_pbi::TcParser::MiniParse, {}},
     {::_pbi::TcParser::MiniParse, {}},
     {::_pbi::TcParser::MiniParse, {}},
@@ -663,35 +673,38 @@ TaskConfig::_table_ = {
     65535, 65535
   }}, {{
     // .sparse4d.ModelCfgParams model_cfg_params = 1;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.model_cfg_params_), _Internal::kHasBitsOffset + 1, 0,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.model_cfg_params_), _Internal::kHasBitsOffset + 2, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     // .sparse4d.PreprocessorParams preprocessor_params = 2;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.preprocessor_params_), _Internal::kHasBitsOffset + 2, 1,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.preprocessor_params_), _Internal::kHasBitsOffset + 3, 1,
     (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     // .sparse4d.InstanceBankParams instance_bank_params = 3;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.instance_bank_params_), _Internal::kHasBitsOffset + 3, 2,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.instance_bank_params_), _Internal::kHasBitsOffset + 4, 2,
     (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     // .sparse4d.PostprocessorParams postprocessor_params = 4;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.postprocessor_params_), _Internal::kHasBitsOffset + 4, 3,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.postprocessor_params_), _Internal::kHasBitsOffset + 5, 3,
     (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     // .sparse4d.E2ETrtEngine backbone_engine = 5;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.backbone_engine_), _Internal::kHasBitsOffset + 5, 4,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.backbone_engine_), _Internal::kHasBitsOffset + 6, 4,
     (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     // .sparse4d.E2ETrtEngine head1st_engine = 6;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head1st_engine_), _Internal::kHasBitsOffset + 6, 5,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head1st_engine_), _Internal::kHasBitsOffset + 7, 5,
     (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     // .sparse4d.E2ETrtEngine head2nd_engine = 7;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head2nd_engine_), _Internal::kHasBitsOffset + 7, 6,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.head2nd_engine_), _Internal::kHasBitsOffset + 8, 6,
     (0 | ::_fl::kFcOptional | ::_fl::kMessage | ::_fl::kTvTable)},
     // string homography_path = 8;
     {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.homography_path_), _Internal::kHasBitsOffset + 0, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
     // bool enable_timer = 9;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.enable_timer_), _Internal::kHasBitsOffset + 8, 0,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.enable_timer_), _Internal::kHasBitsOffset + 9, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kBool)},
     // bool use_half_precision = 10;
-    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.use_half_precision_), _Internal::kHasBitsOffset + 9, 0,
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.use_half_precision_), _Internal::kHasBitsOffset + 10, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kBool)},
+    // string precision_type = 11;
+    {PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.precision_type_), _Internal::kHasBitsOffset + 1, 0,
+    (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
   }},
   {{
       {::_pbi::TcParser::GetTable<::sparse4d::ModelCfgParams>()},
@@ -703,9 +716,10 @@ TaskConfig::_table_ = {
       {::_pbi::TcParser::GetTable<::sparse4d::E2ETrtEngine>()},
   }},
   {{
-    "\23\0\0\0\0\0\0\0\17\0\0\0\0\0\0\0"
+    "\23\0\0\0\0\0\0\0\17\0\0\16\0\0\0\0"
     "sparse4d.TaskConfig"
     "homography_path"
+    "precision_type"
   }},
 };
 PROTOBUF_NOINLINE void TaskConfig::Clear() {
@@ -721,33 +735,36 @@ PROTOBUF_NOINLINE void TaskConfig::Clear() {
       _impl_.homography_path_.ClearNonDefaultToEmpty();
     }
     if ((cached_has_bits & 0x00000002u) != 0) {
+      _impl_.precision_type_.ClearNonDefaultToEmpty();
+    }
+    if ((cached_has_bits & 0x00000004u) != 0) {
       ABSL_DCHECK(_impl_.model_cfg_params_ != nullptr);
       _impl_.model_cfg_params_->Clear();
     }
-    if ((cached_has_bits & 0x00000004u) != 0) {
+    if ((cached_has_bits & 0x00000008u) != 0) {
       ABSL_DCHECK(_impl_.preprocessor_params_ != nullptr);
       _impl_.preprocessor_params_->Clear();
     }
-    if ((cached_has_bits & 0x00000008u) != 0) {
+    if ((cached_has_bits & 0x00000010u) != 0) {
       ABSL_DCHECK(_impl_.instance_bank_params_ != nullptr);
       _impl_.instance_bank_params_->Clear();
     }
-    if ((cached_has_bits & 0x00000010u) != 0) {
+    if ((cached_has_bits & 0x00000020u) != 0) {
       ABSL_DCHECK(_impl_.postprocessor_params_ != nullptr);
       _impl_.postprocessor_params_->Clear();
     }
-    if ((cached_has_bits & 0x00000020u) != 0) {
+    if ((cached_has_bits & 0x00000040u) != 0) {
       ABSL_DCHECK(_impl_.backbone_engine_ != nullptr);
       _impl_.backbone_engine_->Clear();
     }
-    if ((cached_has_bits & 0x00000040u) != 0) {
+    if ((cached_has_bits & 0x00000080u) != 0) {
       ABSL_DCHECK(_impl_.head1st_engine_ != nullptr);
       _impl_.head1st_engine_->Clear();
     }
-    if ((cached_has_bits & 0x00000080u) != 0) {
-      ABSL_DCHECK(_impl_.head2nd_engine_ != nullptr);
-      _impl_.head2nd_engine_->Clear();
-    }
+  }
+  if ((cached_has_bits & 0x00000100u) != 0) {
+    ABSL_DCHECK(_impl_.head2nd_engine_ != nullptr);
+    _impl_.head2nd_engine_->Clear();
   }
   ::memset(&_impl_.enable_timer_, 0, static_cast<::size_t>(
       reinterpret_cast<char*>(&_impl_.use_half_precision_) -
@@ -773,49 +790,49 @@ PROTOBUF_NOINLINE void TaskConfig::Clear() {
 
   cached_has_bits = this_._impl_._has_bits_[0];
   // .sparse4d.ModelCfgParams model_cfg_params = 1;
-  if ((cached_has_bits & 0x00000002u) != 0) {
+  if ((cached_has_bits & 0x00000004u) != 0) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         1, *this_._impl_.model_cfg_params_, this_._impl_.model_cfg_params_->GetCachedSize(), target,
         stream);
   }
 
   // .sparse4d.PreprocessorParams preprocessor_params = 2;
-  if ((cached_has_bits & 0x00000004u) != 0) {
+  if ((cached_has_bits & 0x00000008u) != 0) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         2, *this_._impl_.preprocessor_params_, this_._impl_.preprocessor_params_->GetCachedSize(), target,
         stream);
   }
 
   // .sparse4d.InstanceBankParams instance_bank_params = 3;
-  if ((cached_has_bits & 0x00000008u) != 0) {
+  if ((cached_has_bits & 0x00000010u) != 0) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         3, *this_._impl_.instance_bank_params_, this_._impl_.instance_bank_params_->GetCachedSize(), target,
         stream);
   }
 
   // .sparse4d.PostprocessorParams postprocessor_params = 4;
-  if ((cached_has_bits & 0x00000010u) != 0) {
+  if ((cached_has_bits & 0x00000020u) != 0) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         4, *this_._impl_.postprocessor_params_, this_._impl_.postprocessor_params_->GetCachedSize(), target,
         stream);
   }
 
   // .sparse4d.E2ETrtEngine backbone_engine = 5;
-  if ((cached_has_bits & 0x00000020u) != 0) {
+  if ((cached_has_bits & 0x00000040u) != 0) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         5, *this_._impl_.backbone_engine_, this_._impl_.backbone_engine_->GetCachedSize(), target,
         stream);
   }
 
   // .sparse4d.E2ETrtEngine head1st_engine = 6;
-  if ((cached_has_bits & 0x00000040u) != 0) {
+  if ((cached_has_bits & 0x00000080u) != 0) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         6, *this_._impl_.head1st_engine_, this_._impl_.head1st_engine_->GetCachedSize(), target,
         stream);
   }
 
   // .sparse4d.E2ETrtEngine head2nd_engine = 7;
-  if ((cached_has_bits & 0x00000080u) != 0) {
+  if ((cached_has_bits & 0x00000100u) != 0) {
     target = ::google::protobuf::internal::WireFormatLite::InternalWriteMessage(
         7, *this_._impl_.head2nd_engine_, this_._impl_.head2nd_engine_->GetCachedSize(), target,
         stream);
@@ -832,7 +849,7 @@ PROTOBUF_NOINLINE void TaskConfig::Clear() {
   }
 
   // bool enable_timer = 9;
-  if ((cached_has_bits & 0x00000100u) != 0) {
+  if ((cached_has_bits & 0x00000200u) != 0) {
     if (this_._internal_enable_timer() != 0) {
       target = stream->EnsureSpace(target);
       target = ::_pbi::WireFormatLite::WriteBoolToArray(
@@ -841,11 +858,21 @@ PROTOBUF_NOINLINE void TaskConfig::Clear() {
   }
 
   // bool use_half_precision = 10;
-  if ((cached_has_bits & 0x00000200u) != 0) {
+  if ((cached_has_bits & 0x00000400u) != 0) {
     if (this_._internal_use_half_precision() != 0) {
       target = stream->EnsureSpace(target);
       target = ::_pbi::WireFormatLite::WriteBoolToArray(
           10, this_._internal_use_half_precision(), target);
+    }
+  }
+
+  // string precision_type = 11;
+  if ((cached_has_bits & 0x00000002u) != 0) {
+    if (!this_._internal_precision_type().empty()) {
+      const std::string& _s = this_._internal_precision_type();
+      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "sparse4d.TaskConfig.precision_type");
+      target = stream->WriteStringMaybeAliased(11, _s, target);
     }
   }
 
@@ -882,51 +909,58 @@ PROTOBUF_NOINLINE void TaskConfig::Clear() {
                                         this_._internal_homography_path());
       }
     }
-    // .sparse4d.ModelCfgParams model_cfg_params = 1;
+    // string precision_type = 11;
     if ((cached_has_bits & 0x00000002u) != 0) {
+      if (!this_._internal_precision_type().empty()) {
+        total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
+                                        this_._internal_precision_type());
+      }
+    }
+    // .sparse4d.ModelCfgParams model_cfg_params = 1;
+    if ((cached_has_bits & 0x00000004u) != 0) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.model_cfg_params_);
     }
     // .sparse4d.PreprocessorParams preprocessor_params = 2;
-    if ((cached_has_bits & 0x00000004u) != 0) {
+    if ((cached_has_bits & 0x00000008u) != 0) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.preprocessor_params_);
     }
     // .sparse4d.InstanceBankParams instance_bank_params = 3;
-    if ((cached_has_bits & 0x00000008u) != 0) {
+    if ((cached_has_bits & 0x00000010u) != 0) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.instance_bank_params_);
     }
     // .sparse4d.PostprocessorParams postprocessor_params = 4;
-    if ((cached_has_bits & 0x00000010u) != 0) {
+    if ((cached_has_bits & 0x00000020u) != 0) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.postprocessor_params_);
     }
     // .sparse4d.E2ETrtEngine backbone_engine = 5;
-    if ((cached_has_bits & 0x00000020u) != 0) {
+    if ((cached_has_bits & 0x00000040u) != 0) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.backbone_engine_);
     }
     // .sparse4d.E2ETrtEngine head1st_engine = 6;
-    if ((cached_has_bits & 0x00000040u) != 0) {
+    if ((cached_has_bits & 0x00000080u) != 0) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.head1st_engine_);
     }
+  }
+  if ((cached_has_bits & 0x00000700u) != 0) {
     // .sparse4d.E2ETrtEngine head2nd_engine = 7;
-    if ((cached_has_bits & 0x00000080u) != 0) {
+    if ((cached_has_bits & 0x00000100u) != 0) {
       total_size += 1 +
                     ::google::protobuf::internal::WireFormatLite::MessageSize(*this_._impl_.head2nd_engine_);
     }
-  }
-  if ((cached_has_bits & 0x00000300u) != 0) {
     // bool enable_timer = 9;
-    if ((cached_has_bits & 0x00000100u) != 0) {
+    if ((cached_has_bits & 0x00000200u) != 0) {
       if (this_._internal_enable_timer() != 0) {
         total_size += 2;
       }
     }
     // bool use_half_precision = 10;
-    if ((cached_has_bits & 0x00000200u) != 0) {
+    if ((cached_has_bits & 0x00000400u) != 0) {
       if (this_._internal_use_half_precision() != 0) {
         total_size += 2;
       }
@@ -957,6 +991,15 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
       }
     }
     if ((cached_has_bits & 0x00000002u) != 0) {
+      if (!from._internal_precision_type().empty()) {
+        _this->_internal_set_precision_type(from._internal_precision_type());
+      } else {
+        if (_this->_impl_.precision_type_.IsDefault()) {
+          _this->_internal_set_precision_type("");
+        }
+      }
+    }
+    if ((cached_has_bits & 0x00000004u) != 0) {
       ABSL_DCHECK(from._impl_.model_cfg_params_ != nullptr);
       if (_this->_impl_.model_cfg_params_ == nullptr) {
         _this->_impl_.model_cfg_params_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.model_cfg_params_);
@@ -964,7 +1007,7 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
         _this->_impl_.model_cfg_params_->MergeFrom(*from._impl_.model_cfg_params_);
       }
     }
-    if ((cached_has_bits & 0x00000004u) != 0) {
+    if ((cached_has_bits & 0x00000008u) != 0) {
       ABSL_DCHECK(from._impl_.preprocessor_params_ != nullptr);
       if (_this->_impl_.preprocessor_params_ == nullptr) {
         _this->_impl_.preprocessor_params_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.preprocessor_params_);
@@ -972,7 +1015,7 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
         _this->_impl_.preprocessor_params_->MergeFrom(*from._impl_.preprocessor_params_);
       }
     }
-    if ((cached_has_bits & 0x00000008u) != 0) {
+    if ((cached_has_bits & 0x00000010u) != 0) {
       ABSL_DCHECK(from._impl_.instance_bank_params_ != nullptr);
       if (_this->_impl_.instance_bank_params_ == nullptr) {
         _this->_impl_.instance_bank_params_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.instance_bank_params_);
@@ -980,7 +1023,7 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
         _this->_impl_.instance_bank_params_->MergeFrom(*from._impl_.instance_bank_params_);
       }
     }
-    if ((cached_has_bits & 0x00000010u) != 0) {
+    if ((cached_has_bits & 0x00000020u) != 0) {
       ABSL_DCHECK(from._impl_.postprocessor_params_ != nullptr);
       if (_this->_impl_.postprocessor_params_ == nullptr) {
         _this->_impl_.postprocessor_params_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.postprocessor_params_);
@@ -988,7 +1031,7 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
         _this->_impl_.postprocessor_params_->MergeFrom(*from._impl_.postprocessor_params_);
       }
     }
-    if ((cached_has_bits & 0x00000020u) != 0) {
+    if ((cached_has_bits & 0x00000040u) != 0) {
       ABSL_DCHECK(from._impl_.backbone_engine_ != nullptr);
       if (_this->_impl_.backbone_engine_ == nullptr) {
         _this->_impl_.backbone_engine_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.backbone_engine_);
@@ -996,7 +1039,7 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
         _this->_impl_.backbone_engine_->MergeFrom(*from._impl_.backbone_engine_);
       }
     }
-    if ((cached_has_bits & 0x00000040u) != 0) {
+    if ((cached_has_bits & 0x00000080u) != 0) {
       ABSL_DCHECK(from._impl_.head1st_engine_ != nullptr);
       if (_this->_impl_.head1st_engine_ == nullptr) {
         _this->_impl_.head1st_engine_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.head1st_engine_);
@@ -1004,7 +1047,9 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
         _this->_impl_.head1st_engine_->MergeFrom(*from._impl_.head1st_engine_);
       }
     }
-    if ((cached_has_bits & 0x00000080u) != 0) {
+  }
+  if ((cached_has_bits & 0x00000700u) != 0) {
+    if ((cached_has_bits & 0x00000100u) != 0) {
       ABSL_DCHECK(from._impl_.head2nd_engine_ != nullptr);
       if (_this->_impl_.head2nd_engine_ == nullptr) {
         _this->_impl_.head2nd_engine_ = ::google::protobuf::Message::CopyConstruct(arena, *from._impl_.head2nd_engine_);
@@ -1012,14 +1057,12 @@ void TaskConfig::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::goog
         _this->_impl_.head2nd_engine_->MergeFrom(*from._impl_.head2nd_engine_);
       }
     }
-  }
-  if ((cached_has_bits & 0x00000300u) != 0) {
-    if ((cached_has_bits & 0x00000100u) != 0) {
+    if ((cached_has_bits & 0x00000200u) != 0) {
       if (from._internal_enable_timer() != 0) {
         _this->_impl_.enable_timer_ = from._impl_.enable_timer_;
       }
     }
-    if ((cached_has_bits & 0x00000200u) != 0) {
+    if ((cached_has_bits & 0x00000400u) != 0) {
       if (from._internal_use_half_precision() != 0) {
         _this->_impl_.use_half_precision_ = from._impl_.use_half_precision_;
       }
@@ -1044,6 +1087,7 @@ void TaskConfig::InternalSwap(TaskConfig* PROTOBUF_RESTRICT PROTOBUF_NONNULL oth
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.homography_path_, &other->_impl_.homography_path_, arena);
+  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.precision_type_, &other->_impl_.precision_type_, arena);
   ::google::protobuf::internal::memswap<
       PROTOBUF_FIELD_OFFSET(TaskConfig, _impl_.use_half_precision_)
       + sizeof(TaskConfig::_impl_.use_half_precision_)

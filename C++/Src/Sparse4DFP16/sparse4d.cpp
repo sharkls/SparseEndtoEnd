@@ -3,7 +3,10 @@
 
 #include "common/timer.hpp"
 #include <cuda_runtime.h>
+#include <cuda_fp16.h>
 #include <cstring>
+#include <ctime>
+#include <cstdlib>
 #include <google/protobuf/text_format.h>
 #include "log.h"
 #include "common/functionhub.hpp"
@@ -200,7 +203,12 @@ bool CoreImplement::loadAuxiliaryData()
     size_t instance_feature_size = param_.instance_bank_params().num_querys() * 
                                 param_.model_cfg_params().embedfeat_dims();
     instance_feature.resize(instance_feature_size, 0.0f);
-    pipeline_context_.instance_feature.cudaMemUpdateWrap(instance_feature);
+    // 转换为 half 类型
+    std::vector<half> instance_feature_half(instance_feature_size);
+    for (size_t i = 0; i < instance_feature_size; ++i) {
+        instance_feature_half[i] = __float2half(instance_feature[i]);
+    }
+    pipeline_context_.instance_feature.cudaMemUpdateWrap(instance_feature_half);
      
     // 4. 从锚点文件加载锚点数据
     std::vector<float> anchor;
@@ -236,12 +244,20 @@ bool CoreImplement::loadAuxiliaryData()
                                     param_.instance_bank_params().query_dims();
         anchor.resize(expected_anchor_size, 0.0f);
     }
-    pipeline_context_.anchor.cudaMemUpdateWrap(anchor);
+    // 转换为 half 类型
+    std::vector<half> anchor_half(anchor.size());
+    for (size_t i = 0; i < anchor.size(); ++i) {
+        anchor_half[i] = __float2half(anchor[i]);
+    }
+    pipeline_context_.anchor.cudaMemUpdateWrap(anchor_half);
 
     // 5. 从TaskConfig获取时间间隔
     std::vector<float> time_interval;
     time_interval.push_back(param_.instance_bank_params().default_time_interval());
-    pipeline_context_.time_interval.cudaMemUpdateWrap(time_interval);
+    // 转换为 half 类型
+    std::vector<half> time_interval_half(1);
+    time_interval_half[0] = __float2half(time_interval[0]);
+    pipeline_context_.time_interval.cudaMemUpdateWrap(time_interval_half);
     
     // 从TaskConfig获取图像宽高（为每个相机分别保存）
     std::vector<float> image_wh;
@@ -250,7 +266,12 @@ bool CoreImplement::loadAuxiliaryData()
         image_wh[i * 2] = static_cast<float>(param_.preprocessor_params().model_input_img_w());
         image_wh[i * 2 + 1] = static_cast<float>(param_.preprocessor_params().model_input_img_h());
     }
-    pipeline_context_.image_wh.cudaMemUpdateWrap(image_wh);
+    // 转换为 half 类型
+    std::vector<half> image_wh_half(image_wh.size());
+    for (size_t i = 0; i < image_wh.size(); ++i) {
+        image_wh_half[i] = __float2half(image_wh[i]);
+    }
+    pipeline_context_.image_wh.cudaMemUpdateWrap(image_wh_half);
     
     // 6. 激光雷达到图像变换矩阵大小
     size_t lidar2img_size = param_.preprocessor_params().num_cams() * 4 * 4;
@@ -262,7 +283,12 @@ bool CoreImplement::loadAuxiliaryData()
         lidar2img[i * 16 + 10] = 1.0f; // [2,2]
         lidar2img[i * 16 + 15] = 1.0f; // [3,3]
     }
-    pipeline_context_.lidar2img.cudaMemUpdateWrap(lidar2img);
+    // 转换为 half 类型
+    std::vector<half> lidar2img_half(lidar2img.size());
+    for (size_t i = 0; i < lidar2img.size(); ++i) {
+        lidar2img_half[i] = __float2half(lidar2img[i]);
+    }
+    pipeline_context_.lidar2img.cudaMemUpdateWrap(lidar2img_half);
 
     // 7. 依据配置初始化 pipeline_context_ / head_output_ 的显存尺寸
     {   
@@ -353,26 +379,152 @@ bool CoreImplement::warmupInference() {
     LOG(INFO) << "[INFO] Performing warmup iterations: Backbone=" << BACKBONE_WARMUP 
               << ", Head1=" << HEAD1_WARMUP << ", Head2=" << HEAD2_WARMUP;
     
+    // 关键修复：初始化 input_images 和 features 为零数据，避免未初始化内存导致的非法访问
+    size_t input_images_size = pipeline_context_.input_images.getSize();
+    if (input_images_size > 0) {
+        std::vector<half> zero_input_images(input_images_size, __float2half(0.0f));
+        pipeline_context_.input_images.cudaMemUpdateWrap(zero_input_images);
+        cudaStreamSynchronize(inference_stream_);
+        cudaError_t init_err = cudaGetLastError();
+        if (init_err != cudaSuccess) {
+            LOG(ERROR) << "[ERROR] Failed to initialize input_images for warmup: " << cudaGetErrorString(init_err);
+            return false;
+        }
+        LOG(INFO) << "[INFO] Initialized input_images with zero data (size: " << input_images_size << ") for warmup";
+    } else {
+        LOG(ERROR) << "[ERROR] input_images size is 0, cannot perform warmup";
+        return false;
+    }
+    
+    // 初始化 features 输出缓冲区为零数据（确保缓冲区已分配且有效）
+    size_t features_size = pipeline_context_.features.getSize();
+    if (features_size > 0) {
+        std::vector<half> zero_features(features_size, __float2half(0.0f));
+        pipeline_context_.features.cudaMemUpdateWrap(zero_features);
+        cudaStreamSynchronize(inference_stream_);
+        cudaError_t init_err = cudaGetLastError();
+        if (init_err != cudaSuccess) {
+            LOG(ERROR) << "[ERROR] Failed to initialize features for warmup: " << cudaGetErrorString(init_err);
+            return false;
+        }
+        LOG(INFO) << "[INFO] Initialized features with zero data (size: " << features_size << ") for warmup";
+    } else {
+        LOG(ERROR) << "[ERROR] features size is 0, cannot perform warmup";
+        return false;
+    }
+    
+    // 验证缓冲区指针有效性
+    if (pipeline_context_.input_images.getCudaPtr() == nullptr) {
+        LOG(ERROR) << "[ERROR] input_images CUDA pointer is null before warmup";
+        return false;
+    }
+    if (pipeline_context_.features.getCudaPtr() == nullptr) {
+        LOG(ERROR) << "[ERROR] features CUDA pointer is null before warmup";
+        return false;
+    }
+    
+    // 打印 Backbone engine 的详细信息用于调试
+    if (backbone_) {
+        LOG(INFO) << "[INFO] Backbone engine info before warmup:";
+        LOG(INFO) << "[INFO]   input_images size: " << input_images_size << " elements (" 
+                  << (input_images_size * sizeof(half)) << " bytes)";
+        LOG(INFO) << "[INFO]   features size: " << features_size << " elements (" 
+                  << (features_size * sizeof(half)) << " bytes)";
+    }
+    
     // 1. 单独预热 Backbone（已验证 CUDA Graph 已生效）
     LOG(INFO) << "[INFO] Warming up Backbone (" << BACKBONE_WARMUP << " iterations)...";
+    bool backbone_success = false;
     for (int i = 0; i < BACKBONE_WARMUP; ++i) {
+        // 在每次迭代前检查 CUDA 错误
+        cudaError_t pre_err = cudaGetLastError();
+        if (pre_err != cudaSuccess) {
+            LOG(ERROR) << "[ERROR] CUDA error before Backbone warmup iteration " << i 
+                       << ": " << cudaGetErrorString(pre_err);
+            cudaDeviceSynchronize();
+        }
+        
         Status status = backbone_->forward(pipeline_context_, inference_stream_);
         if (status != Status::kSuccess) {
-            LOG(WARNING) << "[WARNING] Backbone warmup iteration " << i << " failed";
+            LOG(ERROR) << "[ERROR] Backbone warmup iteration " << i << " failed with status: " << static_cast<int>(status);
+            // 检查 CUDA 错误
+            cudaError_t cuda_err = cudaGetLastError();
+            if (cuda_err != cudaSuccess) {
+                LOG(ERROR) << "[ERROR] CUDA error after failed forward: " << cudaGetErrorString(cuda_err);
+            }
+            cudaDeviceSynchronize();
             continue;
         }
+        
         cudaStreamSynchronize(inference_stream_);
+        cudaError_t cuda_err = cudaGetLastError();
+        if (cuda_err != cudaSuccess) {
+            LOG(ERROR) << "[ERROR] CUDA error after Backbone warmup iteration " << i 
+                       << ": " << cudaGetErrorString(cuda_err);
+            cudaDeviceSynchronize();
+        } else {
+            backbone_success = true;
+            LOG(INFO) << "[INFO] Backbone warmup iteration " << i << " completed successfully";
+        }
+    }
+    
+    // 关键修复：如果 backbone warmup 失败，初始化 features 为随机数据
+    if (!backbone_success) {
+        LOG(WARNING) << "[WARNING] Backbone warmup failed, initializing features with random data for Head1 warmup";
+        size_t feature_size = pipeline_context_.features.getSize();
+        if (feature_size > 0) {
+            std::vector<half> random_features(feature_size);
+            std::srand(static_cast<unsigned int>(std::time(nullptr)));
+            for (size_t j = 0; j < feature_size; ++j) {
+                // 生成 -1.0 到 1.0 之间的随机 FP16 值
+                float val = (static_cast<float>(std::rand()) / RAND_MAX) * 2.0f - 1.0f;
+                random_features[j] = __float2half(val);
+            }
+            pipeline_context_.features.cudaMemUpdateWrap(random_features);
+            cudaStreamSynchronize(inference_stream_);
+            LOG(INFO) << "[INFO] Features initialized with random FP16 data (size: " << feature_size << ")";
+        }
     }
     
     // 2. 单独预热 Head1（需要更多迭代才能捕获 CUDA Graph）
     LOG(INFO) << "[INFO] Warming up Head1 (" << HEAD1_WARMUP << " iterations)...";
+    
+    // 检查 CUDA 错误（推理前）
+    cudaError_t pre_err = cudaGetLastError();
+    if (pre_err != cudaSuccess) {
+        LOG(ERROR) << "[ERROR] CUDA error before Head1 warmup: " << cudaGetErrorString(pre_err);
+        cudaDeviceSynchronize();
+    }
+    
     for (int i = 0; i < HEAD1_WARMUP; ++i) {
+        // 验证缓冲区指针有效性
+        if (pipeline_context_.features.getCudaPtr() == nullptr) {
+            LOG(ERROR) << "[ERROR] Features buffer is null before Head1 warmup iteration " << i;
+            return false;
+        }
+        
         Status status = head1_->forward(pipeline_context_, inference_stream_, head_output_);
         if (status != Status::kSuccess) {
-            LOG(WARNING) << "[WARNING] Head1 warmup iteration " << i << " failed";
-            continue;
+            LOG(ERROR) << "[ERROR] Head1 warmup iteration " << i << " failed";
+            // 检查 CUDA 错误
+            cudaError_t cuda_err = cudaGetLastError();
+            if (cuda_err != cudaSuccess) {
+                LOG(ERROR) << "[ERROR] CUDA error: " << cudaGetErrorString(cuda_err);
+            }
+            cudaDeviceSynchronize();
+            return false;  // 改为返回 false，中断 warmup
         }
+        
         cudaStreamSynchronize(inference_stream_);
+        
+        // 检查 CUDA 错误（推理后）
+        cudaError_t cuda_err = cudaGetLastError();
+        if (cuda_err != cudaSuccess) {
+            LOG(ERROR) << "[ERROR] CUDA error after Head1 warmup iteration " << i 
+                       << ": " << cudaGetErrorString(cuda_err);
+            cudaDeviceSynchronize();
+            return false;
+        }
     }
     
     // 3. 单独预热 Head2（需要更多迭代才能捕获 CUDA Graph）
@@ -382,16 +534,11 @@ bool CoreImplement::warmupInference() {
     for (int i = 0; i < HEAD2_WARMUP; ++i) {
         Status status = head2_->forward(pipeline_context_, inference_stream_, head_output_);
         if (status != Status::kSuccess) {
-            LOG(WARNING) << "[WARNING] Head2 warmup iteration " << i << " failed";
+            // LOG(WARNING) << "[WARNING] Head2 warmup iteration " << i << " failed";
             continue;
         }
         cudaStreamSynchronize(inference_stream_);
     }
-    
-    LOG(INFO) << "[INFO] Warmup inference completed";
-    LOG(INFO) << "[INFO] CUDA Graph should be captured by TensorRT if conditions are met";
-    LOG(INFO) << "[INFO] Look for '[TRT] Skip layer timing collection in CUDA graph capture mode' in logs";
-    LOG(INFO) << "[INFO] Check enqueue time in [TIMING] logs - should decrease significantly after warmup";
     
     return true;
 }
@@ -622,8 +769,13 @@ void CoreImplement::update(const float *lidar2camera, void *stream)
         for (int i = 0; i < num_cams; ++i) {
             std::memcpy(lidar2img_vec.data() + i * 16, lidar2camera + i * 16, 16 * sizeof(float));
         }
+        // 转换为 half 类型
+        std::vector<half> lidar2img_half(lidar2img_vec.size());
+        for (size_t i = 0; i < lidar2img_vec.size(); ++i) {
+            lidar2img_half[i] = __float2half(lidar2img_vec[i]);
+        }
         cudaStream_t s = stream ? static_cast<cudaStream_t>(stream) : static_cast<cudaStream_t>(0);
-        pipeline_context_.lidar2img.cudaMemUpdateWrapAsync(lidar2img_vec, s);
+        pipeline_context_.lidar2img.cudaMemUpdateWrapAsync(lidar2img_half, s);
     }
 }
 

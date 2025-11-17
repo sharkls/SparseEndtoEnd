@@ -1,5 +1,6 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
 import os
+import sys
 import time
 import copy
 import logging
@@ -75,6 +76,16 @@ def parse_args():
     parser.add_argument(
         "--o2", action="store_true", help="only export sparse4dhead2nd onnx."
     )
+    parser.add_argument(
+        "--fp16",
+        action="store_true",
+        help="Export ONNX model with FP16 data types. This ensures TensorRT can properly allocate workspace for FP16 inference. Default: False (FP32). Specify --fp16 to export FP16.",
+    )
+    parser.add_argument(
+        "--fp32",
+        action="store_true",
+        help="Export ONNX model with FP32 data types. This is the default behavior if --fp16 is not specified.",
+    )
     args = parser.parse_args()
     return args
 
@@ -145,9 +156,27 @@ class Sparse4DHead1st(nn.Module):
                 # )
                 bs, num_anchor = instance_feature.shape[:2]
                 key_points = self.layers[i].kps_generator(anchor, instance_feature)
+                
+                # 获取 FP16 标志（从 head 或 model 获取）
+                use_fp16 = getattr(self, '_export_fp16', False)
+                if not use_fp16:
+                    # 尝试从 model 获取
+                    model_obj = getattr(self, 'model', None)
+                    if model_obj is not None:
+                        use_fp16 = getattr(model_obj, '_export_fp16', False)
+                
+                # 确保 key_points 是 FP16
+                if use_fp16 and key_points.dtype != torch.float16:
+                    key_points = key_points.to(torch.float16)
+                
                 weights = self.layers[i]._get_weights(
                     instance_feature, anchor_embed, metas
                 )
+                
+                # 确保 weights 是 FP16
+                if use_fp16 and weights.dtype != torch.float16:
+                    weights = weights.to(torch.float16)
+                
                 points_2d = (
                     self.layers[i]
                     .project_points(
@@ -158,6 +187,11 @@ class Sparse4DHead1st(nn.Module):
                     .permute(0, 2, 3, 1, 4)
                     .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
                 )
+                
+                # 确保 points_2d 是 FP16（project_points 可能返回 FP32）
+                if use_fp16 and points_2d.dtype != torch.float16:
+                    points_2d = points_2d.to(torch.float16)
+                
                 weights = (
                     weights.permute(0, 1, 4, 2, 3, 5)
                     .contiguous()
@@ -170,8 +204,18 @@ class Sparse4DHead1st(nn.Module):
                         self.layers[i].num_groups,
                     )
                 )
+                
+                # 确保 weights 在 reshape 后仍然是 FP16
+                if use_fp16 and weights.dtype != torch.float16:
+                    weights = weights.to(torch.float16)
 
                 features = DAF(*feature_maps, points_2d, weights)
+                # DAF函数内部会强制转换为FP32，但在ONNX导出时需要保持与模型相同的dtype
+                # 获取输入的数据类型（points_2d或weights的dtype）
+                target_dtype = points_2d.dtype if points_2d.dtype.is_floating_point else weights.dtype
+                # 如果features是FP32但模型是FP16，需要转换回FP16
+                if features.dtype != target_dtype:
+                    features = features.to(dtype=target_dtype)
                 features = features.reshape(bs, num_anchor, self.layers[i].embed_dims)
                 output = self.layers[i].output_proj(features)
                 assert self.layers[i].residual_mode == "cat"
@@ -210,6 +254,8 @@ class Sparse4DHead1st(nn.Module):
         lidar2img,
     ):
         head = self.model.head
+        # 将 _export_fp16 标志传递给 head
+        head._export_fp16 = getattr(self.model, '_export_fp16', False)
         return self.head_forward(
             head,
             feature,
@@ -294,9 +340,27 @@ class Sparse4DHead2nd(nn.Module):
                 # )
                 bs, num_anchor = instance_feature.shape[:2]
                 key_points = self.layers[i].kps_generator(anchor, instance_feature)
+                
+                # 获取 FP16 标志（从 head 或 model 获取）
+                use_fp16 = getattr(self, '_export_fp16', False)
+                if not use_fp16:
+                    # 尝试从 model 获取
+                    model_obj = getattr(self, 'model', None)
+                    if model_obj is not None:
+                        use_fp16 = getattr(model_obj, '_export_fp16', False)
+                
+                # 确保 key_points 是 FP16
+                if use_fp16 and key_points.dtype != torch.float16:
+                    key_points = key_points.to(torch.float16)
+                
                 weights = self.layers[i]._get_weights(
                     instance_feature, anchor_embed, metas
                 )
+                
+                # 确保 weights 是 FP16
+                if use_fp16 and weights.dtype != torch.float16:
+                    weights = weights.to(torch.float16)
+                
                 points_2d = (
                     self.layers[i]
                     .project_points(
@@ -307,6 +371,11 @@ class Sparse4DHead2nd(nn.Module):
                     .permute(0, 2, 3, 1, 4)
                     .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
                 )
+                
+                # 确保 points_2d 是 FP16（project_points 可能返回 FP32）
+                if use_fp16 and points_2d.dtype != torch.float16:
+                    points_2d = points_2d.to(torch.float16)
+                
                 weights = (
                     weights.permute(0, 1, 4, 2, 3, 5)
                     .contiguous()
@@ -319,8 +388,18 @@ class Sparse4DHead2nd(nn.Module):
                         self.layers[i].num_groups,
                     )
                 )
+                
+                # 确保 weights 在 reshape 后仍然是 FP16
+                if use_fp16 and weights.dtype != torch.float16:
+                    weights = weights.to(torch.float16)
 
                 features = DAF(*feature_maps, points_2d, weights)
+                # DAF函数内部会强制转换为FP32，但在ONNX导出时需要保持与模型相同的dtype
+                # 获取输入的数据类型（points_2d或weights的dtype）
+                target_dtype = points_2d.dtype if points_2d.dtype.is_floating_point else weights.dtype
+                # 如果features是FP32但模型是FP16，需要转换回FP16
+                if features.dtype != target_dtype:
+                    features = features.to(dtype=target_dtype)
                 features = features.reshape(bs, num_anchor, self.layers[i].embed_dims)
                 output = self.layers[i].output_proj(features)
                 assert self.layers[i].residual_mode == "cat"
@@ -405,6 +484,8 @@ class Sparse4DHead2nd(nn.Module):
         lidar2img,
     ):
         head = self.model.head
+        # 将 _export_fp16 标志传递给 head
+        head._export_fp16 = getattr(self.model, '_export_fp16', False)
         (
             instance_feature,
             anchor,
@@ -456,7 +537,10 @@ def dummpy_input(
     feature_size = nums_cam * (          # 特征维度
         h_4x * w_4x + h_8x * w_8x + h_16x * w_16x + h_32x * w_32x
     )
-    dummy_feature = torch.randn(bs, feature_size, embed_dims).float().cuda()  # 生成随机特征
+    # 根据导出精度选择数据类型
+    use_fp16 = getattr(model, '_export_fp16', False)
+    float_dtype = torch.float16 if use_fp16 else torch.float32
+    dummy_feature = torch.randn(bs, feature_size, embed_dims).to(dtype=float_dtype).cuda()  # 生成随机特征
 
     # 生成空间形状[6, 4, 2]
     # [64, 176],    # 4倍下采样
@@ -484,23 +568,23 @@ def dummpy_input(
     # 生成实例特征
     instance_feature = model.head.instance_bank.instance_feature  # (900, 256)
     dummy_instance_feature = (
-        instance_feature[None].repeat((bs, 1, 1)).cuda()
+        instance_feature[None].repeat((bs, 1, 1)).to(dtype=float_dtype).cuda()
     )  # (bs, 900, 256)
 
     # 生成锚点
     anchor = model.head.instance_bank.anchor  # (900, 11)
-    dummy_anchor = anchor[None].repeat((bs, 1, 1)).cuda()  # (bs, 900, 11)
+    dummy_anchor = anchor[None].repeat((bs, 1, 1)).to(dtype=float_dtype).cuda()  # (bs, 900, 11)
 
     # 生成时间间隔
     dummy_time_interval = torch.tensor(
         [model.head.instance_bank.default_time_interval] * bs
-    ).cuda()
+    ).to(dtype=float_dtype).cuda()
 
     # 生成临时实例特征 [bs, nums_topk, embed_dims]
     dummy_temp_instance_feature = (
-        torch.zeros((bs, nums_topk, embed_dims)).float().cuda())
+        torch.zeros((bs, nums_topk, embed_dims)).to(dtype=float_dtype).cuda())
     # 生成临时锚点 [bs, nums_topk, anchor_dims]
-    dummy_temp_anchor = torch.zeros((bs, nums_topk, anchor_dims)).float().cuda()
+    dummy_temp_anchor = torch.zeros((bs, nums_topk, anchor_dims)).to(dtype=float_dtype).cuda()
     # 生成掩码 [bs]
     dummy_mask = torch.randint(0, 2, size=(bs,)).int().cuda()
     # 生成跟踪ID [bs, nums_query]
@@ -512,11 +596,12 @@ def dummpy_input(
         .unsqueeze(0)
         .unsqueeze(0)
         .repeat(bs, nums_cam, 1)
-        .to(dummy_feature)
+        .to(dtype=float_dtype)
+        .cuda()
     )
 
     # 生成lidar2img [bs, nums_cam, 4, 4]
-    dummy_lidar2img = torch.randn(bs, nums_cam, 4, 4).to(dummy_feature)
+    dummy_lidar2img = torch.randn(bs, nums_cam, 4, 4).to(dtype=float_dtype).cuda()
 
     logger.debug(f"Dummy input : hape&Type&Device Msg >>>>>>")
     roi_x = [
@@ -588,6 +673,16 @@ if __name__ == "__main__":
     checkpoint = args.ckpt
     _ = model.load_state_dict(torch.load(checkpoint)["state_dict"], strict=False)
     model.cuda().eval()
+    
+    # 如果指定了--fp16，将模型转换为FP16（如果同时指定--fp16和--fp32，--fp16优先）
+    if args.fp16 and not args.fp32:
+        logger.info("Converting model to FP16 for ONNX export...")
+        model = model.half()  # 将模型转换为FP16
+        model._export_fp16 = True  # 标记模型为FP16导出模式
+        logger.info("Model converted to FP16. All floating-point inputs will use FP16 dtype.")
+    else:
+        logger.info("Exporting model with FP32 precision.")
+        model._export_fp16 = False
 
     BS = 1
     NUMS_CAM = 6
@@ -658,6 +753,27 @@ if __name__ == "__main__":
             logger.info(
                 f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx1}" 🤗.'
             )
+            
+            # 验证导出的 ONNX 精度
+            if args.fp16 and not args.fp32:
+                logger.info("验证导出的 Head1 ONNX 是否为 FP16 精度...")
+                try:
+                    import subprocess
+                    result = subprocess.run(
+                        [sys.executable, os.path.join(os.path.dirname(__file__), "verify_onnx_fp16.py"), args.save_onnx1],
+                        capture_output=True,
+                        text=True,
+                        timeout=30
+                    )
+                    if result.returncode == 0:
+                        logger.info("✓ Head1 ONNX 模型验证为 FP16 精度")
+                    else:
+                        logger.warning("⚠ Head1 ONNX 模型精度验证失败，请手动检查")
+                        if result.stderr:
+                            logger.warning(result.stderr)
+                except Exception as e:
+                    logger.warning(f"⚠ 无法验证 Head1 ONNX 精度: {e}")
+                    logger.info("提示: 可以使用 'python deploy/verify_onnx_fp16.py <onnx_path>' 手动验证")
 
     head = Sparse4DHead2nd(copy.deepcopy(model))
     logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
@@ -711,3 +827,24 @@ if __name__ == "__main__":
         assert check, "Simplified ONNX model could not be validated!"
         onnx.save(onnx_simp, args.save_onnx2)
         logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx2}" 🤗.')
+        
+        # 验证导出的 ONNX 精度
+        if args.fp16 and not args.fp32:
+            logger.info("验证导出的 Head2 ONNX 是否为 FP16 精度...")
+            try:
+                import subprocess
+                result = subprocess.run(
+                    [sys.executable, os.path.join(os.path.dirname(__file__), "verify_onnx_fp16.py"), args.save_onnx2],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0:
+                    logger.info("✓ Head2 ONNX 模型验证为 FP16 精度")
+                else:
+                    logger.warning("⚠ Head2 ONNX 模型精度验证失败，请手动检查")
+                    if result.stderr:
+                        logger.warning(result.stderr)
+            except Exception as e:
+                logger.warning(f"⚠ 无法验证 Head2 ONNX 精度: {e}")
+                logger.info("提示: 可以使用 'python deploy/verify_onnx_fp16.py <onnx_path>' 手动验证")

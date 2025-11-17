@@ -86,6 +86,55 @@ class Sparse4DHead1st(nn.Module):
         self.model = model
 
     @staticmethod
+    def _project_points_optimized(layer, key_points, lidar2img, image_wh, bs, num_anchor):
+        """
+        优化版本的project_points，直接输出[bs, num_anchor, num_pts, num_cams, 2]格式
+        避免后续的permute操作
+        """
+        num_pts = key_points.shape[2]
+        num_cams = lidar2img.shape[1]
+        
+        # 扩展关键点为齐次坐标 [bs, num_anchor, num_pts, 4]
+        pts_extend = torch.cat(
+            [key_points, torch.ones_like(key_points[..., :1])], dim=-1
+        )
+        
+        # 投影到2D平面 [bs, num_cams, num_anchor, num_pts, 4]
+        # lidar2img: [bs, num_cams, 4, 4]
+        # pts_extend: [bs, num_anchor, num_pts, 4]
+        points_2d = torch.matmul(
+            lidar2img[:, :, None, None],  # [bs, num_cams, 1, 1, 4, 4]
+            pts_extend[:, None, ..., None]  # [bs, 1, num_anchor, num_pts, 4, 1]
+        )[..., 0]  # [bs, num_cams, num_anchor, num_pts, 4]
+        
+        # 归一化 [bs, num_cams, num_anchor, num_pts, 2]
+        points_2d = points_2d[..., :2] / torch.clamp(points_2d[..., 2:3], min=1e-5)
+        
+        if image_wh is not None:
+            points_2d = points_2d / image_wh[:, :, None, None, None]  # [bs, num_cams, num_anchor, num_pts, 2]
+        
+        # 直接转置为目标格式 [bs, num_anchor, num_pts, num_cams, 2]
+        # 使用transpose而不是permute，在ONNX中可能更友好
+        points_2d = points_2d.transpose(1, 2)  # [bs, num_anchor, num_cams, num_pts, 2]
+        points_2d = points_2d.transpose(2, 3)  # [bs, num_anchor, num_pts, num_cams, 2]
+        
+        return points_2d.contiguous()
+    
+    @staticmethod
+    def _reshape_weights_optimized(weights, bs, num_anchor, num_pts, num_cams, num_levels, num_groups):
+        """
+        优化版本的权重重塑，直接输出[bs, num_anchor, num_pts, num_cams, num_levels, num_groups]格式
+        避免permute操作
+        """
+        # weights当前格式: [bs, num_anchor, num_cams, num_levels, num_pts, num_groups]
+        # 目标格式: [bs, num_anchor, num_pts, num_cams, num_levels, num_groups]
+        # 使用transpose代替permute
+        weights = weights.transpose(2, 4)  # [bs, num_anchor, num_pts, num_levels, num_cams, num_groups]
+        weights = weights.transpose(3, 4)  # [bs, num_anchor, num_pts, num_cams, num_levels, num_groups]
+        
+        return weights.contiguous()
+
+    @staticmethod
     def head_forward(
         self,
         feature,
@@ -148,27 +197,23 @@ class Sparse4DHead1st(nn.Module):
                 weights = self.layers[i]._get_weights(
                     instance_feature, anchor_embed, metas
                 )
-                points_2d = (
-                    self.layers[i]
-                    .project_points(
-                        key_points,
-                        metas["lidar2img"],  # lidar2img
-                        metas.get("image_wh"),
-                    )
-                    .permute(0, 2, 3, 1, 4)
-                    .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
+                # 优化布局：直接输出目标格式，避免permute操作
+                points_2d = self._project_points_optimized(
+                    self.layers[i],
+                    key_points,
+                    metas["lidar2img"],
+                    metas.get("image_wh"),
+                    bs,
+                    num_anchor,
                 )
-                weights = (
-                    weights.permute(0, 1, 4, 2, 3, 5)
-                    .contiguous()
-                    .reshape(
-                        bs,
-                        num_anchor,
-                        self.layers[i].num_pts,
-                        self.layers[i].num_cams,
-                        self.layers[i].num_levels,
-                        self.layers[i].num_groups,
-                    )
+                weights = self._reshape_weights_optimized(
+                    weights,
+                    bs,
+                    num_anchor,
+                    self.layers[i].num_pts,
+                    self.layers[i].num_cams,
+                    self.layers[i].num_levels,
+                    self.layers[i].num_groups,
                 )
 
                 features = DAF(*feature_maps, points_2d, weights)
@@ -228,6 +273,55 @@ class Sparse4DHead2nd(nn.Module):
     def __init__(self, model):
         super(Sparse4DHead2nd, self).__init__()
         self.model = model
+
+    @staticmethod
+    def _project_points_optimized(layer, key_points, lidar2img, image_wh, bs, num_anchor):
+        """
+        优化版本的project_points，直接输出[bs, num_anchor, num_pts, num_cams, 2]格式
+        避免后续的permute操作
+        """
+        num_pts = key_points.shape[2]
+        num_cams = lidar2img.shape[1]
+        
+        # 扩展关键点为齐次坐标 [bs, num_anchor, num_pts, 4]
+        pts_extend = torch.cat(
+            [key_points, torch.ones_like(key_points[..., :1])], dim=-1
+        )
+        
+        # 投影到2D平面 [bs, num_cams, num_anchor, num_pts, 4]
+        # lidar2img: [bs, num_cams, 4, 4]
+        # pts_extend: [bs, num_anchor, num_pts, 4]
+        points_2d = torch.matmul(
+            lidar2img[:, :, None, None],  # [bs, num_cams, 1, 1, 4, 4]
+            pts_extend[:, None, ..., None]  # [bs, 1, num_anchor, num_pts, 4, 1]
+        )[..., 0]  # [bs, num_cams, num_anchor, num_pts, 4]
+        
+        # 归一化 [bs, num_cams, num_anchor, num_pts, 2]
+        points_2d = points_2d[..., :2] / torch.clamp(points_2d[..., 2:3], min=1e-5)
+        
+        if image_wh is not None:
+            points_2d = points_2d / image_wh[:, :, None, None, None]  # [bs, num_cams, num_anchor, num_pts, 2]
+        
+        # 直接转置为目标格式 [bs, num_anchor, num_pts, num_cams, 2]
+        # 使用transpose而不是permute，在ONNX中可能更友好
+        points_2d = points_2d.transpose(1, 2)  # [bs, num_anchor, num_cams, num_pts, 2]
+        points_2d = points_2d.transpose(2, 3)  # [bs, num_anchor, num_pts, num_cams, 2]
+        
+        return points_2d.contiguous()
+    
+    @staticmethod
+    def _reshape_weights_optimized(weights, bs, num_anchor, num_pts, num_cams, num_levels, num_groups):
+        """
+        优化版本的权重重塑，直接输出[bs, num_anchor, num_pts, num_cams, num_levels, num_groups]格式
+        避免permute操作
+        """
+        # weights当前格式: [bs, num_anchor, num_cams, num_levels, num_pts, num_groups]
+        # 目标格式: [bs, num_anchor, num_pts, num_cams, num_levels, num_groups]
+        # 使用transpose代替permute
+        weights = weights.transpose(2, 4)  # [bs, num_anchor, num_pts, num_levels, num_cams, num_groups]
+        weights = weights.transpose(3, 4)  # [bs, num_anchor, num_pts, num_cams, num_levels, num_groups]
+        
+        return weights.contiguous()
 
     @staticmethod
     def head_forward(
@@ -297,27 +391,23 @@ class Sparse4DHead2nd(nn.Module):
                 weights = self.layers[i]._get_weights(
                     instance_feature, anchor_embed, metas
                 )
-                points_2d = (
-                    self.layers[i]
-                    .project_points(
-                        key_points,
-                        metas["lidar2img"],  # lidar2img
-                        metas.get("image_wh"),
-                    )
-                    .permute(0, 2, 3, 1, 4)
-                    .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
+                # 优化布局：直接输出目标格式，避免permute操作
+                points_2d = self._project_points_optimized(
+                    self.layers[i],
+                    key_points,
+                    metas["lidar2img"],
+                    metas.get("image_wh"),
+                    bs,
+                    num_anchor,
                 )
-                weights = (
-                    weights.permute(0, 1, 4, 2, 3, 5)
-                    .contiguous()
-                    .reshape(
-                        bs,
-                        num_anchor,
-                        self.layers[i].num_pts,
-                        self.layers[i].num_cams,
-                        self.layers[i].num_levels,
-                        self.layers[i].num_groups,
-                    )
+                weights = self._reshape_weights_optimized(
+                    weights,
+                    bs,
+                    num_anchor,
+                    self.layers[i].num_pts,
+                    self.layers[i].num_cams,
+                    self.layers[i].num_levels,
+                    self.layers[i].num_groups,
                 )
 
                 features = DAF(*feature_maps, points_2d, weights)

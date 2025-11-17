@@ -1,6 +1,10 @@
 #include "TensorRT.h"
 #include <fstream>
 #include <memory>
+#include <chrono>
+#include <iomanip>
+#include <cstring>  // for dlerror
+#include <map>      // for std::map
 
 // 添加文件读取函数
 namespace {
@@ -40,9 +44,25 @@ void TensorRT::init() {
   std::vector<char> engine_data = readfile_wrapper<char>(engine_path_);
 
   if (!plugin_path_.empty()) {
+    // 先检查文件是否存在
+    std::ifstream plugin_file(plugin_path_);
+    if (!plugin_file.good()) {
+      std::cout << "[ERROR] Plugin file does not exist: " << plugin_path_ << std::endl;
+    } else {
+      plugin_file.close();
+    }
+    
     void* pluginLibraryHandle = dlopen(plugin_path_.c_str(), RTLD_LAZY);
     if (!pluginLibraryHandle) {
+      const char* dlerror_msg = dlerror();
       std::cout << "[ERROR] Failed to load TensorRT plugin: " << plugin_path_ << std::endl;
+      if (dlerror_msg) {
+        std::cout << "[ERROR] dlopen error: " << dlerror_msg << std::endl;
+      }
+      // 注意：即使 plugin 加载失败，也继续执行，因为某些 engine 可能不需要 plugin
+      // 但如果 engine 中包含 plugin 节点，会在 enqueueV2 时失败
+    } else {
+      std::cout << "[INFO] Successfully loaded TensorRT plugin: " << plugin_path_ << std::endl;
     }
   }
 
@@ -54,7 +74,16 @@ void TensorRT::init() {
   // 自动检测引擎中的所有输入和输出张量
   auto_detect_tensors();
 
+  // 打印 engine 详细信息
+  std::cout << "\n" << std::string(80, '=') << std::endl;
+  std::cout << "[INFO] TensorRT Engine Information" << std::endl;
+  std::cout << std::string(80, '=') << std::endl;
+  std::cout << "[INFO] Engine Path: " << engine_path_ << std::endl;
+  if (!plugin_path_.empty()) {
+    std::cout << "[INFO] Plugin Path: " << plugin_path_ << std::endl;
+  }
   // getEngineInfo();
+  std::cout << std::string(80, '=') << "\n" << std::endl;
 
   if (!runtime_ || !engine_ || !context_) {
     std::cout << "[ERROR] TensorRT engine initialized failed!" << std::endl;
@@ -125,6 +154,9 @@ bool TensorRT::infer(void* const* buffers, const cudaStream_t& stream) {
 }
 
 bool TensorRT::infer(void* const* input_buffers, void* const* output_buffers, const cudaStream_t& stream) {
+  // 计时开始
+  auto start_time = std::chrono::high_resolution_clock::now();
+  
   // 检测TensorRT版本并选择合适的enqueue方法
   int numBindings = engine_->getNbBindings();
   
@@ -132,44 +164,97 @@ bool TensorRT::infer(void* const* input_buffers, void* const* output_buffers, co
     // TensorRT 8.x版本 - 使用binding索引和enqueueV2
     // std::cout << "[DEBUG] Using TensorRT 8.x enqueueV2 method" << std::endl;
     
-    // 获取输入输出binding索引
+    // 获取输入输出binding索引，并建立名称到索引的映射
     std::vector<int> input_indices;
     std::vector<int> output_indices;
+    std::map<std::string, int> input_name_to_index;
+    std::map<std::string, int> output_name_to_index;
     
     for (int i = 0; i < numBindings; ++i) {
+      const char* binding_name = engine_->getBindingName(i);
       if (engine_->bindingIsInput(i)) {
         input_indices.push_back(i);
+        input_name_to_index[std::string(binding_name)] = i;
       } else {
         output_indices.push_back(i);
+        output_name_to_index[std::string(binding_name)] = i;
       }
     }
     
     // 验证输入输出数量
     if (input_indices.size() != input_names_.size() || output_indices.size() != output_names_.size()) {
-      std::cout << "[ERROR] Tensor count mismatch! Got " 
-                << input_indices.size() << " inputs, " << output_indices.size() << " outputs" << std::endl;
+      std::cout << "[ERROR] Tensor count mismatch! Engine has " 
+                << input_indices.size() << " inputs, " << output_indices.size() << " outputs, "
+                << "but expected " << input_names_.size() << " inputs, " << output_names_.size() << " outputs" << std::endl;
       return false;
     }
     
-    // 准备所有binding的缓冲区
-    std::vector<void*> all_buffers(numBindings);
+    // 准备所有binding的缓冲区，初始化为 nullptr
+    std::vector<void*> all_buffers(numBindings, nullptr);
     
-    // 设置输入缓冲区
-    for (size_t i = 0; i < input_indices.size(); ++i) {
-      all_buffers[input_indices[i]] = input_buffers[i];
-      //std::cout << "[DEBUG] Setting input binding " << input_indices[i] 
-                //<< " at address: " << input_buffers[i] << std::endl;
+    // 按照 input_names_ 的顺序设置输入缓冲区（关键修复：按名称匹配，而不是按顺序）
+    for (size_t i = 0; i < input_names_.size(); ++i) {
+      const std::string& name = input_names_[i];
+      auto it = input_name_to_index.find(name);
+      if (it == input_name_to_index.end()) {
+        std::cout << "[ERROR] Input tensor name not found in engine: " << name << std::endl;
+        return false;
+      }
+      int binding_idx = it->second;
+      
+      if (input_buffers[i] == nullptr) {
+        std::cout << "[ERROR] Input buffer " << i << " (name: " << name << ") is null!" << std::endl;
+        return false;
+      }
+      all_buffers[binding_idx] = input_buffers[i];
+      //std::cout << "[DEBUG] Setting input binding " << binding_idx << " (name: " << name 
+                //<< ") at address: " << input_buffers[i] << std::endl;
     }
     
-    // 设置输出缓冲区d
-    for (size_t i = 0; i < output_indices.size(); ++i) {
-      all_buffers[output_indices[i]] = output_buffers[i];
-      //std::cout << "[DEBUG] Setting output binding " << output_indices[i] 
-                //<< " at address: " << output_buffers[i] << std::endl;
+    // 按照 output_names_ 的顺序设置输出缓冲区（关键修复：按名称匹配，而不是按顺序）
+    for (size_t i = 0; i < output_names_.size(); ++i) {
+      const std::string& name = output_names_[i];
+      auto it = output_name_to_index.find(name);
+      if (it == output_name_to_index.end()) {
+        std::cout << "[ERROR] Output tensor name not found in engine: " << name << std::endl;
+        return false;
+      }
+      int binding_idx = it->second;
+      
+      if (output_buffers[i] == nullptr) {
+        std::cout << "[ERROR] Output buffer " << i << " (name: " << name << ") is null!" << std::endl;
+        return false;
+      }
+      all_buffers[binding_idx] = output_buffers[i];
+      //std::cout << "[DEBUG] Setting output binding " << binding_idx << " (name: " << name 
+                //<< ") at address: " << output_buffers[i] << std::endl;
     }
     
-    // 调用enqueueV2
+    // 验证所有 binding 都已设置（防止段错误）
+    for (int i = 0; i < numBindings; ++i) {
+      if (all_buffers[i] == nullptr) {
+        const char* binding_name = engine_->getBindingName(i);
+        std::cout << "[ERROR] Binding " << i << " (name: " << binding_name << ") is not set (nullptr)!" << std::endl;
+        return false;
+      }
+    }
+    
+    // 调用enqueueV2（TensorRT 8.0+ 会自动检测并启用 CUDA Graph）
     bool result = context_->enqueueV2(all_buffers.data(), stream, nullptr);
+    
+    // 计时结束（enqueue 时间，不包括 GPU 执行时间）
+    auto end_time = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
+    double elapsed_ms = duration.count() / 1000.0;
+    
+    // 输出计时信息（仅在前几次调用时输出，避免日志过多）
+    // 注意：这是 enqueue 时间，不是完整的 GPU 执行时间
+    static thread_local int call_count = 0;
+    call_count++;
+    // std::cout << "[TIMING] TensorRT::infer() [" << engine_path_ << "] call #" << call_count 
+    //           << " enqueue time: " << std::fixed << std::setprecision(3) << elapsed_ms << " ms" << std::endl;
+  
+    
     if (!result) {
       std::cout << "[ERROR] enqueueV2 failed!" << std::endl;
     }

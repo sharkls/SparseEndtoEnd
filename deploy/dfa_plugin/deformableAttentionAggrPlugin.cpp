@@ -10,6 +10,7 @@
 #include "NvInferPlugin.h"
 #include "NvInferRuntime.h"
 #include "NvInferVersion.h"
+#include <cuda_fp16.h>
 
 // 声明CUDA函数
 int thomas_deform_attn_cuda_forward(cudaStream_t stream,
@@ -27,6 +28,24 @@ int thomas_deform_attn_cuda_forward(cudaStream_t stream,
                                     int mNumQuery,
                                     int mNumPoint,
                                     int mNumGroups);
+
+// 声明FP16版本的CUDA函数（优化版本：使用FP32临时缓冲区，通过workspace提供）
+int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
+                                         const __half* value,
+                                         const int* spatialShapes,
+                                         const int* levelStartIndex,
+                                         const __half* samplingLoc,
+                                         const __half* attnWeight,
+                                         __half* output,
+                                         float* workspace,  // TensorRT提供的workspace
+                                         int batch,
+                                         int mSpatialSize,
+                                         int mChannels,
+                                         int mNumCams,
+                                         int mNumLevels,
+                                         int mNumQuery,
+                                         int mNumPoint,
+                                         int mNumGroups);
 
 namespace custom
 {
@@ -83,6 +102,57 @@ size_t DeformableAttentionAggrPlugin::getWorkspaceSize(const nvinfer1::PluginTen
                                                        const nvinfer1::PluginTensorDesc* outputs,
                                                        int32_t nbOutputs) const noexcept
 {
+    // FP16模式需要临时FP32缓冲区
+    // 注意：在构建时，TensorRT可能会用不同的数据类型多次调用getWorkspaceSize
+    // 问题：如果engine是用FP16构建的，但warmup/推理时使用FP32数据，TensorRT会进行类型转换
+    // 但在构建时，如果TensorRT用FP32调用getWorkspaceSize，会返回0，导致workspace未分配
+    // 
+    // 解决方案：检查输入和输出，如果任何一个浮点输入或输出是FP16，就返回workspace大小
+    // 这样可以确保即使构建时用FP32调用，只要engine支持FP16，workspace也会被分配
+    
+    // 检查所有浮点输入（跳过INT32类型的输入：spatial_shapes和level_start_index）
+    bool has_fp16_input = false;
+    for (int32_t i = 0; i < nbInputs; ++i)
+    {
+        // 跳过INT32类型的输入（索引1和2）
+        if (i == 1 || i == 2)
+        {
+            continue;
+        }
+        
+        // 检查浮点输入的数据类型
+        if (inputs[i].type == nvinfer1::DataType::kHALF)
+        {
+            has_fp16_input = true;
+            break;
+        }
+    }
+    
+    // 检查输出数据类型（如果输出是FP16，说明engine支持FP16，即使输入是FP32也会进行类型转换）
+    bool has_fp16_output = false;
+    for (int32_t i = 0; i < nbOutputs; ++i)
+    {
+        if (outputs[i].type == nvinfer1::DataType::kHALF)
+        {
+            has_fp16_output = true;
+            break;
+        }
+    }
+    
+    // 如果检测到FP16输入或输出，返回workspace大小
+    if (has_fp16_input || has_fp16_output)
+    {
+        int32_t const batch = inputs[0].dims.d[0];
+        int32_t num_anchors = inputs[3].dims.d[1];
+        int32_t num_embeds = inputs[0].dims.d[2];
+        size_t workspace_size = batch * num_anchors * num_embeds * sizeof(float);
+        printf("[DFA-PLUGIN] getWorkspaceSize: FP16 mode detected (input_fp16=%d, output_fp16=%d), returning workspace size: %zu bytes (batch=%d, anchors=%d, embeds=%d)\n",
+               has_fp16_input, has_fp16_output, workspace_size, batch, num_anchors, num_embeds);
+        return workspace_size;  // FP32临时缓冲区大小
+    }
+    
+    // FP32模式不需要workspace
+    printf("[DFA-PLUGIN] getWorkspaceSize: FP32 mode (all inputs and outputs are FP32), returning 0\n");
     return 0;
 }
 
@@ -104,29 +174,93 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
     int32_t num_groups = inputDesc[4].dims.d[5];
     int32_t rc = 0;
 
-    const float* value = static_cast<const float*>(inputs[0]);                  // [1, 89760, 128]
-    const int32_t* spatialShapes = static_cast<const int32_t*>(inputs[1]);      // [6, 4, 2]
-    const int32_t* levelStartIndex = static_cast<const int32_t*>(inputs[2]);    // [6, 4]
-    const float* samplingLoc = static_cast<const float*>(inputs[3]);            // [1, 900, 13, 6, 2]
-    const float* attnWeight = static_cast<const float*>(inputs[4]);             // [1, 900, 13, 6, 4, 8]
+    // 根据输入数据类型选择FP32或FP16路径
+    nvinfer1::DataType dataType = inputDesc[0].type;
+    
+    if (dataType == nvinfer1::DataType::kFLOAT)
+    {
+        const float* value = static_cast<const float*>(inputs[0]);                  // [1, 89760, 128]
+        const int32_t* spatialShapes = static_cast<const int32_t*>(inputs[1]);      // [6, 4, 2]
+        const int32_t* levelStartIndex = static_cast<const int32_t*>(inputs[2]);    // [6, 4]
+        const float* samplingLoc = static_cast<const float*>(inputs[3]);            // [1, 900, 13, 6, 2]
+        const float* attnWeight = static_cast<const float*>(inputs[4]);             // [1, 900, 13, 6, 4, 8]
 
-    float* output = static_cast<float*>(outputs[0]);
+        float* output = static_cast<float*>(outputs[0]);
 
-    rc = thomas_deform_attn_cuda_forward(stream,
-                                        value,
-                                        spatialShapes,
-                                        levelStartIndex,
-                                        samplingLoc,
-                                        attnWeight,
-                                        output,
-                                        batch,           // batch_size
-                                        num_cams,        // num_cams
-                                        spatial_size,    // num_feat (spatial_size)
-                                        channels,        // num_embeds (channels)
-                                        num_levels,      // num_scale (num_levels)
-                                        num_query,       // num_anchors (num_query)
-                                        num_point,       // num_pts (num_point)
-                                        num_groups);     // num_groups
+        rc = thomas_deform_attn_cuda_forward(stream,
+                                            value,
+                                            spatialShapes,
+                                            levelStartIndex,
+                                            samplingLoc,
+                                            attnWeight,
+                                            output,
+                                            batch,           // batch_size
+                                            num_cams,        // num_cams
+                                            spatial_size,    // num_feat (spatial_size)
+                                            channels,        // num_embeds (channels)
+                                            num_levels,      // num_scale (num_levels)
+                                            num_query,       // num_anchors (num_query)
+                                            num_point,       // num_pts (num_point)
+                                            num_groups);     // num_groups
+    }
+    else if (dataType == nvinfer1::DataType::kHALF)
+    {
+        const __half* value = static_cast<const __half*>(inputs[0]);                  // [1, 89760, 128]
+        const int32_t* spatialShapes = static_cast<const int32_t*>(inputs[1]);      // [6, 4, 2]
+        const int32_t* levelStartIndex = static_cast<const int32_t*>(inputs[2]);    // [6, 4]
+        const __half* samplingLoc = static_cast<const __half*>(inputs[3]);            // [1, 900, 13, 6, 2]
+        const __half* attnWeight = static_cast<const __half*>(inputs[4]);             // [1, 900, 13, 6, 4, 8]
+
+        __half* output = static_cast<__half*>(outputs[0]);
+        
+        // 获取workspace（FP32临时缓冲区）
+        // 计算所需的workspace大小
+        size_t required_workspace_size = batch * num_query * channels * sizeof(float);
+        
+        // 检查workspace是否为空
+        // 问题：如果engine在FP32模式下构建（ONNX模型是FP32），getWorkspaceSize返回0
+        // 但运行时输入是FP16，需要workspace，但TensorRT已经确定workspace大小为0
+        // 长期解决方案：导出FP16 ONNX模型（使用--fp16参数），确保构建时正确识别FP16输入
+        if (workspace == nullptr)
+        {
+            printf("[DFA-PLUGIN-ERROR] Workspace is null for FP16 mode. Required workspace size: %zu bytes (batch=%d, anchors=%d, embeds=%d)\n",
+                   required_workspace_size, batch, num_query, channels);
+            printf("[DFA-PLUGIN-ERROR] This usually means the engine was built with FP32 ONNX model, but is now running with FP16 inputs.\n");
+            printf("[DFA-PLUGIN-ERROR] Solution: Export ONNX model with --fp16 flag, then rebuild the engine.\n");
+            printf("[DFA-PLUGIN-ERROR] Example: python deploy/export_head_onnx.py --fp16 ...\n");
+            return -1;
+        }
+        
+        // 验证workspace大小是否足够（可选，但有助于调试）
+        // 注意：TensorRT不提供直接的方法来查询分配的workspace大小
+        // 所以我们只能检查是否为nullptr
+        
+        float* workspace_ptr = static_cast<float*>(workspace);
+
+        // FP16优化版本：内部使用FP32临时缓冲区，atomicAdd更快
+        // workspace由TensorRT在getWorkspaceSize中分配
+        rc = thomas_deform_attn_cuda_forward_half(stream,
+                                                  value,
+                                                  spatialShapes,
+                                                  levelStartIndex,
+                                                  samplingLoc,
+                                                  attnWeight,
+                                                  output,
+                                                  workspace_ptr,  // 使用TensorRT提供的workspace
+                                                  batch,           // batch_size
+                                                  num_cams,        // num_cams
+                                                  spatial_size,    // num_feat (spatial_size)
+                                                  channels,        // num_embeds (channels)
+                                                  num_levels,      // num_scale (num_levels)
+                                                  num_query,       // num_anchors (num_query)
+                                                  num_point,       // num_pts (num_point)
+                                                  num_groups);     // num_groups
+    }
+    else
+    {
+        printf("[DFA-PLUGIN-ERROR] Unsupported data type: %d\n", static_cast<int>(dataType));
+        return -1;
+    }
 
     return rc;
 }

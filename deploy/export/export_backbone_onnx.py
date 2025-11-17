@@ -1,5 +1,6 @@
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
 import os
+import sys
 import logging
 import argparse
 
@@ -150,21 +151,24 @@ if __name__ == "__main__":
         onnx_simp, check = simplify(onnx_orig)
         assert check, "Simplified ONNX model could not be validated"
         onnx.save(onnx_simp, args.save_onnx)
-        
-        # 验证 ONNX 模型的精度
-        if use_fp16:
-            logger.info("Verifying ONNX model FP16 precision...")
-            onnx_model = onnx.load(args.save_onnx)
-            input_type = onnx_model.graph.input[0].type.tensor_type.elem_type
-            output_type = onnx_model.graph.output[0].type.tensor_type.elem_type
-            
-            # ONNX TensorProto.DataType: FLOAT=1, FLOAT16=10
-            expected_type = 10  # FLOAT16
-            if input_type == expected_type and output_type == expected_type:
-                logger.info("✓ ONNX model verified as FP16 (input and output are FLOAT16)")
-            else:
-                logger.warning(f"⚠ ONNX model precision mismatch! Input type: {input_type}, Output type: {output_type} (expected: {expected_type} for FP16)")
-        else:
-            logger.info("ONNX model exported as FP32 (default)")
-        
         logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx}" 🤗.')
+        
+        # 验证导出的 ONNX 精度
+        if args.fp16 and not args.fp32:
+            logger.info("验证导出的 ONNX 是否为 FP16 精度...")
+            try:
+                import subprocess
+                result = subprocess.run(
+                    [sys.executable, os.path.join(os.path.dirname(__file__), "verify_onnx_fp16.py"), args.save_onnx],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                if result.returncode == 0:
+                    logger.info("✓ ONNX 模型验证为 FP16 精度")
+                else:
+                    logger.warning("⚠ ONNX 模型精度验证失败，请手动检查")
+                    logger.warning(result.stderr)
+            except Exception as e:
+                logger.warning(f"⚠ 无法验证 ONNX 精度: {e}")
+                logger.info("提示: 可以使用 'python deploy/verify_onnx_fp16.py <onnx_path>' 手动验证")

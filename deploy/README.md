@@ -42,7 +42,7 @@ env setting likes below:
 then you need to export share library:
 ```bash
 cd deploy/dfa_plugin
-mkdir build && cd build
+mkdir build
 make -j8
 ```
 make log likes below:  
