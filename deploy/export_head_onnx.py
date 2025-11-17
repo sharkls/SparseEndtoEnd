@@ -75,6 +75,16 @@ def parse_args():
     parser.add_argument(
         "--o2", action="store_true", help="only export sparse4dhead2nd onnx."
     )
+    parser.add_argument(
+        "--fp16",
+        action="store_true",
+        help="Export ONNX model with FP16 data types. This ensures TensorRT can properly allocate workspace for FP16 inference. Default: False (FP32). Specify --fp16 to export FP16.",
+    )
+    parser.add_argument(
+        "--fp32",
+        action="store_true",
+        help="Export ONNX model with FP32 data types. This is the default behavior if --fp16 is not specified.",
+    )
     args = parser.parse_args()
     return args
 
@@ -173,6 +183,9 @@ class Sparse4DHead1st(nn.Module):
 
                 features = DAF(*feature_maps, points_2d, weights)
                 features = features.reshape(bs, num_anchor, self.layers[i].embed_dims)
+                # DAF函数返回FP32，需要转换为与模型相同的精度
+                if features.dtype != instance_feature.dtype:
+                    features = features.to(dtype=instance_feature.dtype)
                 output = self.layers[i].output_proj(features)
                 assert self.layers[i].residual_mode == "cat"
                 instance_feature = torch.cat([output, instance_feature], dim=-1)
@@ -322,6 +335,9 @@ class Sparse4DHead2nd(nn.Module):
 
                 features = DAF(*feature_maps, points_2d, weights)
                 features = features.reshape(bs, num_anchor, self.layers[i].embed_dims)
+                # DAF函数返回FP32，需要转换为与模型相同的精度
+                if features.dtype != instance_feature.dtype:
+                    features = features.to(dtype=instance_feature.dtype)
                 output = self.layers[i].output_proj(features)
                 assert self.layers[i].residual_mode == "cat"
                 instance_feature = torch.cat([output, instance_feature], dim=-1)
@@ -448,6 +464,7 @@ def dummpy_input(
     anchor_dims=11,        # 锚点维度
     first_frame=True,      # 是否为第一帧
     logger=None,           # 日志记录器
+    use_fp16=False,        # 是否使用FP16精度
 ):
     h_4x, w_4x = input_h // 4, input_w // 4
     h_8x, w_8x = input_h // 8, input_w // 8
@@ -456,7 +473,9 @@ def dummpy_input(
     feature_size = nums_cam * (          # 特征维度
         h_4x * w_4x + h_8x * w_8x + h_16x * w_16x + h_32x * w_32x
     )
-    dummy_feature = torch.randn(bs, feature_size, embed_dims).float().cuda()  # 生成随机特征
+    # 根据精度选择数据类型
+    float_dtype = torch.float16 if use_fp16 else torch.float32
+    dummy_feature = torch.randn(bs, feature_size, embed_dims).to(dtype=float_dtype).cuda()  # 生成随机特征
 
     # 生成空间形状[6, 4, 2]
     # [64, 176],    # 4倍下采样
@@ -484,23 +503,23 @@ def dummpy_input(
     # 生成实例特征
     instance_feature = model.head.instance_bank.instance_feature  # (900, 256)
     dummy_instance_feature = (
-        instance_feature[None].repeat((bs, 1, 1)).cuda()
+        instance_feature[None].repeat((bs, 1, 1)).to(dtype=float_dtype).cuda()
     )  # (bs, 900, 256)
 
     # 生成锚点
     anchor = model.head.instance_bank.anchor  # (900, 11)
-    dummy_anchor = anchor[None].repeat((bs, 1, 1)).cuda()  # (bs, 900, 11)
+    dummy_anchor = anchor[None].repeat((bs, 1, 1)).to(dtype=float_dtype).cuda()  # (bs, 900, 11)
 
     # 生成时间间隔
     dummy_time_interval = torch.tensor(
-        [model.head.instance_bank.default_time_interval] * bs
+        [model.head.instance_bank.default_time_interval] * bs, dtype=float_dtype
     ).cuda()
 
     # 生成临时实例特征 [bs, nums_topk, embed_dims]
     dummy_temp_instance_feature = (
-        torch.zeros((bs, nums_topk, embed_dims)).float().cuda())
+        torch.zeros((bs, nums_topk, embed_dims), dtype=float_dtype).cuda())
     # 生成临时锚点 [bs, nums_topk, anchor_dims]
-    dummy_temp_anchor = torch.zeros((bs, nums_topk, anchor_dims)).float().cuda()
+    dummy_temp_anchor = torch.zeros((bs, nums_topk, anchor_dims), dtype=float_dtype).cuda()
     # 生成掩码 [bs]
     dummy_mask = torch.randint(0, 2, size=(bs,)).int().cuda()
     # 生成跟踪ID [bs, nums_query]
@@ -508,15 +527,15 @@ def dummpy_input(
 
     # 生成图像宽高 [bs, nums_cam, 2]
     dummy_image_wh = (
-        torch.tensor([input_w, input_h])
+        torch.tensor([input_w, input_h], dtype=float_dtype)
         .unsqueeze(0)
         .unsqueeze(0)
         .repeat(bs, nums_cam, 1)
-        .to(dummy_feature)
+        .cuda()
     )
 
     # 生成lidar2img [bs, nums_cam, 4, 4]
-    dummy_lidar2img = torch.randn(bs, nums_cam, 4, 4).to(dummy_feature)
+    dummy_lidar2img = torch.randn(bs, nums_cam, 4, 4, dtype=float_dtype).cuda()
 
     logger.debug(f"Dummy input : hape&Type&Device Msg >>>>>>")
     roi_x = [
@@ -573,6 +592,46 @@ def build_module(cfg, default_args: Optional[Dict] = None) -> Any:
     return eval(type)(**cfg2)
 
 
+# 验证 ONNX 模型的精度
+def verify_onnx_precision(onnx_path: str, use_fp16: bool, logger):
+    """验证 ONNX 模型的精度类型（只验证浮点类型的输入/输出）"""
+    logger.info("Verifying ONNX model precision...")
+    onnx_model = onnx.load(onnx_path)
+    
+    # ONNX TensorProto.DataType: FLOAT=1, FLOAT16=10, INT32=6, INT64=7
+    # 只检查浮点类型的输入和输出
+    float_input_types = []
+    float_output_types = []
+    
+    for input_tensor in onnx_model.graph.input:
+        input_type = input_tensor.type.tensor_type.elem_type
+        # 只检查浮点类型（FLOAT=1, FLOAT16=10）
+        if input_type in [1, 10]:
+            float_input_types.append(input_type)
+    
+    for output_tensor in onnx_model.graph.output:
+        output_type = output_tensor.type.tensor_type.elem_type
+        # 只检查浮点类型（FLOAT=1, FLOAT16=10）
+        if output_type in [1, 10]:
+            float_output_types.append(output_type)
+    
+    expected_type = 10 if use_fp16 else 1  # FLOAT16=10, FLOAT32=1
+    
+    all_inputs_correct = all(t == expected_type for t in float_input_types) if float_input_types else True
+    all_outputs_correct = all(t == expected_type for t in float_output_types) if float_output_types else True
+    
+    if all_inputs_correct and all_outputs_correct:
+        precision_str = "FP16" if use_fp16 else "FP32"
+        logger.info(f"✓ ONNX model verified as {precision_str} (all float inputs and outputs are {precision_str})")
+    else:
+        precision_str = "FP16" if use_fp16 else "FP32"
+        logger.warning(
+            f"⚠ ONNX model precision mismatch! "
+            f"Float input types: {float_input_types}, Float output types: {float_output_types} "
+            f"(expected: {expected_type} for {precision_str})"
+        )
+
+
 if __name__ == "__main__":
     args = parse_args()
     os.makedirs(os.path.dirname(args.save_onnx1), exist_ok=True)
@@ -588,12 +647,25 @@ if __name__ == "__main__":
     checkpoint = args.ckpt
     _ = model.load_state_dict(torch.load(checkpoint)["state_dict"], strict=False)
     model.cuda().eval()
+    
+    # 如果指定了--fp16，将模型转换为FP16（如果同时指定--fp16和--fp32，--fp16优先）
+    if args.fp16 and not args.fp32:
+        logger.info("Converting model to FP16 for ONNX export...")
+        model = model.half()  # 将模型转换为FP16
+        model._export_fp16 = True  # 标记模型为FP16导出模式
+        logger.info("Model converted to FP16. All floating-point inputs will use FP16 dtype.")
+    else:
+        logger.info("Exporting model with FP32 precision.")
+        model._export_fp16 = False
 
     BS = 1
     NUMS_CAM = 6
     INPUT_H = 256
     INPUT_W = 704
     first_frame = True
+    
+    # 根据导出精度选择数据类型
+    use_fp16 = getattr(model, '_export_fp16', False)
     (
         dummy_feature,
         dummy_spatial_shapes,
@@ -608,7 +680,7 @@ if __name__ == "__main__":
         dummy_image_wh,
         dummy_lidar2img,
     ) = dummpy_input(
-        model, BS, NUMS_CAM, INPUT_H, INPUT_W, first_frame=first_frame, logger=logger
+        model, BS, NUMS_CAM, INPUT_H, INPUT_W, first_frame=first_frame, logger=logger, use_fp16=use_fp16
     )
 
     if not args.o2:
@@ -652,9 +724,23 @@ if __name__ == "__main__":
 
             # 
             onnx_orig = onnx.load(args.save_onnx1)
-            onnx_simp, check = simplify(onnx_orig)
-            assert check, "Simplified ONNX model could not be validated"
-            onnx.save(onnx_simp, args.save_onnx1)
+            # FP16模式下，ONNX简化可能会失败（某些操作符如Range不支持FP16）
+            # 如果简化失败，直接使用原始模型
+            try:
+                onnx_simp, check = simplify(onnx_orig)
+                if check:
+                    onnx.save(onnx_simp, args.save_onnx1)
+                    logger.info("ONNX model simplified successfully.")
+                else:
+                    logger.warning("ONNX simplification failed validation, using original model.")
+                    onnx.save(onnx_orig, args.save_onnx1)
+            except Exception as e:
+                logger.warning(f"ONNX simplification failed: {e}, using original model.")
+                onnx.save(onnx_orig, args.save_onnx1)
+            
+            # 验证 ONNX 模型的精度
+            verify_onnx_precision(args.save_onnx1, use_fp16, logger)
+            
             logger.info(
                 f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx1}" 🤗.'
             )
@@ -707,7 +793,21 @@ if __name__ == "__main__":
         )
 
         onnx_orig = onnx.load(args.save_onnx2)
-        onnx_simp, check = simplify(onnx_orig)
-        assert check, "Simplified ONNX model could not be validated!"
-        onnx.save(onnx_simp, args.save_onnx2)
+        # FP16模式下，ONNX简化可能会失败（某些操作符如Range不支持FP16）
+        # 如果简化失败，直接使用原始模型
+        try:
+            onnx_simp, check = simplify(onnx_orig)
+            if check:
+                onnx.save(onnx_simp, args.save_onnx2)
+                logger.info("ONNX model simplified successfully.")
+            else:
+                logger.warning("ONNX simplification failed validation, using original model.")
+                onnx.save(onnx_orig, args.save_onnx2)
+        except Exception as e:
+            logger.warning(f"ONNX simplification failed: {e}, using original model.")
+            onnx.save(onnx_orig, args.save_onnx2)
+        
+        # 验证 ONNX 模型的精度
+        verify_onnx_precision(args.save_onnx2, use_fp16, logger)
+        
         logger.info(f'🚀 Export onnx completed. ONNX saved in "{args.save_onnx2}" 🤗.')

@@ -52,7 +52,7 @@ class DeformableAttentionAggrPlugin : public nvinfer1::IPluginV2DynamicExt
                             int32_t nbOutputs) const noexcept override;
     int32_t enqueue(const nvinfer1::PluginTensorDesc* inputDesc,
                     const nvinfer1::PluginTensorDesc* outputDesc,
-                    const void* const* ionputs,
+                    const void* const* inputs,
                     void* const* outputs,
                     void* workspace,
                     cudaStream_t stream) noexcept override;
