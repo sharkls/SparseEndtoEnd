@@ -7,8 +7,7 @@
 #include "log.h"
 
 // 前向声明各个测试单元的主函数
-// void main_sparse_bev();
-// void main_sparse_bev_v2();
+
 void main_sparse_bev_8_6();
 void main_sparse_4d();
 
@@ -19,30 +18,6 @@ public:
     virtual void run() = 0;
 };
 
-
-// // SparseBEV测试单元
-// class SparseBEVTest : public TestUnit {
-// public:
-//     void run() override {
-//         try {
-//             main_sparse_bev();
-//         } catch (const std::exception& e) {
-//             LOG(ERROR) << "SparseBEV测试错误: " << e.what();
-//         }
-//     }
-// };
-
-// // SparseBEV v2测试单元（用于asset数据）
-// class SparseBEVTestV2 : public TestUnit {
-// public:
-//     void run() override {
-//         try {
-//             main_sparse_bev_v2();
-//         } catch (const std::exception& e) {
-//             LOG(ERROR) << "SparseBEV v2测试错误: " << e.what();
-//         }
-//     }
-// };
 
 // SparseBEV 8.6测试单元（用于TensorRT 8.6）
 class SparseBEVTest8_6 : public TestUnit {
@@ -70,11 +45,6 @@ public:
 
 // 创建测试单元工厂
 std::unique_ptr<TestUnit> createTestUnit(const std::string& task) {
-    // if (task == "SparseBEV") {
-    //     return std::make_unique<SparseBEVTest>();
-    // } else if (task == "SparseBEV_v2") {
-    //     return std::make_unique<SparseBEVTestV2>();
-    // } else 
     if (task == "SparseBEV_8_6") {
         return std::make_unique<SparseBEVTest8_6>();
     } else if (task == "Sparse4D") {

@@ -501,8 +501,9 @@ def topk_onnx_compatiblev2(confidence, k, *inputs):
     """
     
     # 添加小的epsilon避免完全相同的值
+    # 使用INT32进行arange，避免TensorRT不支持FP16 Range的问题
     delta = torch.arange(confidence.shape[1], 
-		device=confidence.device,dtype=confidence.dtype) * (1e-5 * confidence.std())
+		device=confidence.device, dtype=torch.int32).to(confidence.dtype) * (1e-5 * confidence.std())
     confidence = confidence + delta
     
     # 3. 执行topk操作
@@ -543,8 +544,8 @@ def topk_onnx_compatiblev3(confidence, k, *inputs):
     batch_size, num_querys = confidence.shape
 
     # [1, N] → [B, N]
-    idx = torch.arange(num_querys, device=confidence.device, dtype=confidence.dtype).unsqueeze(0).expand(batch_size, -1)
-
+    # idx = torch.arange(num_querys, device=confidence.device, dtype=confidence.dtype).unsqueeze(0).expand(batch_size, -1)    # TensorRT 8.5.1 不支持FP16精度的Range操作时
+    idx = torch.arange(num_querys, device=confidence.device, dtype=torch.int32).unsqueeze(0).expand(batch_size, -1).to(confidence.dtype)
     # 动态计算极小扰动幅度，避免影响原有置信度的相对顺序
     # epsilon = max((max(conf)-min(conf)) * 1e-8, 1e-10)
     conf_max = torch.amax(confidence)

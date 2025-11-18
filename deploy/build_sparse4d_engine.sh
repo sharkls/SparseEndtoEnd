@@ -55,41 +55,41 @@ echo "STEP1: build sparse4dbackbone ${PRECISION} engine -> saving in ${ENV_BACKB
 # 导出每一层的详细信息（如层类型、输入输出形状等）
 # 设置性能分析的详细程度为详细模式
 # 将所有标准输出和错误输出重定向到日志文件，2>&1表示将标准错误也重定向到同一个文件
-${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
-    --memPoolSize=workspace:2048 \
-    --saveEngine=${ENV_BACKBONE_ENGINE} \
-    --verbose \
-    --warmUp=200 \
-    --iterations=50 \
-    --dumpOutput \
-    --dumpProfile \
-    --dumpLayerInfo \
-    --exportOutput=${ENVTRTDIR}/buildOutput_backbone.json \
-    --exportProfile=${ENVTRTDIR}/buildProfile_backbone.json \
-    --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
-    --profilingVerbosity=detailed \
-    ${PRECISION_ARGS} \
-    >${ENVTRTDIR}/build_backbone.log 2>&1
+# ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
+#     --memPoolSize=workspace:2048 \
+#     --saveEngine=${ENV_BACKBONE_ENGINE} \
+#     --verbose \
+#     --warmUp=200 \
+#     --iterations=50 \
+#     --dumpOutput \
+#     --dumpProfile \
+#     --dumpLayerInfo \
+#     --exportOutput=${ENVTRTDIR}/buildOutput_backbone.json \
+#     --exportProfile=${ENVTRTDIR}/buildProfile_backbone.json \
+#     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
+#     --profilingVerbosity=detailed \
+#     ${PRECISION_ARGS} \
+#     >${ENVTRTDIR}/build_backbone.log 2>&1
 
-# STEP2: build 1st frame sparse4dhead engine
-echo "STEP2: build 1st frame sparse4dhead ${PRECISION} engine -> saving in ${ENV_HEAD1_ENGINE}..."
-sleep 2s
-${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
-    --plugins=$ENVTARGETPLUGIN \
-    --memPoolSize=workspace:2048 \
-    --saveEngine=${ENV_HEAD1_ENGINE} \
-    --verbose \
-    --warmUp=200 \
-    --iterations=50 \
-    --dumpOutput \
-    --dumpProfile \
-    --dumpLayerInfo \
-    --exportOutput=${ENVTRTDIR}/buildOutput_head1.json \
-    --exportProfile=${ENVTRTDIR}/buildProfile_head1.json \
-    --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head1.json \
-    --profilingVerbosity=detailed \
-    ${PRECISION_ARGS} \
-    >${ENVTRTDIR}/build_head1.log 2>&1
+# # STEP2: build 1st frame sparse4dhead engine
+# echo "STEP2: build 1st frame sparse4dhead ${PRECISION} engine -> saving in ${ENV_HEAD1_ENGINE}..."
+# sleep 2s
+# ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
+#     --plugins=$ENVTARGETPLUGIN \
+#     --memPoolSize=workspace:2048 \
+#     --saveEngine=${ENV_HEAD1_ENGINE} \
+#     --verbose \
+#     --warmUp=200 \
+#     --iterations=50 \
+#     --dumpOutput \
+#     --dumpProfile \
+#     --dumpLayerInfo \
+#     --exportOutput=${ENVTRTDIR}/buildOutput_head1.json \
+#     --exportProfile=${ENVTRTDIR}/buildProfile_head1.json \
+#     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head1.json \
+#     --profilingVerbosity=detailed \
+#     ${PRECISION_ARGS} \
+#     >${ENVTRTDIR}/build_head1.log 2>&1
 
 # STEP3: build frame > 2 sparse4dhead engine
 echo "STEP3: build frame > 2 sparse4dhead ${PRECISION} engine -> saving in ${ENV_HEAD2_ENGINE}..."

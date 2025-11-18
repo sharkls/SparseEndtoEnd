@@ -66,27 +66,12 @@ add_subdirectory(Submodules/FastddsSer)
 add_subdirectory(Submodules/ProtoSer)
 add_subdirectory(Src)
 
-# # 条件添加SparseBEV子目录
-# if(BUILD_SPARSEBEV)
-#     add_subdirectory(Src/SparseBEV)
-# endif()
-
-# if(BUILD_SPARSEBEV8_6)
-#     add_subdirectory(Src/SparseBEV8.6)
-#     # add_subdirectory(Src/SparseBEVFP16)
-# endif()
-
-# # 添加Common模块（总是需要）
-# add_subdirectory(Src/Common)
-
 # 源文件的路径
 aux_source_directory(. HW_SRC_FILES)
 
 if(CMAKE_PLATFORM MATCHES "86")
     #生成可执行程序
     add_executable(${PROJECT_NAME} main.cpp
-                                # TestSparseBEVAlg.cpp
-                                # TestSparseBEVAlgv2.cpp
                                 TestSparseBEV8.6.cpp
                                 TestSparse4D.cpp
     )

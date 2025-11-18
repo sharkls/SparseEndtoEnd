@@ -372,9 +372,10 @@ bool CoreImplement::warmupInference() {
     
     // 根据实际测试，Backbone 的 CUDA Graph 在第 2 次迭代就生效了（enqueue time 从 348ms 降到 1.3ms）
     // 但 Head1 和 Head2 需要更多预热迭代才能捕获 CUDA Graph
+    // Head2 推理耗时波动大，增加warmup次数以稳定CUDA Graph捕获
     const int BACKBONE_WARMUP = 3;   // Backbone 已经验证生效，保持 3 次
     const int HEAD1_WARMUP = 5;      // Head1 需要更多预热（从日志看第 5 次调用仍然较高）
-    const int HEAD2_WARMUP = 5;      // Head2 需要更多预热
+    const int HEAD2_WARMUP = 15;     // Head2 需要更多预热（从5增加到15，减少性能波动）
     
     LOG(INFO) << "[INFO] Performing warmup iterations: Backbone=" << BACKBONE_WARMUP 
               << ", Head1=" << HEAD1_WARMUP << ", Head2=" << HEAD2_WARMUP;

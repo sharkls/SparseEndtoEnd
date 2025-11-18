@@ -5,7 +5,7 @@
 # 使用方法: ./check_engine_fp16.sh <engine_path> [warmup_iterations]
 # 示例: ./check_engine_fp16.sh engine/sparse4dhead1st.engine 100
 
-ENGINE_PATH=${1:-"engine/sparse4dhead1st.engine"}
+ENGINE_PATH=${1:-"engine/sparse4dhead2nd.engine"}
 WARMUP_ITER=${2:-100}
 
 if [ ! -f "$ENGINE_PATH" ]; then
