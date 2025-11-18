@@ -1,7 +1,8 @@
 #!/bin/bash
 # Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
+# 优化版本：针对 ForeignNode 耗时优化
 
-# 使用方法: ./build_sparse4d_engine.sh [fp32|fp16|int8]
+# 使用方法: ./build_sparse4d_engine_optimized.sh [fp32|fp16|int8]
 # 默认精度: fp16
 
 # 解析精度参数
@@ -15,7 +16,7 @@ if [[ "$PRECISION" != "fp32" && "$PRECISION" != "fp16" && "$PRECISION" != "int8"
     exit 1
 fi
 
-echo "选择的精度: $PRECISION"
+echo "选择的精度: $PRECISION (优化版本)"
 
 # 加载环境设置
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -43,18 +44,19 @@ get_precision_args() {
 # 获取精度参数
 PRECISION_ARGS=$(get_precision_args)
 
+# 优化选项：
+# --builderOptimizationLevel=5: 最高优化级别，更积极地融合操作
+# --tacticSources=-CUBLAS,-CUBLAS_LT: 禁用某些较慢的策略源（可选，根据实际情况调整）
+# --maxAuxStreams=4: 增加辅助流数量，可能有助于并行化
+# --timingCache=: 使用时序缓存加速构建（如果存在）
+TIMING_CACHE="${ENVTRTDIR}/timing_cache.cache"
+OPTIMIZATION_ARGS="--builderOptimizationLevel=5 --maxAuxStreams=4"
+if [ -f "${TIMING_CACHE}" ]; then
+    OPTIMIZATION_ARGS="${OPTIMIZATION_ARGS} --timingCache=${TIMING_CACHE}"
+fi
+
 # STEP1: build sparse4dbackbone engine
-echo "STEP1: build sparse4dbackbone ${PRECISION} engine -> saving in ${ENV_BACKBONE_ENGINE}..."
-# TensorRT工作内存大小
-# 优化后的TensorRT引擎文件的保存路径
-# 启动详细日志输出
-# 在性能测试前进行200次预热，预热可以让GPU达到稳定的工作状态，获得更准确的性能数据
-# 性能测试时进行50次迭代， 用于计算平均推理时间和性能指标
-# 导出模型输出结果
-# 导出性能分析数据profile
-# 导出每一层的详细信息（如层类型、输入输出形状等）
-# 设置性能分析的详细程度为详细模式
-# 将所有标准输出和错误输出重定向到日志文件，2>&1表示将标准错误也重定向到同一个文件
+echo "STEP1: build sparse4dbackbone ${PRECISION} engine (优化版本) -> saving in ${ENV_BACKBONE_ENGINE}..."
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
     --memPoolSize=workspace:2048 \
     --saveEngine=${ENV_BACKBONE_ENGINE} \
@@ -69,10 +71,11 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
     --profilingVerbosity=detailed \
     ${PRECISION_ARGS} \
+    ${OPTIMIZATION_ARGS} \
     >${ENVTRTDIR}/build_backbone.log 2>&1
 
 # STEP2: build 1st frame sparse4dhead engine
-echo "STEP2: build 1st frame sparse4dhead ${PRECISION} engine -> saving in ${ENV_HEAD1_ENGINE}..."
+echo "STEP2: build 1st frame sparse4dhead ${PRECISION} engine (优化版本) -> saving in ${ENV_HEAD1_ENGINE}..."
 sleep 2s
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
     --plugins=$ENVTARGETPLUGIN \
@@ -89,10 +92,11 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head1.json \
     --profilingVerbosity=detailed \
     ${PRECISION_ARGS} \
+    ${OPTIMIZATION_ARGS} \
     >${ENVTRTDIR}/build_head1.log 2>&1
 
-# STEP3: build frame > 2 sparse4dhead engine
-echo "STEP3: build frame > 2 sparse4dhead ${PRECISION} engine -> saving in ${ENV_HEAD2_ENGINE}..."
+# STEP3: build frame > 2 sparse4dhead engine (重点优化这个，因为 ForeignNode 问题主要在这里)
+echo "STEP3: build frame > 2 sparse4dhead ${PRECISION} engine (优化版本，重点优化 ForeignNode) -> saving in ${ENV_HEAD2_ENGINE}..."
 sleep 2s
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
     --plugins=$ENVTARGETPLUGIN \
@@ -109,6 +113,12 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head2.json \
     --profilingVerbosity=detailed \
     ${PRECISION_ARGS} \
+    ${OPTIMIZATION_ARGS} \
     >${ENVTRTDIR}/build_head2.log 2>&1
 
-echo "success build ${PRECISION} engines."
+echo "success build ${PRECISION} engines (优化版本)."
+echo "提示: 如果 ForeignNode 耗时仍然较高，可以考虑："
+echo "  1. 检查 ONNX 模型中的 Slice 和 Transpose 操作是否可以优化"
+echo "  2. 尝试修改 export_head_onnx.py 中的导出选项"
+echo "  3. 检查 Plugin 是否支持 FP16，减少精度转换开销"
+
