@@ -44,6 +44,12 @@ get_precision_args() {
 # 获取精度参数
 PRECISION_ARGS=$(get_precision_args)
 
+# 组合插件参数
+PLUGIN_ARGS="--plugins=${ENVTARGETPLUGIN}"
+if [[ -n "${ENV_LAYER_NORM_PLUGIN}" && -f "${ENV_LAYER_NORM_PLUGIN}" ]]; then
+    PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENV_LAYER_NORM_PLUGIN}"
+fi
+
 # 优化选项：
 # --builderOptimizationLevel=5: 最高优化级别，更积极地融合操作
 # --tacticSources=-CUBLAS,-CUBLAS_LT: 禁用某些较慢的策略源（可选，根据实际情况调整）
@@ -78,7 +84,7 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
 echo "STEP2: build 1st frame sparse4dhead ${PRECISION} engine (优化版本) -> saving in ${ENV_HEAD1_ENGINE}..."
 sleep 2s
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
-    --plugins=$ENVTARGETPLUGIN \
+    ${PLUGIN_ARGS} \
     --memPoolSize=workspace:2048 \
     --saveEngine=${ENV_HEAD1_ENGINE} \
     --verbose \
@@ -99,7 +105,7 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
 echo "STEP3: build frame > 2 sparse4dhead ${PRECISION} engine (优化版本，重点优化 ForeignNode) -> saving in ${ENV_HEAD2_ENGINE}..."
 sleep 2s
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
-    --plugins=$ENVTARGETPLUGIN \
+    ${PLUGIN_ARGS} \
     --memPoolSize=workspace:2048 \
     --saveEngine=${ENV_HEAD2_ENGINE} \
     --verbose \

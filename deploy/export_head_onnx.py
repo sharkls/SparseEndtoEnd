@@ -717,7 +717,7 @@ if __name__ == "__main__":
                     "pred_class_score",
                     "pred_quality_score",
                 ],
-                opset_version=15,
+                opset_version=17,
                 do_constant_folding=True,
                 verbose=False,
             )
@@ -787,7 +787,7 @@ if __name__ == "__main__":
                 "pred_quality_score",
                 "pred_track_id",
             ],
-            opset_version=15,
+            opset_version=17,
             do_constant_folding=True,
             verbose=False,
         )

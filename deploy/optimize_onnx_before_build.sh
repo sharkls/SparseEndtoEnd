@@ -20,11 +20,25 @@ if [ -f "${ENV_HEAD2_ONNX}" ]; then
     fi
     
     # 使用 simplify_onnx.py 优化
+    # 注意：shapes 必须与 ONNX 模型的实际输入形状匹配
+    # 从 export_head_onnx.py 中确认的实际形状：
+    # - feature: [bs, feature_size, embed_dims] = [1, 89760, 256]
+    # - spatial_shapes: [nums_cam, feature_scales, 2] = [6, 4, 2] (注意：没有 batch 维度)
+    # - level_start_index: [nums_cam, 4] = [6, 4] (注意：没有 batch 维度)
+    # - instance_feature: [bs, nums_query, embed_dims] = [1, 900, 256]
+    # - anchor: [bs, nums_query, anchor_dims] = [1, 900, 11]
+    # - time_interval: [bs] = [1]
+    # - temp_instance_feature: [bs, nums_topk, embed_dims] = [1, 600, 256]
+    # - temp_anchor: [bs, nums_topk, anchor_dims] = [1, 600, 11]
+    # - mask: [bs] = [1] (注意：不是 [1, 900])
+    # - track_id: [bs, nums_query] = [1, 900]
+    # - image_wh: [bs, nums_cam, 2] = [1, 6, 2] (注意：不是 [1, 2])
+    # - lidar2img: [bs, nums_cam, 4, 4] = [1, 6, 4, 4]
     OPTIMIZED_ONNX="${ENV_HEAD2_ONNX%.onnx}_optimized.onnx"
-    python "${SCRIPT_DIR}/tools/simplify_onnx.py" \
+    python "${SCRIPT_DIR}/export/simplify_onnx.py" \
         --inp "${ENV_HEAD2_ONNX}" \
         --out "${OPTIMIZED_ONNX}" \
-        --shapes "feature:1x89760x256,instance_feature:1x900x256,anchor:1x900x11,temp_instance_feature:1x600x256,temp_anchor:1x600x11,track_id:1x900,mask:1x900,image_wh:1x2,lidar2img:1x6x4x4,time_interval:1"
+        --shapes "feature:1x89760x256,spatial_shapes:6x4x2,level_start_index:6x4,instance_feature:1x900x256,anchor:1x900x11,time_interval:1,temp_instance_feature:1x600x256,temp_anchor:1x600x11,mask:1,track_id:1x900,image_wh:1x6x2,lidar2img:1x6x4x4"
     
     if [ $? -eq 0 ]; then
         echo "✓ ONNX 优化成功: ${OPTIMIZED_ONNX}"
@@ -54,11 +68,20 @@ if [ -f "${ENV_HEAD1_ONNX}" ]; then
         echo "已备份原始文件到: ${BACKUP_FILE}"
     fi
     
+    # head1st 的输入形状（从 export_head_onnx.py 确认）：
+    # - feature: [1, 89760, 256]
+    # - spatial_shapes: [6, 4, 2] (没有 batch 维度)
+    # - level_start_index: [6, 4] (没有 batch 维度)
+    # - instance_feature: [1, 900, 256]
+    # - anchor: [1, 900, 11]
+    # - time_interval: [1]
+    # - image_wh: [1, 6, 2] (注意：不是 [1, 2])
+    # - lidar2img: [1, 6, 4, 4]
     OPTIMIZED_ONNX="${ENV_HEAD1_ONNX%.onnx}_optimized.onnx"
-    python "${SCRIPT_DIR}/tools/simplify_onnx.py" \
+    python "${SCRIPT_DIR}/export/simplify_onnx.py" \
         --inp "${ENV_HEAD1_ONNX}" \
         --out "${OPTIMIZED_ONNX}" \
-        --shapes "feature:1x89760x256,instance_feature:1x900x256,anchor:1x900x11,image_wh:1x2,lidar2img:1x6x4x4,time_interval:1"
+        --shapes "feature:1x89760x256,spatial_shapes:6x4x2,level_start_index:6x4,instance_feature:1x900x256,anchor:1x900x11,time_interval:1,image_wh:1x6x2,lidar2img:1x6x4x4"
     
     if [ $? -eq 0 ]; then
         echo "✓ ONNX 优化成功: ${OPTIMIZED_ONNX}"
