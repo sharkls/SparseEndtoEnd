@@ -44,9 +44,10 @@ bool SparseBEV::init(void* p_pAlgParam)
     LOG(INFO) << "[INFO] Creating TensorRT engines...";
     
     // 特征提取引擎
+    std::vector<std::string> extract_feat_plugin_paths;  // 无插件路径
     m_extract_feat_engine = std::make_shared<TensorRT>(
         m_taskConfig.extract_feat_engine().engine_path(),
-        "",  // 无插件路径
+        extract_feat_plugin_paths,
         std::vector<std::string>(m_taskConfig.extract_feat_engine().input_names().begin(), 
                                 m_taskConfig.extract_feat_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.extract_feat_engine().output_names().begin(), 
@@ -58,20 +59,28 @@ bool SparseBEV::init(void* p_pAlgParam)
     }
 
     // 第一帧头部引擎
+    std::vector<std::string> head1st_plugin_paths;
+    // 使用旧的 plugin_path 字段（SparseBEV8.6 使用不同的 proto 文件）
+    if (!m_taskConfig.head1st_engine().plugin_path().empty()) {
+        head1st_plugin_paths.push_back(m_taskConfig.head1st_engine().plugin_path());
+    }
     m_head1st_engine = std::make_shared<TensorRT>(
         m_taskConfig.head1st_engine().engine_path(),
-        m_taskConfig.head1st_engine().plugin_path(),
+        head1st_plugin_paths,
         std::vector<std::string>(m_taskConfig.head1st_engine().input_names().begin(), 
                                 m_taskConfig.head1st_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.head1st_engine().output_names().begin(), 
                                 m_taskConfig.head1st_engine().output_names().end()));
 
-    // 第一帧头部引擎
-
     // 第二帧头部引擎
+    std::vector<std::string> head2nd_plugin_paths;
+    // 使用旧的 plugin_path 字段（SparseBEV8.6 使用不同的 proto 文件）
+    if (!m_taskConfig.head2nd_engine().plugin_path().empty()) {
+        head2nd_plugin_paths.push_back(m_taskConfig.head2nd_engine().plugin_path());
+    }
     m_head2nd_engine = std::make_shared<TensorRT>(
         m_taskConfig.head2nd_engine().engine_path(),
-        m_taskConfig.head2nd_engine().plugin_path(),
+        head2nd_plugin_paths,
         std::vector<std::string>(m_taskConfig.head2nd_engine().input_names().begin(), 
                                 m_taskConfig.head2nd_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.head2nd_engine().output_names().begin(), 

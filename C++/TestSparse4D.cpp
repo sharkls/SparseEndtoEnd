@@ -450,6 +450,12 @@ CTimeMatchSrcData loadAssetData(std::string asset_path, int index)
 
 void testSparse4DAlg(const CAlgResult& alg_result, void* p_handle)
 {
+    // 检查是否有帧结果
+    if (alg_result.vecFrameResult().empty()) {
+        LOG(WARNING) << "没有检测到任何目标，vecFrameResult 为空";
+        return;
+    }
+    
     // 获取检测结果
     const auto& detections = alg_result.vecFrameResult().at(0).vecObjectResult();
     

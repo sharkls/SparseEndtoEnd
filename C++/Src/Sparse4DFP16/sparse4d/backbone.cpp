@@ -22,9 +22,15 @@ Status BackboneImplement::init(const TaskConfig &param)
     LOG(INFO) << "[INFO] Sparse4D::BackboneImplement::init start";
 
     m_taskConfig = param;
+    // 从配置中读取插件路径列表
+    std::vector<std::string> plugin_paths;
+    for (int i = 0; i < m_taskConfig.backbone_engine().plugin_paths_size(); ++i) {
+        plugin_paths.push_back(m_taskConfig.backbone_engine().plugin_paths(i));
+    }
+    
     m_backbone_engine = std::make_shared<TensorRT>(
         m_taskConfig.backbone_engine().engine_path(),
-        "",
+        plugin_paths,
         std::vector<std::string>(m_taskConfig.backbone_engine().input_names().begin(), 
                                 m_taskConfig.backbone_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.backbone_engine().output_names().begin(), 

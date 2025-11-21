@@ -49,6 +49,13 @@ PLUGIN_ARGS="--plugins=${ENVTARGETPLUGIN}"
 if [[ -n "${ENV_LAYER_NORM_PLUGIN}" && -f "${ENV_LAYER_NORM_PLUGIN}" ]]; then
     PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENV_LAYER_NORM_PLUGIN}"
 fi
+if [[ -n "${ENV_SPARSEBOX_PLUGIN}" && -f "${ENV_SPARSEBOX_PLUGIN}" ]]; then
+    PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENV_SPARSEBOX_PLUGIN}"
+    echo "[INFO] SparseBox3DKeyPointsPlugin enabled: ${ENV_SPARSEBOX_PLUGIN}"
+else
+    echo "[WARNING] SparseBox3DKeyPointsPlugin not found: ${ENV_SPARSEBOX_PLUGIN}"
+    echo "[WARNING] Engine will be built without SparseBox3DKeyPointsPlugin optimization"
+fi
 
 # 优化选项：
 # --builderOptimizationLevel=5: 最高优化级别，更积极地融合操作

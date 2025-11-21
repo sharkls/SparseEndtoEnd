@@ -1383,11 +1383,33 @@ class E2ETrtEngine final : public ::google::protobuf::Message
 
   // accessors -------------------------------------------------------
   enum : int {
+    kPluginPathsFieldNumber = 2,
     kInputNamesFieldNumber = 3,
     kOutputNamesFieldNumber = 4,
     kEnginePathFieldNumber = 1,
-    kPluginPathFieldNumber = 2,
   };
+  // repeated string plugin_paths = 2;
+  int plugin_paths_size() const;
+  private:
+  int _internal_plugin_paths_size() const;
+
+  public:
+  void clear_plugin_paths() ;
+  const std::string& plugin_paths(int index) const;
+  std::string* PROTOBUF_NONNULL mutable_plugin_paths(int index);
+  template <typename Arg_ = const std::string&, typename... Args_>
+  void set_plugin_paths(int index, Arg_&& value, Args_... args);
+  std::string* PROTOBUF_NONNULL add_plugin_paths();
+  template <typename Arg_ = const std::string&, typename... Args_>
+  void add_plugin_paths(Arg_&& value, Args_... args);
+  const ::google::protobuf::RepeatedPtrField<std::string>& plugin_paths() const;
+  ::google::protobuf::RepeatedPtrField<std::string>* PROTOBUF_NONNULL mutable_plugin_paths();
+
+  private:
+  const ::google::protobuf::RepeatedPtrField<std::string>& _internal_plugin_paths() const;
+  ::google::protobuf::RepeatedPtrField<std::string>* PROTOBUF_NONNULL _internal_mutable_plugin_paths();
+
+  public:
   // repeated string input_names = 3;
   int input_names_size() const;
   private:
@@ -1447,27 +1469,12 @@ class E2ETrtEngine final : public ::google::protobuf::Message
   std::string* PROTOBUF_NONNULL _internal_mutable_engine_path();
 
   public:
-  // string plugin_path = 2;
-  void clear_plugin_path() ;
-  const std::string& plugin_path() const;
-  template <typename Arg_ = const std::string&, typename... Args_>
-  void set_plugin_path(Arg_&& arg, Args_... args);
-  std::string* PROTOBUF_NONNULL mutable_plugin_path();
-  [[nodiscard]] std::string* PROTOBUF_NULLABLE release_plugin_path();
-  void set_allocated_plugin_path(std::string* PROTOBUF_NULLABLE value);
-
-  private:
-  const std::string& _internal_plugin_path() const;
-  PROTOBUF_ALWAYS_INLINE void _internal_set_plugin_path(const std::string& value);
-  std::string* PROTOBUF_NONNULL _internal_mutable_plugin_path();
-
-  public:
   // @@protoc_insertion_point(class_scope:sparse4d.E2ETrtEngine)
  private:
   class _Internal;
   friend class ::google::protobuf::internal::TcParser;
   static const ::google::protobuf::internal::TcParseTable<2, 4,
-                                   0, 75,
+                                   0, 76,
                                    2>
       _table_;
 
@@ -1488,10 +1495,10 @@ class E2ETrtEngine final : public ::google::protobuf::Message
         const E2ETrtEngine& from_msg);
     ::google::protobuf::internal::HasBits<1> _has_bits_;
     ::google::protobuf::internal::CachedSize _cached_size_;
+    ::google::protobuf::RepeatedPtrField<std::string> plugin_paths_;
     ::google::protobuf::RepeatedPtrField<std::string> input_names_;
     ::google::protobuf::RepeatedPtrField<std::string> output_names_;
     ::google::protobuf::internal::ArenaStringPtr engine_path_;
-    ::google::protobuf::internal::ArenaStringPtr plugin_path_;
     PROTOBUF_TSAN_DECLARE_MEMBER
   };
   union { Impl_ _impl_; };
@@ -3124,69 +3131,68 @@ inline void E2ETrtEngine::set_allocated_engine_path(std::string* PROTOBUF_NULLAB
   // @@protoc_insertion_point(field_set_allocated:sparse4d.E2ETrtEngine.engine_path)
 }
 
-// string plugin_path = 2;
-inline void E2ETrtEngine::clear_plugin_path() {
+// repeated string plugin_paths = 2;
+inline int E2ETrtEngine::_internal_plugin_paths_size() const {
+  return _internal_plugin_paths().size();
+}
+inline int E2ETrtEngine::plugin_paths_size() const {
+  return _internal_plugin_paths_size();
+}
+inline void E2ETrtEngine::clear_plugin_paths() {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_.plugin_path_.ClearToEmpty();
-  _impl_._has_bits_[0] &= ~0x00000002u;
+  _impl_.plugin_paths_.Clear();
 }
-inline const std::string& E2ETrtEngine::plugin_path() const
+inline std::string* PROTOBUF_NONNULL E2ETrtEngine::add_plugin_paths()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  // @@protoc_insertion_point(field_get:sparse4d.E2ETrtEngine.plugin_path)
-  return _internal_plugin_path();
-}
-template <typename Arg_, typename... Args_>
-PROTOBUF_ALWAYS_INLINE void E2ETrtEngine::set_plugin_path(Arg_&& arg, Args_... args) {
   ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000002u;
-  _impl_.plugin_path_.Set(static_cast<Arg_&&>(arg), args..., GetArena());
-  // @@protoc_insertion_point(field_set:sparse4d.E2ETrtEngine.plugin_path)
-}
-inline std::string* PROTOBUF_NONNULL E2ETrtEngine::mutable_plugin_path()
-    ABSL_ATTRIBUTE_LIFETIME_BOUND {
-  std::string* _s = _internal_mutable_plugin_path();
-  // @@protoc_insertion_point(field_mutable:sparse4d.E2ETrtEngine.plugin_path)
+  std::string* _s = _internal_mutable_plugin_paths()->Add();
+  // @@protoc_insertion_point(field_add_mutable:sparse4d.E2ETrtEngine.plugin_paths)
   return _s;
 }
-inline const std::string& E2ETrtEngine::_internal_plugin_path() const {
+inline const std::string& E2ETrtEngine::plugin_paths(int index) const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_get:sparse4d.E2ETrtEngine.plugin_paths)
+  return _internal_plugin_paths().Get(index);
+}
+inline std::string* PROTOBUF_NONNULL E2ETrtEngine::mutable_plugin_paths(int index)
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_mutable:sparse4d.E2ETrtEngine.plugin_paths)
+  return _internal_mutable_plugin_paths()->Mutable(index);
+}
+template <typename Arg_, typename... Args_>
+inline void E2ETrtEngine::set_plugin_paths(int index, Arg_&& value, Args_... args) {
+  ::google::protobuf::internal::AssignToString(*_internal_mutable_plugin_paths()->Mutable(index), std::forward<Arg_>(value),
+                        args... );
+  // @@protoc_insertion_point(field_set:sparse4d.E2ETrtEngine.plugin_paths)
+}
+template <typename Arg_, typename... Args_>
+inline void E2ETrtEngine::add_plugin_paths(Arg_&& value, Args_... args) {
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  ::google::protobuf::internal::AddToRepeatedPtrField(*_internal_mutable_plugin_paths(),
+                               std::forward<Arg_>(value),
+                               args... );
+  // @@protoc_insertion_point(field_add:sparse4d.E2ETrtEngine.plugin_paths)
+}
+inline const ::google::protobuf::RepeatedPtrField<std::string>& E2ETrtEngine::plugin_paths() const
+    ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_list:sparse4d.E2ETrtEngine.plugin_paths)
+  return _internal_plugin_paths();
+}
+inline ::google::protobuf::RepeatedPtrField<std::string>* PROTOBUF_NONNULL
+E2ETrtEngine::mutable_plugin_paths() ABSL_ATTRIBUTE_LIFETIME_BOUND {
+  // @@protoc_insertion_point(field_mutable_list:sparse4d.E2ETrtEngine.plugin_paths)
+  ::google::protobuf::internal::TSanWrite(&_impl_);
+  return _internal_mutable_plugin_paths();
+}
+inline const ::google::protobuf::RepeatedPtrField<std::string>&
+E2ETrtEngine::_internal_plugin_paths() const {
   ::google::protobuf::internal::TSanRead(&_impl_);
-  return _impl_.plugin_path_.Get();
+  return _impl_.plugin_paths_;
 }
-inline void E2ETrtEngine::_internal_set_plugin_path(const std::string& value) {
-  ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000002u;
-  _impl_.plugin_path_.Set(value, GetArena());
-}
-inline std::string* PROTOBUF_NONNULL E2ETrtEngine::_internal_mutable_plugin_path() {
-  ::google::protobuf::internal::TSanWrite(&_impl_);
-  _impl_._has_bits_[0] |= 0x00000002u;
-  return _impl_.plugin_path_.Mutable( GetArena());
-}
-inline std::string* PROTOBUF_NULLABLE E2ETrtEngine::release_plugin_path() {
-  ::google::protobuf::internal::TSanWrite(&_impl_);
-  // @@protoc_insertion_point(field_release:sparse4d.E2ETrtEngine.plugin_path)
-  if ((_impl_._has_bits_[0] & 0x00000002u) == 0) {
-    return nullptr;
-  }
-  _impl_._has_bits_[0] &= ~0x00000002u;
-  auto* released = _impl_.plugin_path_.Release();
-  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString()) {
-    _impl_.plugin_path_.Set("", GetArena());
-  }
-  return released;
-}
-inline void E2ETrtEngine::set_allocated_plugin_path(std::string* PROTOBUF_NULLABLE value) {
-  ::google::protobuf::internal::TSanWrite(&_impl_);
-  if (value != nullptr) {
-    _impl_._has_bits_[0] |= 0x00000002u;
-  } else {
-    _impl_._has_bits_[0] &= ~0x00000002u;
-  }
-  _impl_.plugin_path_.SetAllocated(value, GetArena());
-  if (::google::protobuf::internal::DebugHardenForceCopyDefaultString() && _impl_.plugin_path_.IsDefault()) {
-    _impl_.plugin_path_.Set("", GetArena());
-  }
-  // @@protoc_insertion_point(field_set_allocated:sparse4d.E2ETrtEngine.plugin_path)
+inline ::google::protobuf::RepeatedPtrField<std::string>* PROTOBUF_NONNULL
+E2ETrtEngine::_internal_mutable_plugin_paths() {
+  ::google::protobuf::internal::TSanRead(&_impl_);
+  return &_impl_.plugin_paths_;
 }
 
 // repeated string input_names = 3;

@@ -29,10 +29,10 @@ std::vector<T> readfile_wrapper(const std::string& filename) {
 }
 
 TensorRT::TensorRT(const std::string& engine_path,
-                   const std::string& plugin_path,
+                   const std::vector<std::string>& plugin_paths,
                    const std::vector<std::string>& input_names,
                    const std::vector<std::string>& output_names)
-    : engine_path_(engine_path), plugin_path_(plugin_path), input_names_(input_names), output_names_(output_names) {
+    : engine_path_(engine_path), plugin_paths_(plugin_paths), input_names_(input_names), output_names_(output_names) {
   init();
 }
 
@@ -43,26 +43,36 @@ TensorRT::~TensorRT() {
 void TensorRT::init() {
   std::vector<char> engine_data = readfile_wrapper<char>(engine_path_);
 
-  if (!plugin_path_.empty()) {
-    // 先检查文件是否存在
-    std::ifstream plugin_file(plugin_path_);
-    if (!plugin_file.good()) {
-      std::cout << "[ERROR] Plugin file does not exist: " << plugin_path_ << std::endl;
-    } else {
-      plugin_file.close();
-    }
-    
-    void* pluginLibraryHandle = dlopen(plugin_path_.c_str(), RTLD_LAZY);
-    if (!pluginLibraryHandle) {
-      const char* dlerror_msg = dlerror();
-      std::cout << "[ERROR] Failed to load TensorRT plugin: " << plugin_path_ << std::endl;
-      if (dlerror_msg) {
-        std::cout << "[ERROR] dlopen error: " << dlerror_msg << std::endl;
+  // 加载所有插件
+  if (!plugin_paths_.empty()) {
+    std::cout << "[INFO] Loading " << plugin_paths_.size() << " TensorRT plugin(s)..." << std::endl;
+    for (size_t i = 0; i < plugin_paths_.size(); ++i) {
+      const std::string& plugin_path = plugin_paths_[i];
+      if (plugin_path.empty()) {
+        continue;
       }
-      // 注意：即使 plugin 加载失败，也继续执行，因为某些 engine 可能不需要 plugin
-      // 但如果 engine 中包含 plugin 节点，会在 enqueueV2 时失败
-    } else {
-      std::cout << "[INFO] Successfully loaded TensorRT plugin: " << plugin_path_ << std::endl;
+      
+      // 先检查文件是否存在
+      std::ifstream plugin_file(plugin_path);
+      if (!plugin_file.good()) {
+        std::cout << "[ERROR] Plugin file does not exist: " << plugin_path << std::endl;
+        plugin_file.close();
+        continue;
+      }
+      plugin_file.close();
+      
+      void* pluginLibraryHandle = dlopen(plugin_path.c_str(), RTLD_LAZY);
+      if (!pluginLibraryHandle) {
+        const char* dlerror_msg = dlerror();
+        std::cout << "[ERROR] Failed to load TensorRT plugin: " << plugin_path << std::endl;
+        if (dlerror_msg) {
+          std::cout << "[ERROR] dlopen error: " << dlerror_msg << std::endl;
+        }
+        // 注意：即使 plugin 加载失败，也继续执行，因为某些 engine 可能不需要 plugin
+        // 但如果 engine 中包含 plugin 节点，会在 enqueueV2 时失败
+      } else {
+        std::cout << "[INFO] Successfully loaded TensorRT plugin [" << (i+1) << "/" << plugin_paths_.size() << "]: " << plugin_path << std::endl;
+      }
     }
   }
 
@@ -79,8 +89,11 @@ void TensorRT::init() {
   std::cout << "[INFO] TensorRT Engine Information" << std::endl;
   std::cout << std::string(80, '=') << std::endl;
   std::cout << "[INFO] Engine Path: " << engine_path_ << std::endl;
-  if (!plugin_path_.empty()) {
-    std::cout << "[INFO] Plugin Path: " << plugin_path_ << std::endl;
+  if (!plugin_paths_.empty()) {
+    std::cout << "[INFO] Plugin Paths (" << plugin_paths_.size() << "):" << std::endl;
+    for (size_t i = 0; i < plugin_paths_.size(); ++i) {
+      std::cout << "[INFO]   [" << (i+1) << "] " << plugin_paths_[i] << std::endl;
+    }
   }
   // getEngineInfo();
   std::cout << std::string(80, '=') << "\n" << std::endl;

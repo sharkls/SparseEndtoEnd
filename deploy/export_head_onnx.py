@@ -24,6 +24,17 @@ from typing import Optional, Dict, Any, Tuple
 
 from tool.utils.logger import set_logger
 
+# 导入 sparsebox_plugin 替换函数
+try:
+    from deploy.sparsebox_plugin.replace_kps_generator import (
+        replace_kps_generator_with_plugin
+    )
+    SPARSEBOX_PLUGIN_AVAILABLE = True
+except ImportError as e:
+    SPARSEBOX_PLUGIN_AVAILABLE = False
+    print(f"[WARNING] SparseBox3DKeyPointsPlugin not available: {e}")
+    print("[WARNING] Will export ONNX without plugin replacement.")
+
 # 设置PyTorch确定性
 torch.backends.cudnn.deterministic = True
 torch.backends.cudnn.benchmark = False
@@ -685,6 +696,18 @@ if __name__ == "__main__":
 
     if not args.o2:
         first_frame_head = Sparse4DHead1st(copy.deepcopy(model))
+        
+        # 替换 kps_generator 为 Plugin 版本
+        if SPARSEBOX_PLUGIN_AVAILABLE:
+            logger.info("Replacing kps_generator with SparseBox3DKeyPointsPlugin...")
+            replaced_count = replace_kps_generator_with_plugin(
+                first_frame_head.model.head, 
+                verbose=True
+            )
+            logger.info(f"Replaced {replaced_count} kps_generator(s) with Plugin version")
+        else:
+            logger.warning("SparseBox3DKeyPointsPlugin not available, using original kps_generator")
+        
         logger.info("Export Sparse4DHead1st Onnx >>>>>>>>>>>>>>>>")
         time.sleep(2)
         with torch.no_grad():
@@ -746,6 +769,18 @@ if __name__ == "__main__":
             )
 
     head = Sparse4DHead2nd(copy.deepcopy(model))
+    
+    # 替换 kps_generator 为 Plugin 版本
+    if SPARSEBOX_PLUGIN_AVAILABLE:
+        logger.info("Replacing kps_generator with SparseBox3DKeyPointsPlugin...")
+        replaced_count = replace_kps_generator_with_plugin(
+            head.model.head, 
+            verbose=True
+        )
+        logger.info(f"Replaced {replaced_count} kps_generator(s) with Plugin version")
+    else:
+        logger.warning("SparseBox3DKeyPointsPlugin not available, using original kps_generator")
+    
     logger.info("Export Sparse4DHead2nd Onnx >>>>>>>>>>>>>>>>")
     time.sleep(2)
     with torch.no_grad():

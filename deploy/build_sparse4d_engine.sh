@@ -44,9 +44,24 @@ get_precision_args() {
 PRECISION_ARGS=$(get_precision_args)
 
 # 组合插件参数
-PLUGIN_ARGS="--plugins=${ENVTARGETPLUGIN}"
+PLUGIN_ARGS=""
+if [[ -n "${ENVTARGETPLUGIN}" && -f "${ENVTARGETPLUGIN}" ]]; then
+    PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENVTARGETPLUGIN}"
+    echo "[INFO] DeformableAttentionAggrPlugin enabled: ${ENVTARGETPLUGIN}"
+fi
 if [[ -n "${ENV_LAYER_NORM_PLUGIN}" && -f "${ENV_LAYER_NORM_PLUGIN}" ]]; then
     PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENV_LAYER_NORM_PLUGIN}"
+    echo "[INFO] LayerNormPlugin enabled: ${ENV_LAYER_NORM_PLUGIN}"
+else
+    echo "[WARNING] LayerNormPlugin not found: ${ENV_LAYER_NORM_PLUGIN}"
+    echo "[WARNING] Engine will be built without LayerNormPlugin optimization"
+fi
+if [[ -n "${ENV_SPARSEBOX_PLUGIN}" && -f "${ENV_SPARSEBOX_PLUGIN}" ]]; then
+    PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENV_SPARSEBOX_PLUGIN}"
+    echo "[INFO] SparseBox3DKeyPointsPlugin enabled: ${ENV_SPARSEBOX_PLUGIN}"
+else
+    echo "[WARNING] SparseBox3DKeyPointsPlugin not found: ${ENV_SPARSEBOX_PLUGIN}"
+    echo "[WARNING] Engine will be built without SparseBox3DKeyPointsPlugin optimization"
 fi
 
 # STEP1: build sparse4dbackbone engine
@@ -61,21 +76,21 @@ echo "STEP1: build sparse4dbackbone ${PRECISION} engine -> saving in ${ENV_BACKB
 # 导出每一层的详细信息（如层类型、输入输出形状等）
 # 设置性能分析的详细程度为详细模式
 # 将所有标准输出和错误输出重定向到日志文件，2>&1表示将标准错误也重定向到同一个文件
-${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
-    --memPoolSize=workspace:2048 \
-    --saveEngine=${ENV_BACKBONE_ENGINE} \
-    --verbose \
-    --warmUp=200 \
-    --iterations=50 \
-    --dumpOutput \
-    --dumpProfile \
-    --dumpLayerInfo \
-    --exportOutput=${ENVTRTDIR}/buildOutput_backbone.json \
-    --exportProfile=${ENVTRTDIR}/buildProfile_backbone.json \
-    --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
-    --profilingVerbosity=detailed \
-    ${PRECISION_ARGS} \
-    >${ENVTRTDIR}/build_backbone.log 2>&1
+# ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
+#     --memPoolSize=workspace:2048 \
+#     --saveEngine=${ENV_BACKBONE_ENGINE} \
+#     --verbose \
+#     --warmUp=200 \
+#     --iterations=50 \
+#     --dumpOutput \
+#     --dumpProfile \
+#     --dumpLayerInfo \
+#     --exportOutput=${ENVTRTDIR}/buildOutput_backbone.json \
+#     --exportProfile=${ENVTRTDIR}/buildProfile_backbone.json \
+#     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
+#     --profilingVerbosity=detailed \
+#     ${PRECISION_ARGS} \
+#     >${ENVTRTDIR}/build_backbone.log 2>&1
 
 # STEP2: build 1st frame sparse4dhead engine
 echo "STEP2: build 1st frame sparse4dhead ${PRECISION} engine -> saving in ${ENV_HEAD1_ENGINE}..."

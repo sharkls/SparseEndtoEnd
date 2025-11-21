@@ -22,7 +22,7 @@
 class TensorRT {
  public:
   TensorRT(const std::string& engine_path = "",
-           const std::string& plugin_path = "",
+           const std::vector<std::string>& plugin_paths = {},
            const std::vector<std::string>& input_names = {},
            const std::vector<std::string>& output_names = {});
   TensorRT() = delete;
@@ -42,7 +42,7 @@ class TensorRT {
   void init();
   void auto_detect_tensors();
   const std::string engine_path_;
-  const std::string plugin_path_;
+  const std::vector<std::string> plugin_paths_;
   std::vector<std::string> input_names_;
   std::vector<std::string> output_names_;
   std::unique_ptr<nvinfer1::IRuntime> runtime_;

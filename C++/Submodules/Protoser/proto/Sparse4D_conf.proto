@@ -31,7 +31,7 @@ message ModelCfgParams
 // engine配置参数
 message E2ETrtEngine{
     string engine_path = 1;                  // TensorRT引擎文件路径
-    string plugin_path = 2;                  // TensorRT插件文件路径
+    repeated string plugin_paths = 2;        // TensorRT插件文件路径列表（支持多个插件）
     repeated string input_names = 3;         // 输入张量名称列表
     repeated string output_names = 4;        // 输出张量名称列表
 }

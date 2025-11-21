@@ -165,12 +165,10 @@ PROTOBUF_ATTRIBUTE_NO_DESTROY PROTOBUF_CONSTINIT
 inline constexpr E2ETrtEngine::Impl_::Impl_(
     ::_pbi::ConstantInitialized) noexcept
       : _cached_size_{0},
+        plugin_paths_{},
         input_names_{},
         output_names_{},
         engine_path_(
-            &::google::protobuf::internal::fixed_address_empty_string,
-            ::_pbi::ConstantInitialized()),
-        plugin_path_(
             &::google::protobuf::internal::fixed_address_empty_string,
             ::_pbi::ConstantInitialized()) {}
 
@@ -301,11 +299,11 @@ const ::uint32_t
         ~0u,  // no _split_
         ~0u,  // no sizeof(Split)
         PROTOBUF_FIELD_OFFSET(::sparse4d::E2ETrtEngine, _impl_.engine_path_),
-        PROTOBUF_FIELD_OFFSET(::sparse4d::E2ETrtEngine, _impl_.plugin_path_),
+        PROTOBUF_FIELD_OFFSET(::sparse4d::E2ETrtEngine, _impl_.plugin_paths_),
         PROTOBUF_FIELD_OFFSET(::sparse4d::E2ETrtEngine, _impl_.input_names_),
         PROTOBUF_FIELD_OFFSET(::sparse4d::E2ETrtEngine, _impl_.output_names_),
         0,
-        1,
+        ~0u,
         ~0u,
         ~0u,
         PROTOBUF_FIELD_OFFSET(::sparse4d::PreprocessorParams, _impl_._has_bits_),
@@ -421,32 +419,32 @@ const char descriptor_table_protodef_Sparse4D_5fconf_2eproto[] ABSL_ATTRIBUTE_SE
     "level_start_index\030\004 \003(\r\022B\n:multiview_mul"
     "tiscale_deformable_attention_aggregation"
     "_path\030\005 \001(\t\022\023\n\013num_classes\030\006 \001(\r\022\023\n\013clas"
-    "s_names\030\007 \003(\t\"c\n\014E2ETrtEngine\022\023\n\013engine_"
-    "path\030\001 \001(\t\022\023\n\013plugin_path\030\002 \001(\t\022\023\n\013input"
-    "_names\030\003 \003(\t\022\024\n\014output_names\030\004 \003(\t\"\357\001\n\022P"
-    "reprocessorParams\022\020\n\010num_cams\030\001 \001(\r\022\021\n\tr"
-    "aw_img_c\030\002 \001(\r\022\021\n\traw_img_h\030\003 \001(\r\022\021\n\traw"
-    "_img_w\030\004 \001(\r\022\031\n\021model_input_img_c\030\005 \001(\r\022"
-    "\031\n\021model_input_img_h\030\006 \001(\r\022\031\n\021model_inpu"
-    "t_img_w\030\007 \001(\r\022\024\n\014resize_ratio\030\010 \001(\002\022\023\n\013c"
-    "rop_height\030\t \001(\r\022\022\n\ncrop_width\030\n \001(\r\"\204\002\n"
-    "\022InstanceBankParams\022\022\n\nnum_querys\030\001 \001(\r\022"
-    "\022\n\nquery_dims\030\002 \001(\r\022\026\n\016kmeans_anchors\030\003 "
-    "\003(\002\022\023\n\013topk_querys\030\004 \001(\r\022\031\n\021max_time_int"
-    "erval\030\005 \001(\002\022\035\n\025default_time_interval\030\006 \001"
-    "(\002\022\030\n\020confidence_decay\030\007 \001(\002\022!\n\031instance"
-    "_bank_anchor_path\030\010 \001(\t\022\"\n\032instance_bank"
-    "_feature_path\030\t \001(\t\"\236\001\n\023PostprocessorPar"
-    "ams\022\035\n\025post_process_out_nums\030\001 \001(\r\022\036\n\026po"
-    "st_process_threshold\030\002 \001(\002\022\023\n\013use_gpu_nm"
-    "s\030\003 \001(\010\022\031\n\021gpu_nms_threshold\030\004 \001(\002\022\030\n\020ma"
-    "x_output_boxes\030\005 \001(\rb\006proto3"
+    "s_names\030\007 \003(\t\"d\n\014E2ETrtEngine\022\023\n\013engine_"
+    "path\030\001 \001(\t\022\024\n\014plugin_paths\030\002 \003(\t\022\023\n\013inpu"
+    "t_names\030\003 \003(\t\022\024\n\014output_names\030\004 \003(\t\"\357\001\n\022"
+    "PreprocessorParams\022\020\n\010num_cams\030\001 \001(\r\022\021\n\t"
+    "raw_img_c\030\002 \001(\r\022\021\n\traw_img_h\030\003 \001(\r\022\021\n\tra"
+    "w_img_w\030\004 \001(\r\022\031\n\021model_input_img_c\030\005 \001(\r"
+    "\022\031\n\021model_input_img_h\030\006 \001(\r\022\031\n\021model_inp"
+    "ut_img_w\030\007 \001(\r\022\024\n\014resize_ratio\030\010 \001(\002\022\023\n\013"
+    "crop_height\030\t \001(\r\022\022\n\ncrop_width\030\n \001(\r\"\204\002"
+    "\n\022InstanceBankParams\022\022\n\nnum_querys\030\001 \001(\r"
+    "\022\022\n\nquery_dims\030\002 \001(\r\022\026\n\016kmeans_anchors\030\003"
+    " \003(\002\022\023\n\013topk_querys\030\004 \001(\r\022\031\n\021max_time_in"
+    "terval\030\005 \001(\002\022\035\n\025default_time_interval\030\006 "
+    "\001(\002\022\030\n\020confidence_decay\030\007 \001(\002\022!\n\031instanc"
+    "e_bank_anchor_path\030\010 \001(\t\022\"\n\032instance_ban"
+    "k_feature_path\030\t \001(\t\"\236\001\n\023PostprocessorPa"
+    "rams\022\035\n\025post_process_out_nums\030\001 \001(\r\022\036\n\026p"
+    "ost_process_threshold\030\002 \001(\002\022\023\n\013use_gpu_n"
+    "ms\030\003 \001(\010\022\031\n\021gpu_nms_threshold\030\004 \001(\002\022\030\n\020m"
+    "ax_output_boxes\030\005 \001(\rb\006proto3"
 };
 static ::absl::once_flag descriptor_table_Sparse4D_5fconf_2eproto_once;
 PROTOBUF_CONSTINIT const ::_pbi::DescriptorTable descriptor_table_Sparse4D_5fconf_2eproto = {
     false,
     false,
-    1588,
+    1589,
     descriptor_table_protodef_Sparse4D_5fconf_2eproto,
     "Sparse4D_conf.proto",
     &descriptor_table_Sparse4D_5fconf_2eproto_once,
@@ -1610,10 +1608,10 @@ PROTOBUF_NDEBUG_INLINE E2ETrtEngine::Impl_::Impl_(
     const ::sparse4d::E2ETrtEngine& from_msg)
       : _has_bits_{from._has_bits_},
         _cached_size_{0},
+        plugin_paths_{visibility, arena, from.plugin_paths_},
         input_names_{visibility, arena, from.input_names_},
         output_names_{visibility, arena, from.output_names_},
-        engine_path_(arena, from.engine_path_),
-        plugin_path_(arena, from.plugin_path_) {}
+        engine_path_(arena, from.engine_path_) {}
 
 E2ETrtEngine::E2ETrtEngine(
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena,
@@ -1635,10 +1633,10 @@ PROTOBUF_NDEBUG_INLINE E2ETrtEngine::Impl_::Impl_(
     ::google::protobuf::internal::InternalVisibility visibility,
     ::google::protobuf::Arena* PROTOBUF_NULLABLE arena)
       : _cached_size_{0},
+        plugin_paths_{visibility, arena},
         input_names_{visibility, arena},
         output_names_{visibility, arena},
-        engine_path_(arena),
-        plugin_path_(arena) {}
+        engine_path_(arena) {}
 
 inline void E2ETrtEngine::SharedCtor(::_pb::Arena* PROTOBUF_NULLABLE arena) {
   new (&_impl_) Impl_(internal_visibility(), arena);
@@ -1652,7 +1650,6 @@ inline void E2ETrtEngine::SharedDtor(MessageLite& self) {
   this_._internal_metadata_.Delete<::google::protobuf::UnknownFieldSet>();
   ABSL_DCHECK(this_.GetArena() == nullptr);
   this_._impl_.engine_path_.Destroy();
-  this_._impl_.plugin_path_.Destroy();
   this_._impl_.~Impl_();
 }
 
@@ -1663,6 +1660,10 @@ inline void* PROTOBUF_NONNULL E2ETrtEngine::PlacementNew_(
 }
 constexpr auto E2ETrtEngine::InternalNewImpl_() {
   constexpr auto arena_bits = ::google::protobuf::internal::EncodePlacementArenaOffsets({
+      PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.plugin_paths_) +
+          decltype(E2ETrtEngine::_impl_.plugin_paths_)::
+              InternalGetArenaOffset(
+                  ::google::protobuf::Message::internal_visibility()),
       PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.input_names_) +
           decltype(E2ETrtEngine::_impl_.input_names_)::
               InternalGetArenaOffset(
@@ -1715,7 +1716,7 @@ const ::google::protobuf::internal::ClassData* PROTOBUF_NONNULL E2ETrtEngine::Ge
   return E2ETrtEngine_class_data_.base();
 }
 PROTOBUF_CONSTINIT PROTOBUF_ATTRIBUTE_INIT_PRIORITY1
-const ::_pbi::TcParseTable<2, 4, 0, 75, 2>
+const ::_pbi::TcParseTable<2, 4, 0, 76, 2>
 E2ETrtEngine::_table_ = {
   {
     PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_._has_bits_),
@@ -1740,9 +1741,9 @@ E2ETrtEngine::_table_ = {
     // string engine_path = 1;
     {::_pbi::TcParser::FastUS1,
      {10, 0, 0, PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.engine_path_)}},
-    // string plugin_path = 2;
-    {::_pbi::TcParser::FastUS1,
-     {18, 1, 0, PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.plugin_path_)}},
+    // repeated string plugin_paths = 2;
+    {::_pbi::TcParser::FastUR1,
+     {18, 63, 0, PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.plugin_paths_)}},
     // repeated string input_names = 3;
     {::_pbi::TcParser::FastUR1,
      {26, 63, 0, PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.input_names_)}},
@@ -1752,9 +1753,9 @@ E2ETrtEngine::_table_ = {
     // string engine_path = 1;
     {PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.engine_path_), _Internal::kHasBitsOffset + 0, 0,
     (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
-    // string plugin_path = 2;
-    {PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.plugin_path_), _Internal::kHasBitsOffset + 1, 0,
-    (0 | ::_fl::kFcOptional | ::_fl::kUtf8String | ::_fl::kRepAString)},
+    // repeated string plugin_paths = 2;
+    {PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.plugin_paths_), -1, 0,
+    (0 | ::_fl::kFcRepeated | ::_fl::kUtf8String | ::_fl::kRepSString)},
     // repeated string input_names = 3;
     {PROTOBUF_FIELD_OFFSET(E2ETrtEngine, _impl_.input_names_), -1, 0,
     (0 | ::_fl::kFcRepeated | ::_fl::kUtf8String | ::_fl::kRepSString)},
@@ -1764,10 +1765,10 @@ E2ETrtEngine::_table_ = {
   }},
   // no aux_entries
   {{
-    "\25\13\13\13\14\0\0\0"
+    "\25\13\14\13\14\0\0\0"
     "sparse4d.E2ETrtEngine"
     "engine_path"
-    "plugin_path"
+    "plugin_paths"
     "input_names"
     "output_names"
   }},
@@ -1779,16 +1780,12 @@ PROTOBUF_NOINLINE void E2ETrtEngine::Clear() {
   // Prevent compiler warnings about cached_has_bits being unused
   (void) cached_has_bits;
 
+  _impl_.plugin_paths_.Clear();
   _impl_.input_names_.Clear();
   _impl_.output_names_.Clear();
   cached_has_bits = _impl_._has_bits_[0];
-  if ((cached_has_bits & 0x00000003u) != 0) {
-    if ((cached_has_bits & 0x00000001u) != 0) {
-      _impl_.engine_path_.ClearNonDefaultToEmpty();
-    }
-    if ((cached_has_bits & 0x00000002u) != 0) {
-      _impl_.plugin_path_.ClearNonDefaultToEmpty();
-    }
+  if ((cached_has_bits & 0x00000001u) != 0) {
+    _impl_.engine_path_.ClearNonDefaultToEmpty();
   }
   _impl_._has_bits_.Clear();
   _internal_metadata_.Clear<::google::protobuf::UnknownFieldSet>();
@@ -1819,14 +1816,12 @@ PROTOBUF_NOINLINE void E2ETrtEngine::Clear() {
     }
   }
 
-  // string plugin_path = 2;
-  if ((this_._impl_._has_bits_[0] & 0x00000002u) != 0) {
-    if (!this_._internal_plugin_path().empty()) {
-      const std::string& _s = this_._internal_plugin_path();
-      ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
-          _s.data(), static_cast<int>(_s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "sparse4d.E2ETrtEngine.plugin_path");
-      target = stream->WriteStringMaybeAliased(2, _s, target);
-    }
+  // repeated string plugin_paths = 2;
+  for (int i = 0, n = this_._internal_plugin_paths_size(); i < n; ++i) {
+    const auto& s = this_._internal_plugin_paths().Get(i);
+    ::google::protobuf::internal::WireFormatLite::VerifyUtf8String(
+        s.data(), static_cast<int>(s.length()), ::google::protobuf::internal::WireFormatLite::SERIALIZE, "sparse4d.E2ETrtEngine.plugin_paths");
+    target = stream->WriteString(2, s, target);
   }
 
   // repeated string input_names = 3;
@@ -1870,6 +1865,15 @@ PROTOBUF_NOINLINE void E2ETrtEngine::Clear() {
 
   ::_pbi::Prefetch5LinesFrom7Lines(&this_);
    {
+    // repeated string plugin_paths = 2;
+    {
+      total_size +=
+          1 * ::google::protobuf::internal::FromIntSize(this_._internal_plugin_paths().size());
+      for (int i = 0, n = this_._internal_plugin_paths().size(); i < n; ++i) {
+        total_size += ::google::protobuf::internal::WireFormatLite::StringSize(
+            this_._internal_plugin_paths().Get(i));
+      }
+    }
     // repeated string input_names = 3;
     {
       total_size +=
@@ -1889,20 +1893,13 @@ PROTOBUF_NOINLINE void E2ETrtEngine::Clear() {
       }
     }
   }
-  cached_has_bits = this_._impl_._has_bits_[0];
-  if ((cached_has_bits & 0x00000003u) != 0) {
+   {
     // string engine_path = 1;
+    cached_has_bits = this_._impl_._has_bits_[0];
     if ((cached_has_bits & 0x00000001u) != 0) {
       if (!this_._internal_engine_path().empty()) {
         total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
                                         this_._internal_engine_path());
-      }
-    }
-    // string plugin_path = 2;
-    if ((cached_has_bits & 0x00000002u) != 0) {
-      if (!this_._internal_plugin_path().empty()) {
-        total_size += 1 + ::google::protobuf::internal::WireFormatLite::StringSize(
-                                        this_._internal_plugin_path());
       }
     }
   }
@@ -1918,26 +1915,16 @@ void E2ETrtEngine::MergeImpl(::google::protobuf::MessageLite& to_msg, const ::go
   ::uint32_t cached_has_bits = 0;
   (void) cached_has_bits;
 
+  _this->_internal_mutable_plugin_paths()->MergeFrom(from._internal_plugin_paths());
   _this->_internal_mutable_input_names()->MergeFrom(from._internal_input_names());
   _this->_internal_mutable_output_names()->MergeFrom(from._internal_output_names());
   cached_has_bits = from._impl_._has_bits_[0];
-  if ((cached_has_bits & 0x00000003u) != 0) {
-    if ((cached_has_bits & 0x00000001u) != 0) {
-      if (!from._internal_engine_path().empty()) {
-        _this->_internal_set_engine_path(from._internal_engine_path());
-      } else {
-        if (_this->_impl_.engine_path_.IsDefault()) {
-          _this->_internal_set_engine_path("");
-        }
-      }
-    }
-    if ((cached_has_bits & 0x00000002u) != 0) {
-      if (!from._internal_plugin_path().empty()) {
-        _this->_internal_set_plugin_path(from._internal_plugin_path());
-      } else {
-        if (_this->_impl_.plugin_path_.IsDefault()) {
-          _this->_internal_set_plugin_path("");
-        }
+  if ((cached_has_bits & 0x00000001u) != 0) {
+    if (!from._internal_engine_path().empty()) {
+      _this->_internal_set_engine_path(from._internal_engine_path());
+    } else {
+      if (_this->_impl_.engine_path_.IsDefault()) {
+        _this->_internal_set_engine_path("");
       }
     }
   }
@@ -1959,10 +1946,10 @@ void E2ETrtEngine::InternalSwap(E2ETrtEngine* PROTOBUF_RESTRICT PROTOBUF_NONNULL
   ABSL_DCHECK_EQ(arena, other->GetArena());
   _internal_metadata_.InternalSwap(&other->_internal_metadata_);
   swap(_impl_._has_bits_[0], other->_impl_._has_bits_[0]);
+  _impl_.plugin_paths_.InternalSwap(&other->_impl_.plugin_paths_);
   _impl_.input_names_.InternalSwap(&other->_impl_.input_names_);
   _impl_.output_names_.InternalSwap(&other->_impl_.output_names_);
   ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.engine_path_, &other->_impl_.engine_path_, arena);
-  ::_pbi::ArenaStringPtr::InternalSwap(&_impl_.plugin_path_, &other->_impl_.plugin_path_, arena);
 }
 
 ::google::protobuf::Metadata E2ETrtEngine::GetMetadata() const {

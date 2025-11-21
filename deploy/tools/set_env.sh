@@ -72,8 +72,9 @@ fi
 if [ -f "dfa_plugin/tools/cudasm.sh" ]; then
     . "dfa_plugin/tools/cudasm.sh"
 else
-    echo "[ERROR] Failed to Find \"dfa_plugin/tools/cudasm.sh\" File!"
-    return
+    echo "[WARNING] Failed to Find \"dfa_plugin/tools/cudasm.sh\" File!"
+    echo "[WARNING] Using default CUDASM=86"
+    cudasm=86
 fi
 
 # Part1
@@ -85,6 +86,7 @@ export LD_LIBRARY_PATH=$ENV_TensorRT_LIB:$ENV_CUDA_LIB:$ENV_cuDNN_LIB:$LD_LIBRAR
 export ENVTRTDIR=engine
 export ENVTARGETPLUGIN=dfa_plugin/lib/deformableAttentionAggr.so
 export ENV_LAYER_NORM_PLUGIN=ln_plugin/lib/customLayerNorm.so
+export ENV_SPARSEBOX_PLUGIN=sparsebox_plugin/lib/SparseBox3DKeyPointsPlugin.so
 
 export ENV_BACKBONE_ONNX=onnx/sparse4dbackbone.onnx
 export ENV_BACKBONE_ENGINE=${ENVTRTDIR}/sparse4dbackbone.engine
@@ -108,6 +110,7 @@ echo "||  CUDASM\t: sm_$cudasm"
 echo "||  ENVTRTDIR\t: $ENVTRTDIR"
 echo "||  ENVTARGETPLUGIN\t: $ENVTARGETPLUGIN"
 echo "||  ENV_LAYER_NORM_PLUGIN\t: $ENV_LAYER_NORM_PLUGIN"
+echo "||  ENV_SPARSEBOX_PLUGIN\t: $ENV_SPARSEBOX_PLUGIN"
 echo "||  ENV_BACKBONE_ONNX\t: $ENV_BACKBONE_ONNX"
 echo "||  ENV_BACKBONE_ENGINE\t: $ENV_BACKBONE_ENGINE"
 echo "||  ENV_HEAD1_ONNX\t: $ENV_HEAD1_ONNX"

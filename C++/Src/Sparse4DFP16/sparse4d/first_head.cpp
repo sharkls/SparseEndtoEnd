@@ -25,10 +25,16 @@ Status FirstHeadImplement::init(const TaskConfig &param)
     LOG(INFO) << "[INFO] Sparse4D::FirstHeadImplement::init start";
 
     m_taskConfig = param;
+    // 从配置中读取插件路径列表
+    std::vector<std::string> plugin_paths;
+    for (int i = 0; i < m_taskConfig.head1st_engine().plugin_paths_size(); ++i) {
+        plugin_paths.push_back(m_taskConfig.head1st_engine().plugin_paths(i));
+    }
+    
     // 第一帧头部引擎
     m_first_head_engine = std::make_shared<TensorRT>(
         m_taskConfig.head1st_engine().engine_path(),
-        m_taskConfig.head1st_engine().plugin_path(),
+        plugin_paths,
         std::vector<std::string>(m_taskConfig.head1st_engine().input_names().begin(), 
                                 m_taskConfig.head1st_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.head1st_engine().output_names().begin(), 

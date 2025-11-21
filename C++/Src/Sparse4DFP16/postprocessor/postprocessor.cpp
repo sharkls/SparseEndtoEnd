@@ -103,8 +103,13 @@ Status PostprocessorImplement::process_gpu_direct(const common::HeadOutput& head
         if (!head_output.pred_anchor.isValid() || !head_output.pred_class_score.isValid() || 
             !head_output.pred_quality_score.isValid()) {
             LOG(WARNING) << "[WARNING] Empty input data";
-            // produce empty frame result
-            output_result.vecFrameResult(std::vector<CFrameResult>{});
+            // 创建一个空的 CFrameResult，而不是完全空的 vecFrameResult
+            CFrameResult empty_frame;
+            std::vector<CObjectResult> empty_detections;
+            empty_frame.vecObjectResult(empty_detections);
+            std::vector<CFrameResult> frames;
+            frames.push_back(empty_frame);
+            output_result.vecFrameResult(frames);
             return Status::kSuccess;
         }
 
@@ -115,7 +120,13 @@ Status PostprocessorImplement::process_gpu_direct(const common::HeadOutput& head
         
         if (num_objects <= 0) {
             LOG(WARNING) << "[WARNING] No valid objects found";
-            output_result.vecFrameResult(std::vector<CFrameResult>{});
+            // 创建一个空的 CFrameResult，而不是完全空的 vecFrameResult
+            CFrameResult empty_frame;
+            std::vector<CObjectResult> empty_detections;
+            empty_frame.vecObjectResult(empty_detections);
+            std::vector<CFrameResult> frames;
+            frames.push_back(empty_frame);
+            output_result.vecFrameResult(frames);
             return Status::kSuccess;
         }
         
@@ -172,7 +183,13 @@ Status PostprocessorImplement::process_gpu_direct(const common::HeadOutput& head
             // 转换为CAlgResult格式
             convert_to_alg_result(host_boxes, output_result);
         } else {
-            output_result.vecFrameResult(std::vector<CFrameResult>{});
+            // 创建一个空的 CFrameResult，而不是完全空的 vecFrameResult
+            CFrameResult empty_frame;
+            std::vector<CObjectResult> empty_detections;
+            empty_frame.vecObjectResult(empty_detections);
+            std::vector<CFrameResult> frames;
+            frames.push_back(empty_frame);
+            output_result.vecFrameResult(frames);
         }
         
         // 清理GPU内存
@@ -204,7 +221,13 @@ Status PostprocessorImplement::process_cpu_direct(const common::HeadOutput& head
 
         if (boxes.empty()) {
             LOG(WARNING) << "[WARNING] No valid bounding boxes found";
-            output_result.vecFrameResult(std::vector<CFrameResult>{});
+            // 创建一个空的 CFrameResult，而不是完全空的 vecFrameResult
+            CFrameResult empty_frame;
+            std::vector<CObjectResult> empty_detections;
+            empty_frame.vecObjectResult(empty_detections);
+            std::vector<CFrameResult> frames;
+            frames.push_back(empty_frame);
+            output_result.vecFrameResult(frames);
             return Status::kSuccess;
         }
 
