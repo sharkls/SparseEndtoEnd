@@ -26,9 +26,18 @@ endif
 INCLUDES        := -I$(ENV_CUDA_INC) -I$(ENV_TensorRT_INC)
 LIBRARIES       := -L$(ENV_CUDA_LIB) -L$(ENV_TensorRT_LIB) -lcudart -lnvinfer
 
-CUDAFLAGS       := --shared -Xcompiler -fPIC -O3 \
+# 支持 DEBUG_NAN 编译选项
+DEBUG_NAN       ?= 0
+CUDAFLAGS_BASE  := --shared -Xcompiler -fPIC -O3 \
                    -gencode=arch=compute_$(CUDASM),code=compute_$(CUDASM) \
                    -gencode=arch=compute_$(CUDASM),code=sm_$(CUDASM)
+
+# 如果启用 DEBUG_NAN，添加编译选项
+ifeq ($(DEBUG_NAN),1)
+    CUDAFLAGS := $(CUDAFLAGS_BASE) -DDEBUG_NAN
+else
+    CUDAFLAGS := $(CUDAFLAGS_BASE)
+endif
 
 OBJS            := $(patsubst %.cpp,$(BUILD_DIR)/%.o,$(SRC_CPP)) \
                    $(patsubst %.cu,$(BUILD_DIR)/%.o,$(SRC_CU))

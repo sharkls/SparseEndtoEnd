@@ -275,22 +275,56 @@ __global__ void sparseBox3DKeyPointsKernel(
     float sizeY = expf(log_size_y);
     float sizeZ = expf(log_size_z);
     
+    // 关键修复：使用位操作检查exp结果，确保100%可靠
+    const unsigned int sizeX_bits = __float_as_uint(sizeX);
+    const unsigned int sizeY_bits = __float_as_uint(sizeY);
+    const unsigned int sizeZ_bits = __float_as_uint(sizeZ);
+    const unsigned int exp_mask_size = 0x7F800000;
+    
     // 检查 exp 结果是否有效，并 clamp 到合理范围
     // FP16 最大值是 65504，但为了安全，我们使用更保守的值
     const float max_size_safe = 50000.0f;  // 保守的最大值，确保不会溢出
     const float min_size_safe = 1e-6f;     // 防止下溢的最小值
     
-    if (!isFinite(sizeX) || sizeX > max_size_safe || sizeX < min_size_safe) {
+    if ((sizeX_bits & exp_mask_size) == exp_mask_size || sizeX > max_size_safe || sizeX < min_size_safe) {
+        #ifdef DEBUG_NAN
+        if ((sizeX_bits & exp_mask_size) == exp_mask_size) {
+            printf("[DEBUG_NAN] anchorIdx=%d: sizeX is NaN/Inf after expf (bits=0x%08x, log_size_x=%.6f, sizeX=%.6f)\n",
+                   anchorIdx, sizeX_bits, log_size_x, sizeX);
+        }
+        #endif
         sizeX = fmaxf(fminf(sizeX, max_size_safe), min_size_safe);
-        if (!isFinite(sizeX)) sizeX = 1.0f;
+        // 再次检查clamp后的值
+        const unsigned int sizeX_bits_after = __float_as_uint(sizeX);
+        if ((sizeX_bits_after & exp_mask_size) == exp_mask_size) {
+            sizeX = 1.0f;
+        }
     }
-    if (!isFinite(sizeY) || sizeY > max_size_safe || sizeY < min_size_safe) {
+    if ((sizeY_bits & exp_mask_size) == exp_mask_size || sizeY > max_size_safe || sizeY < min_size_safe) {
+        #ifdef DEBUG_NAN
+        if ((sizeY_bits & exp_mask_size) == exp_mask_size) {
+            printf("[DEBUG_NAN] anchorIdx=%d: sizeY is NaN/Inf after expf (bits=0x%08x, log_size_y=%.6f, sizeY=%.6f)\n",
+                   anchorIdx, sizeY_bits, log_size_y, sizeY);
+        }
+        #endif
         sizeY = fmaxf(fminf(sizeY, max_size_safe), min_size_safe);
-        if (!isFinite(sizeY)) sizeY = 1.0f;
+        const unsigned int sizeY_bits_after = __float_as_uint(sizeY);
+        if ((sizeY_bits_after & exp_mask_size) == exp_mask_size) {
+            sizeY = 1.0f;
+        }
     }
-    if (!isFinite(sizeZ) || sizeZ > max_size_safe || sizeZ < min_size_safe) {
+    if ((sizeZ_bits & exp_mask_size) == exp_mask_size || sizeZ > max_size_safe || sizeZ < min_size_safe) {
+        #ifdef DEBUG_NAN
+        if ((sizeZ_bits & exp_mask_size) == exp_mask_size) {
+            printf("[DEBUG_NAN] anchorIdx=%d: sizeZ is NaN/Inf after expf (bits=0x%08x, log_size_z=%.6f, sizeZ=%.6f)\n",
+                   anchorIdx, sizeZ_bits, log_size_z, sizeZ);
+        }
+        #endif
         sizeZ = fmaxf(fminf(sizeZ, max_size_safe), min_size_safe);
-        if (!isFinite(sizeZ)) sizeZ = 1.0f;
+        const unsigned int sizeZ_bits_after = __float_as_uint(sizeZ);
+        if ((sizeZ_bits_after & exp_mask_size) == exp_mask_size) {
+            sizeZ = 1.0f;
+        }
     }
     
         // sin/cos yaw 应该已经在 [-1, 1] 范围内，只检查有效性
@@ -459,6 +493,29 @@ __global__ void sparseBox3DKeyPointsKernel(
                 float new_accum2 = fmaf(val_clamped, w2_clamped, accum[2]);
                 
                 // 关键修复：使用位操作立即检查fmaf结果，防止NaN/Inf传播
+                #ifdef DEBUG_NAN
+                if (isNaN_strict(new_accum0) || isInf_strict(new_accum0) || !isfinite(new_accum0)) {
+                    printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, k=%d: fmaf[0] produced NaN/Inf (val=%.6f, w=%.6f, accum=%.6f, result=%.6f)\n",
+                           anchorIdx, i, k, val_clamped, w0_clamped, accum[0], new_accum0);
+                    accum[0] = 0.0f;  // 如果产生NaN/Inf，重置为0
+                } else {
+                    accum[0] = new_accum0;
+                }
+                if (isNaN_strict(new_accum1) || isInf_strict(new_accum1) || !isfinite(new_accum1)) {
+                    printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, k=%d: fmaf[1] produced NaN/Inf (val=%.6f, w=%.6f, accum=%.6f, result=%.6f)\n",
+                           anchorIdx, i, k, val_clamped, w1_clamped, accum[1], new_accum1);
+                    accum[1] = 0.0f;
+                } else {
+                    accum[1] = new_accum1;
+                }
+                if (isNaN_strict(new_accum2) || isInf_strict(new_accum2) || !isfinite(new_accum2)) {
+                    printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, k=%d: fmaf[2] produced NaN/Inf (val=%.6f, w=%.6f, accum=%.6f, result=%.6f)\n",
+                           anchorIdx, i, k, val_clamped, w2_clamped, accum[2], new_accum2);
+                    accum[2] = 0.0f;
+                } else {
+                    accum[2] = new_accum2;
+                }
+                #else
                 if (isNaN_strict(new_accum0) || isInf_strict(new_accum0) || !isfinite(new_accum0)) {
                     accum[0] = 0.0f;  // 如果产生NaN/Inf，重置为0
                 } else {
@@ -474,6 +531,7 @@ __global__ void sparseBox3DKeyPointsKernel(
                 } else {
                     accum[2] = new_accum2;
                 }
+                #endif
                 
                 // 关键优化：clamp到安全范围，防止后续sigmoid计算溢出
                 accum[0] = fmaxf(fminf(accum[0], max_accum_safe), min_accum_safe);
@@ -611,6 +669,23 @@ __global__ void sparseBox3DKeyPointsKernel(
 
             // 计算 sigmoid_centered 输出（范围 [-0.5, 0.5]）
             // 关键优化：检查accum值，确保不是NaN/Inf
+            #ifdef DEBUG_NAN
+            if (isNaN_strict(accum[0]) || isInf_strict(accum[0])) {
+                printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: accum[0] is NaN/Inf before sigmoid (value=%.6f)\n",
+                       anchorIdx, i, accum[0]);
+                accum[0] = 0.0f;
+            }
+            if (isNaN_strict(accum[1]) || isInf_strict(accum[1])) {
+                printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: accum[1] is NaN/Inf before sigmoid (value=%.6f)\n",
+                       anchorIdx, i, accum[1]);
+                accum[1] = 0.0f;
+            }
+            if (isNaN_strict(accum[2]) || isInf_strict(accum[2])) {
+                printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: accum[2] is NaN/Inf before sigmoid (value=%.6f)\n",
+                       anchorIdx, i, accum[2]);
+                accum[2] = 0.0f;
+            }
+            #else
             if (isNaN_strict(accum[0]) || isInf_strict(accum[0])) {
                 accum[0] = 0.0f;
             }
@@ -620,12 +695,30 @@ __global__ void sparseBox3DKeyPointsKernel(
             if (isNaN_strict(accum[2]) || isInf_strict(accum[2])) {
                 accum[2] = 0.0f;
             }
+            #endif
             
             float sig_x = sigmoid_centered(accum[0]);
             float sig_y = sigmoid_centered(accum[1]);
             float sig_z = sigmoid_centered(accum[2]);
             
             // 关键优化：检查sigmoid输出，确保不是NaN/Inf
+            #ifdef DEBUG_NAN
+            if (isNaN_strict(sig_x) || isInf_strict(sig_x)) {
+                printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: sig_x is NaN/Inf after sigmoid (accum[0]=%.6f, sig_x=%.6f)\n",
+                       anchorIdx, i, accum[0], sig_x);
+                sig_x = 0.0f;
+            }
+            if (isNaN_strict(sig_y) || isInf_strict(sig_y)) {
+                printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: sig_y is NaN/Inf after sigmoid (accum[1]=%.6f, sig_y=%.6f)\n",
+                       anchorIdx, i, accum[1], sig_y);
+                sig_y = 0.0f;
+            }
+            if (isNaN_strict(sig_z) || isInf_strict(sig_z)) {
+                printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: sig_z is NaN/Inf after sigmoid (accum[2]=%.6f, sig_z=%.6f)\n",
+                       anchorIdx, i, accum[2], sig_z);
+                sig_z = 0.0f;
+            }
+            #else
             if (isNaN_strict(sig_x) || isInf_strict(sig_x)) {
                 sig_x = 0.0f;
             }
@@ -635,6 +728,7 @@ __global__ void sparseBox3DKeyPointsKernel(
             if (isNaN_strict(sig_z) || isInf_strict(sig_z)) {
                 sig_z = 0.0f;
             }
+            #endif
 
             // 计算 local 坐标（使用 FP32 精度）
             // sigmoid_centered 输出范围是 [-0.5, 0.5]，乘以 size 后应该在合理范围内
@@ -673,16 +767,42 @@ __global__ void sparseBox3DKeyPointsKernel(
         // 关键优化：在旋转计算后立即检查NaN/Inf，确保绝对安全
         // 工程部署要求：每一步计算后都要确保值安全
         // 关键修复：在旋转计算前，确保所有输入值安全
-        if (isNaN_strict(localX) || isInf_strict(localX) || !isfinite(localX)) {
+        // 使用位操作进行最严格的检查，确保100%可靠
+        const unsigned int localX_bits = __float_as_uint(localX);
+        const unsigned int localY_bits = __float_as_uint(localY);
+        const unsigned int sinYaw_bits = __float_as_uint(sinYaw);
+        const unsigned int cosYaw_bits = __float_as_uint(cosYaw);
+        const unsigned int exp_mask = 0x7F800000;
+        
+        // 检查localX/Y是否为NaN/Inf
+        if ((localX_bits & exp_mask) == exp_mask) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: localX is NaN/Inf before rotation (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, localX_bits, localX);
+            #endif
             localX = 0.0f;
         }
-        if (isNaN_strict(localY) || isInf_strict(localY) || !isfinite(localY)) {
+        if ((localY_bits & exp_mask) == exp_mask) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: localY is NaN/Inf before rotation (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, localY_bits, localY);
+            #endif
             localY = 0.0f;
         }
-        if (isNaN_strict(sinYaw) || isInf_strict(sinYaw) || !isfinite(sinYaw)) {
+        
+        // 检查sinYaw/cosYaw是否为NaN/Inf
+        if ((sinYaw_bits & exp_mask) == exp_mask) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: sinYaw is NaN/Inf before rotation (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, sinYaw_bits, sinYaw);
+            #endif
             sinYaw = 0.0f;
         }
-        if (isNaN_strict(cosYaw) || isInf_strict(cosYaw) || !isfinite(cosYaw)) {
+        if ((cosYaw_bits & exp_mask) == exp_mask) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: cosYaw is NaN/Inf before rotation (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, cosYaw_bits, cosYaw);
+            #endif
             cosYaw = 1.0f;
         }
         
@@ -691,10 +811,20 @@ __global__ void sparseBox3DKeyPointsKernel(
         float rotY = sinYaw * localX + cosYaw * localY;
         
         // 关键修复：使用位操作检查旋转结果，防止NaN/Inf传播
-        if (isNaN_strict(rotX) || isInf_strict(rotX) || !isfinite(rotX)) {
+        const unsigned int rotX_bits = __float_as_uint(rotX);
+        const unsigned int rotY_bits = __float_as_uint(rotY);
+        if ((rotX_bits & exp_mask) == exp_mask) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: rotX is NaN/Inf after rotation (bits=0x%08x, localX=%.6f, localY=%.6f, sinYaw=%.6f, cosYaw=%.6f)\n",
+                   anchorIdx, i, rotX_bits, localX, localY, sinYaw, cosYaw);
+            #endif
             rotX = 0.0f;
         }
-        if (isNaN_strict(rotY) || isInf_strict(rotY) || !isfinite(rotY)) {
+        if ((rotY_bits & exp_mask) == exp_mask) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: rotY is NaN/Inf after rotation (bits=0x%08x, localX=%.6f, localY=%.6f, sinYaw=%.6f, cosYaw=%.6f)\n",
+                   anchorIdx, i, rotY_bits, localX, localY, sinYaw, cosYaw);
+            #endif
             rotY = 0.0f;
         }
         
@@ -702,23 +832,56 @@ __global__ void sparseBox3DKeyPointsKernel(
         // 关键优化：在加法后立即检查NaN/Inf，确保绝对安全
         // 工程部署要求：每一步计算后都要确保值安全
         // 加法运算可能产生Inf或NaN：Inf + 有限值 = Inf，Inf + Inf = NaN
-        // 关键修复：在加法前，确保所有输入值安全
-        if (isNaN_strict(rotX) || isInf_strict(rotX) || !isfinite(rotX)) {
+        // 关键修复：在加法前，使用位操作确保所有输入值安全
+        const unsigned int rotX_bits_check = __float_as_uint(rotX);
+        const unsigned int rotY_bits_check = __float_as_uint(rotY);
+        const unsigned int localZ_bits = __float_as_uint(localZ);
+        const unsigned int centerX_bits = __float_as_uint(centerX);
+        const unsigned int centerY_bits = __float_as_uint(centerY);
+        const unsigned int centerZ_bits = __float_as_uint(centerZ);
+        const unsigned int exp_mask_add = 0x7F800000;
+        
+        // 检查所有输入值是否为NaN/Inf
+        if ((rotX_bits_check & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: rotX is NaN/Inf before addition (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, rotX_bits_check, rotX);
+            #endif
             rotX = 0.0f;
         }
-        if (isNaN_strict(rotY) || isInf_strict(rotY) || !isfinite(rotY)) {
+        if ((rotY_bits_check & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: rotY is NaN/Inf before addition (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, rotY_bits_check, rotY);
+            #endif
             rotY = 0.0f;
         }
-        if (isNaN_strict(localZ) || isInf_strict(localZ) || !isfinite(localZ)) {
+        if ((localZ_bits & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: localZ is NaN/Inf before addition (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, localZ_bits, localZ);
+            #endif
             localZ = 0.0f;
         }
-        if (isNaN_strict(centerX) || isInf_strict(centerX) || !isfinite(centerX)) {
+        if ((centerX_bits & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: centerX is NaN/Inf before addition (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, centerX_bits, centerX);
+            #endif
             centerX = 0.0f;
         }
-        if (isNaN_strict(centerY) || isInf_strict(centerY) || !isfinite(centerY)) {
+        if ((centerY_bits & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: centerY is NaN/Inf before addition (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, centerY_bits, centerY);
+            #endif
             centerY = 0.0f;
         }
-        if (isNaN_strict(centerZ) || isInf_strict(centerZ) || !isfinite(centerZ)) {
+        if ((centerZ_bits & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: centerZ is NaN/Inf before addition (bits=0x%08x, value=%.6f)\n",
+                   anchorIdx, i, centerZ_bits, centerZ);
+            #endif
             centerZ = 0.0f;
         }
         
@@ -728,15 +891,42 @@ __global__ void sparseBox3DKeyPointsKernel(
         float finalZ = localZ + centerZ;
         
         // 关键修复：使用位操作检查加法结果，防止NaN/Inf传播
-        if (isNaN_strict(finalX) || isInf_strict(finalX) || !isfinite(finalX)) {
+        const unsigned int finalX_bits = __float_as_uint(finalX);
+        const unsigned int finalY_bits = __float_as_uint(finalY);
+        const unsigned int finalZ_bits = __float_as_uint(finalZ);
+        if ((finalX_bits & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: finalX is NaN/Inf after addition (bits=0x%08x, rotX=%.6f, centerX=%.6f)\n",
+                   anchorIdx, i, finalX_bits, rotX, centerX);
+            #endif
             // 如果加法结果异常，使用安全的中心点值
-            finalX = (isNaN_strict(centerX) || isInf_strict(centerX) || !isfinite(centerX)) ? 0.0f : centerX;
+            if ((centerX_bits & exp_mask_add) == exp_mask_add) {
+                finalX = 0.0f;
+            } else {
+                finalX = centerX;
+            }
         }
-        if (isNaN_strict(finalY) || isInf_strict(finalY) || !isfinite(finalY)) {
-            finalY = (isNaN_strict(centerY) || isInf_strict(centerY) || !isfinite(centerY)) ? 0.0f : centerY;
+        if ((finalY_bits & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: finalY is NaN/Inf after addition (bits=0x%08x, rotY=%.6f, centerY=%.6f)\n",
+                   anchorIdx, i, finalY_bits, rotY, centerY);
+            #endif
+            if ((centerY_bits & exp_mask_add) == exp_mask_add) {
+                finalY = 0.0f;
+            } else {
+                finalY = centerY;
+            }
         }
-        if (isNaN_strict(finalZ) || isInf_strict(finalZ) || !isfinite(finalZ)) {
-            finalZ = (isNaN_strict(centerZ) || isInf_strict(centerZ) || !isfinite(centerZ)) ? 0.0f : centerZ;
+        if ((finalZ_bits & exp_mask_add) == exp_mask_add) {
+            #ifdef DEBUG_NAN
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: finalZ is NaN/Inf after addition (bits=0x%08x, localZ=%.6f, centerZ=%.6f)\n",
+                   anchorIdx, i, finalZ_bits, localZ, centerZ);
+            #endif
+            if ((centerZ_bits & exp_mask_add) == exp_mask_add) {
+                finalZ = 0.0f;
+            } else {
+                finalZ = centerZ;
+            }
         }
         
         // 最终 NaN 检查 - 工程部署中绝对不能有任何NaN输出
@@ -895,18 +1085,30 @@ __global__ void sparseBox3DKeyPointsKernel(
         // 关键调试：如果检测到NaN/Inf，记录详细信息（仅在调试模式下）
         #ifdef DEBUG_NAN
         if ((bitsX & exp_mask) == exp_mask) {
-            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: safeX is NaN/Inf (bits=0x%08x, centerX=%.6f, rotX=%.6f, finalX=%.6f)\n",
-                   anchorIdx, i, bitsX, centerX, rotX, finalX);
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, X: NaN/Inf detected (bits=0x%08x)\n", anchorIdx, i, bitsX);
+            printf("  centerX=%.6f, sizeX=%.6f, localX=%.6f, rotX=%.6f, finalX=%.6f, safeX=%.6f\n",
+                   centerX, sizeX, localX, rotX, finalX, safeX);
+            if (i >= fixedPts && instPtr != nullptr) {
+                printf("  learnable point: accum[0]=%.6f, sig_x=%.6f\n", accum[0], sig_x);
+            }
             safeX = 0.0f;
         }
         if ((bitsY & exp_mask) == exp_mask) {
-            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: safeY is NaN/Inf (bits=0x%08x, centerY=%.6f, rotY=%.6f, finalY=%.6f)\n",
-                   anchorIdx, i, bitsY, centerY, rotY, finalY);
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, Y: NaN/Inf detected (bits=0x%08x)\n", anchorIdx, i, bitsY);
+            printf("  centerY=%.6f, sizeY=%.6f, localY=%.6f, rotY=%.6f, finalY=%.6f, safeY=%.6f\n",
+                   centerY, sizeY, localY, rotY, finalY, safeY);
+            if (i >= fixedPts && instPtr != nullptr) {
+                printf("  learnable point: accum[1]=%.6f, sig_y=%.6f\n", accum[1], sig_y);
+            }
             safeY = 0.0f;
         }
         if ((bitsZ & exp_mask) == exp_mask) {
-            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: safeZ is NaN/Inf (bits=0x%08x, centerZ=%.6f, localZ=%.6f, finalZ=%.6f)\n",
-                   anchorIdx, i, bitsZ, centerZ, localZ, finalZ);
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, Z: NaN/Inf detected (bits=0x%08x)\n", anchorIdx, i, bitsZ);
+            printf("  centerZ=%.6f, sizeZ=%.6f, localZ=%.6f, finalZ=%.6f, safeZ=%.6f\n",
+                   centerZ, sizeZ, localZ, finalZ, safeZ);
+            if (i >= fixedPts && instPtr != nullptr) {
+                printf("  learnable point: accum[2]=%.6f, sig_z=%.6f\n", accum[2], sig_z);
+            }
             safeZ = 0.0f;
         }
         #else
