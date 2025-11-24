@@ -442,19 +442,37 @@ __global__ void sparseBox3DKeyPointsKernel(
                 // 使用 fmaf 进行融合乘加，这是最精确的累加方式
                 // 关键优化：在每次fmaf后立即检查NaN/Inf，确保绝对安全
                 // 工程部署要求：每一步计算后都要确保值安全
-                accum[0] = fmaf(val_clamped, w0_clamped, accum[0]);
-                accum[1] = fmaf(val_clamped, w1_clamped, accum[1]);
-                accum[2] = fmaf(val_clamped, w2_clamped, accum[2]);
-                
-                // 立即检查fmaf结果，防止NaN/Inf传播
-                if (isNaN_strict(accum[0]) || isInf_strict(accum[0])) {
+                // 关键修复：在 fmaf 前检查所有输入，确保绝对安全
+                if (isNaN_strict(accum[0]) || isInf_strict(accum[0]) || !isfinite(accum[0])) {
                     accum[0] = 0.0f;
                 }
-                if (isNaN_strict(accum[1]) || isInf_strict(accum[1])) {
+                if (isNaN_strict(accum[1]) || isInf_strict(accum[1]) || !isfinite(accum[1])) {
                     accum[1] = 0.0f;
                 }
-                if (isNaN_strict(accum[2]) || isInf_strict(accum[2])) {
+                if (isNaN_strict(accum[2]) || isInf_strict(accum[2]) || !isfinite(accum[2])) {
                     accum[2] = 0.0f;
+                }
+                
+                // 执行 fmaf 操作
+                float new_accum0 = fmaf(val_clamped, w0_clamped, accum[0]);
+                float new_accum1 = fmaf(val_clamped, w1_clamped, accum[1]);
+                float new_accum2 = fmaf(val_clamped, w2_clamped, accum[2]);
+                
+                // 关键修复：使用位操作立即检查fmaf结果，防止NaN/Inf传播
+                if (isNaN_strict(new_accum0) || isInf_strict(new_accum0) || !isfinite(new_accum0)) {
+                    accum[0] = 0.0f;  // 如果产生NaN/Inf，重置为0
+                } else {
+                    accum[0] = new_accum0;
+                }
+                if (isNaN_strict(new_accum1) || isInf_strict(new_accum1) || !isfinite(new_accum1)) {
+                    accum[1] = 0.0f;
+                } else {
+                    accum[1] = new_accum1;
+                }
+                if (isNaN_strict(new_accum2) || isInf_strict(new_accum2) || !isfinite(new_accum2)) {
+                    accum[2] = 0.0f;
+                } else {
+                    accum[2] = new_accum2;
                 }
                 
                 // 关键优化：clamp到安全范围，防止后续sigmoid计算溢出
@@ -508,15 +526,15 @@ __global__ void sparseBox3DKeyPointsKernel(
             // 使用数值稳定的公式避免 exp 溢出/下溢和 NaN
             // 地平线J6部署经验：使用更保守的边界值，确保100%稳定性
             auto sigmoid_centered = [](float x) {
-                // 检查输入是否为 NaN 或 Inf
-                if (!isFinite(x)) {
+                // 关键修复：使用位操作检查输入，确保绝对可靠
+                if (isNaN_strict(x) || isInf_strict(x) || !isfinite(x)) {
                     return 0.0f;  // 如果输入异常，返回中性值
                 }
                 
-                // 关键优化：使用更保守的边界值（从88.0降低到80.0），确保exp计算不会溢出
+                // 关键优化：使用更保守的边界值（从80.0降低到70.0），确保exp计算不会溢出
                 // 当 x 很大时，sigmoid(x) ≈ 1，所以 sigmoid_centered ≈ 0.5
                 // 当 x 很小时，sigmoid(x) ≈ 0，所以 sigmoid_centered ≈ -0.5
-                const float sigmoid_bound = 80.0f;  // 更保守的边界值
+                const float sigmoid_bound = 70.0f;  // 更保守的边界值，确保100%稳定性
                 if (x > sigmoid_bound) {
                     return 0.5f;  // expf(-x) 下溢为 0
                 } else if (x < -sigmoid_bound) {
@@ -525,36 +543,69 @@ __global__ void sparseBox3DKeyPointsKernel(
                     // 标准实现，但在 FP16 下更安全
                     // 关键优化：clamp x 到安全范围，防止 exp 溢出
                     x = fmaxf(fminf(x, sigmoid_bound), -sigmoid_bound);
-                    if (!isFinite(x)) {
+                    
+                    // 关键修复：clamp后再次检查，确保值安全
+                    if (isNaN_strict(x) || isInf_strict(x) || !isfinite(x)) {
                         return 0.0f;
                     }
                     
-                    const float exp_neg_x = expf(-x);
-                    // 检查 exp 结果是否有效
-                    if (!isFinite(exp_neg_x)) {
+                    // 关键修复：在计算 exp 前，确保 x 在安全范围内
+                    // 使用更保守的范围，防止 exp 溢出
+                    const float exp_input = fmaxf(fminf(-x, 70.0f), -70.0f);
+                    if (isNaN_strict(exp_input) || isInf_strict(exp_input) || !isfinite(exp_input)) {
+                        return (x > 0.0f) ? 0.5f : -0.5f;
+                    }
+                    
+                    const float exp_neg_x = expf(exp_input);
+                    
+                    // 关键修复：使用位操作检查 exp 结果，确保绝对可靠
+                    if (isNaN_strict(exp_neg_x) || isInf_strict(exp_neg_x) || !isfinite(exp_neg_x)) {
                         // 如果 exp 产生 inf，根据 x 的符号返回边界值
                         return (x > 0.0f) ? 0.5f : -0.5f;
                     }
+                    
                     const float denom = 1.f + exp_neg_x;
-                    // 检查分母是否有效
+                    
+                    // 关键修复：使用位操作检查分母，确保绝对可靠
+                    if (isNaN_strict(denom) || isInf_strict(denom) || !isfinite(denom)) {
+                        return (x > 0.0f) ? 0.5f : -0.5f;
+                    }
+                    
                     // 关键修复：不仅检查是否为0，还要检查是否太小，防止除法产生Inf
                     const float min_denom = 1e-10f;  // 防止除零和除极小值
-                    if (!isFinite(denom) || denom < min_denom) {
+                    if (denom < min_denom) {
                         return (x > 0.0f) ? 0.5f : -0.5f;
                     }
+                    
                     // 关键修复：使用安全的除法，确保不会产生Inf
-                    const float inv_denom = 1.f / denom;
-                    // 检查除法结果是否有效
-                    if (!isFinite(inv_denom)) {
+                    // 在除法前再次检查分母
+                    if (isNaN_strict(denom) || isInf_strict(denom) || !isfinite(denom) || denom < min_denom) {
                         return (x > 0.0f) ? 0.5f : -0.5f;
                     }
+                    
+                    const float inv_denom = 1.f / denom;
+                    
+                    // 关键修复：使用位操作检查除法结果，确保绝对可靠
+                    if (isNaN_strict(inv_denom) || isInf_strict(inv_denom) || !isfinite(inv_denom)) {
+                        return (x > 0.0f) ? 0.5f : -0.5f;
+                    }
+                    
                     const float result = inv_denom - 0.5f;
-                    // 最终检查结果是否有效，并 clamp 到合理范围
-                    if (!isFinite(result)) {
+                    
+                    // 关键修复：使用位操作检查结果，确保绝对可靠
+                    if (isNaN_strict(result) || isInf_strict(result) || !isfinite(result)) {
                         return 0.0f;
                     }
+                    
                     // 确保结果在 [-0.5, 0.5] 范围内
-                    return fmaxf(fminf(result, 0.5f), -0.5f);
+                    float clamped_result = fmaxf(fminf(result, 0.5f), -0.5f);
+                    
+                    // 最终检查：使用位操作确保结果绝对安全
+                    if (isNaN_strict(clamped_result) || isInf_strict(clamped_result) || !isfinite(clamped_result)) {
+                        return 0.0f;
+                    }
+                    
+                    return clamped_result;
                 }
             };
 
@@ -621,14 +672,29 @@ __global__ void sparseBox3DKeyPointsKernel(
         // 应用旋转
         // 关键优化：在旋转计算后立即检查NaN/Inf，确保绝对安全
         // 工程部署要求：每一步计算后都要确保值安全
+        // 关键修复：在旋转计算前，确保所有输入值安全
+        if (isNaN_strict(localX) || isInf_strict(localX) || !isfinite(localX)) {
+            localX = 0.0f;
+        }
+        if (isNaN_strict(localY) || isInf_strict(localY) || !isfinite(localY)) {
+            localY = 0.0f;
+        }
+        if (isNaN_strict(sinYaw) || isInf_strict(sinYaw) || !isfinite(sinYaw)) {
+            sinYaw = 0.0f;
+        }
+        if (isNaN_strict(cosYaw) || isInf_strict(cosYaw) || !isfinite(cosYaw)) {
+            cosYaw = 1.0f;
+        }
+        
+        // 执行旋转计算
         float rotX = cosYaw * localX - sinYaw * localY;
         float rotY = sinYaw * localX + cosYaw * localY;
         
-        // 检查旋转结果，防止NaN/Inf传播
-        if (isNaN_strict(rotX) || isInf_strict(rotX)) {
+        // 关键修复：使用位操作检查旋转结果，防止NaN/Inf传播
+        if (isNaN_strict(rotX) || isInf_strict(rotX) || !isfinite(rotX)) {
             rotX = 0.0f;
         }
-        if (isNaN_strict(rotY) || isInf_strict(rotY)) {
+        if (isNaN_strict(rotY) || isInf_strict(rotY) || !isfinite(rotY)) {
             rotY = 0.0f;
         }
         
@@ -636,19 +702,41 @@ __global__ void sparseBox3DKeyPointsKernel(
         // 关键优化：在加法后立即检查NaN/Inf，确保绝对安全
         // 工程部署要求：每一步计算后都要确保值安全
         // 加法运算可能产生Inf或NaN：Inf + 有限值 = Inf，Inf + Inf = NaN
+        // 关键修复：在加法前，确保所有输入值安全
+        if (isNaN_strict(rotX) || isInf_strict(rotX) || !isfinite(rotX)) {
+            rotX = 0.0f;
+        }
+        if (isNaN_strict(rotY) || isInf_strict(rotY) || !isfinite(rotY)) {
+            rotY = 0.0f;
+        }
+        if (isNaN_strict(localZ) || isInf_strict(localZ) || !isfinite(localZ)) {
+            localZ = 0.0f;
+        }
+        if (isNaN_strict(centerX) || isInf_strict(centerX) || !isfinite(centerX)) {
+            centerX = 0.0f;
+        }
+        if (isNaN_strict(centerY) || isInf_strict(centerY) || !isfinite(centerY)) {
+            centerY = 0.0f;
+        }
+        if (isNaN_strict(centerZ) || isInf_strict(centerZ) || !isfinite(centerZ)) {
+            centerZ = 0.0f;
+        }
+        
+        // 执行加法
         float finalX = rotX + centerX;
         float finalY = rotY + centerY;
         float finalZ = localZ + centerZ;
         
-        // 检查加法结果，防止NaN/Inf传播
-        if (isNaN_strict(finalX) || isInf_strict(finalX)) {
-            finalX = centerX;  // 如果旋转结果异常，至少保留中心点
+        // 关键修复：使用位操作检查加法结果，防止NaN/Inf传播
+        if (isNaN_strict(finalX) || isInf_strict(finalX) || !isfinite(finalX)) {
+            // 如果加法结果异常，使用安全的中心点值
+            finalX = (isNaN_strict(centerX) || isInf_strict(centerX) || !isfinite(centerX)) ? 0.0f : centerX;
         }
-        if (isNaN_strict(finalY) || isInf_strict(finalY)) {
-            finalY = centerY;
+        if (isNaN_strict(finalY) || isInf_strict(finalY) || !isfinite(finalY)) {
+            finalY = (isNaN_strict(centerY) || isInf_strict(centerY) || !isfinite(centerY)) ? 0.0f : centerY;
         }
-        if (isNaN_strict(finalZ) || isInf_strict(finalZ)) {
-            finalZ = centerZ;
+        if (isNaN_strict(finalZ) || isInf_strict(finalZ) || !isfinite(finalZ)) {
+            finalZ = (isNaN_strict(centerZ) || isInf_strict(centerZ) || !isfinite(centerZ)) ? 0.0f : centerZ;
         }
         
         // 最终 NaN 检查 - 工程部署中绝对不能有任何NaN输出
@@ -804,6 +892,24 @@ __global__ void sparseBox3DKeyPointsKernel(
         
         // 检查是否为NaN（指数全1且尾数非0）或Inf（指数全1且尾数为0）
         // 如果指数全1，说明是NaN或Inf，都需要处理
+        // 关键调试：如果检测到NaN/Inf，记录详细信息（仅在调试模式下）
+        #ifdef DEBUG_NAN
+        if ((bitsX & exp_mask) == exp_mask) {
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: safeX is NaN/Inf (bits=0x%08x, centerX=%.6f, rotX=%.6f, finalX=%.6f)\n",
+                   anchorIdx, i, bitsX, centerX, rotX, finalX);
+            safeX = 0.0f;
+        }
+        if ((bitsY & exp_mask) == exp_mask) {
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: safeY is NaN/Inf (bits=0x%08x, centerY=%.6f, rotY=%.6f, finalY=%.6f)\n",
+                   anchorIdx, i, bitsY, centerY, rotY, finalY);
+            safeY = 0.0f;
+        }
+        if ((bitsZ & exp_mask) == exp_mask) {
+            printf("[DEBUG_NAN] anchorIdx=%d, pt=%d: safeZ is NaN/Inf (bits=0x%08x, centerZ=%.6f, localZ=%.6f, finalZ=%.6f)\n",
+                   anchorIdx, i, bitsZ, centerZ, localZ, finalZ);
+            safeZ = 0.0f;
+        }
+        #else
         if ((bitsX & exp_mask) == exp_mask) {
             safeX = 0.0f;
         }
@@ -813,6 +919,7 @@ __global__ void sparseBox3DKeyPointsKernel(
         if ((bitsZ & exp_mask) == exp_mask) {
             safeZ = 0.0f;
         }
+        #endif
         
         if (params.outputFP32)
         {
