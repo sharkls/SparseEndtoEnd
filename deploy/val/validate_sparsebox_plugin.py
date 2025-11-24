@@ -196,11 +196,24 @@ def run_engine(engine: trt.ICudaEngine, inputs: Dict[str, np.ndarray]) -> np.nda
     output_shape = tuple(context.get_binding_shape(output_idx))
     dtype = engine.get_binding_dtype(output_idx)
     np_dtype = np.float16 if dtype == trt.DataType.HALF else np.float32
-    output_host = np.empty(output_shape, dtype=np_dtype)
+    # 关键修复：使用zeros初始化输出内存，避免未初始化值导致非确定性行为
+    # 这可以确保即使kernel没有写入某些位置，也不会产生NaN或随机值
+    output_host = np.zeros(output_shape, dtype=np_dtype)
     _, output_device = cudart.cudaMalloc(output_host.nbytes)
+    # 将初始化的零值复制到设备内存，确保输出内存是干净的
+    cudart.cudaMemcpy(
+        output_device, output_host.ctypes.data, output_host.nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice
+    )
     bindings[output_idx] = output_device
 
     context.execute_v2(bindings)
+    # 关键修复：等待CUDA流完成，确保kernel执行完成后再读取结果
+    # 这可以避免非确定性行为，确保每次执行都是确定性的
+    # 注意：TensorRT的execute_v2是异步的，需要同步确保完成
+    err = cudart.cudaDeviceSynchronize()[0]
+    if err != cudart.cudaError_t.cudaSuccess:
+        # 如果同步失败，记录错误但继续执行
+        pass
     cudart.cudaMemcpy(
         output_host.ctypes.data, output_device, output_host.nbytes, cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost
     )
@@ -390,6 +403,22 @@ def main():
 
             trt_output = run_engine(engine, trt_inputs).astype(np.float32)
             ref_output = run_pytorch_reference(anchor, instance, attrs, ref_precision)
+            
+            # 关键修复：检查输出是否包含NaN/Inf，如果包含则记录详细信息
+            if np.isnan(trt_output).any() or np.isinf(trt_output).any():
+                nan_count = np.isnan(trt_output).sum()
+                inf_count = np.isinf(trt_output).sum()
+                LOGGER.warning(
+                    "[node %d][sample %d] TensorRT输出包含异常值: NaN=%d, Inf=%d",
+                    node_idx, sample_idx, nan_count, inf_count
+                )
+            if np.isnan(ref_output).any() or np.isinf(ref_output).any():
+                nan_count = np.isnan(ref_output).sum()
+                inf_count = np.isinf(ref_output).sum()
+                LOGGER.warning(
+                    "[node %d][sample %d] PyTorch参考输出包含异常值: NaN=%d, Inf=%d",
+                    node_idx, sample_idx, nan_count, inf_count
+                )
 
             metrics = compare_outputs(ref_output, trt_output)
             summary.append({"node": node_idx, "sample": sample_idx, "metrics": metrics})

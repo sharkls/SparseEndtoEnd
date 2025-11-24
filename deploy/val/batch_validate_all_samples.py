@@ -8,6 +8,7 @@ import argparse
 import sys
 from pathlib import Path
 import glob
+import numpy as np
 
 # 导入验证脚本
 sys.path.insert(0, str(Path(__file__).parent))
@@ -70,7 +71,7 @@ def main():
                 
                 anchor, instance = validate_sparsebox_plugin.load_sample(asset_dir, sample_idx)
                 
-                # 构建 engine
+                # 构建 engine（每次重新构建，确保状态干净）
                 input_shapes = {"anchor": tuple(anchor.shape)}
                 if int(attrs["num_learnable_pts"][0]) > 0:
                     input_shapes["instance_feature"] = tuple(instance.shape)
@@ -78,6 +79,16 @@ def main():
                 engine = validate_sparsebox_plugin.build_trt_engine(
                     attrs, input_shapes, plugin_so, args.fp16
                 )
+                
+                # 关键修复：清理CUDA错误状态，确保每次执行都是干净的
+                # 这可以避免前一次执行的错误状态影响当前执行
+                from cuda import cudart
+                # 清除之前的CUDA错误状态
+                _ = cudart.cudaGetLastError()
+                # 同步设备，确保所有之前的操作完成
+                cudart.cudaDeviceSynchronize()
+                # 再次清除错误状态
+                _ = cudart.cudaGetLastError()
                 
                 # 运行验证
                 trt_inputs = {
@@ -89,6 +100,12 @@ def main():
                     )
                 
                 trt_output = validate_sparsebox_plugin.run_engine(engine, trt_inputs).astype(validate_sparsebox_plugin.np.float32)
+                
+                # 关键修复：检查输出是否包含NaN/Inf，如果包含则记录详细信息
+                if validate_sparsebox_plugin.np.isnan(trt_output).any() or validate_sparsebox_plugin.np.isinf(trt_output).any():
+                    nan_count = validate_sparsebox_plugin.np.isnan(trt_output).sum()
+                    inf_count = validate_sparsebox_plugin.np.isinf(trt_output).sum()
+                    print(f"  Node {node_idx}: ⚠️ TensorRT输出包含异常值: NaN={nan_count}, Inf={inf_count}")
                 # 关键修复：由于插件在 FP16 模式下输出 FP32，应该使用 FP32 参考实现进行比较
                 # 这样可以确保比较的是相同精度的输出
                 ref_output = validate_sparsebox_plugin.run_pytorch_reference(
@@ -104,10 +121,13 @@ def main():
                 })
                 
                 max_diff = metrics["max_abs_diff"]
-                status = "✅" if max_diff < 2.0 else "⚠️"
+                # 检查是否为NaN或Inf
+                is_valid = not (np.isnan(max_diff) or np.isinf(max_diff))
+                is_success = is_valid and max_diff < 2.0
+                status = "✅" if is_success else "⚠️"
                 print(f"  Node {node_idx}: max={max_diff:.6e}, mean={metrics['mean_abs_diff']:.6e}, median={metrics['median_abs_diff']:.6f} {status}")
                 
-                if max_diff >= 2.0:
+                if not is_success:
                     failed_cases.append({
                         "sample": sample_idx,
                         "node": node_idx,
@@ -129,7 +149,11 @@ def main():
     print(f"{'='*60}")
     
     total_cases = len(results)
-    success_cases = sum(1 for r in results if r["metrics"]["max_abs_diff"] < 2.0)
+    # 修复：正确识别NaN和Inf为失败
+    success_cases = sum(1 for r in results if (
+        not (np.isnan(r["metrics"]["max_abs_diff"]) or np.isinf(r["metrics"]["max_abs_diff"])) 
+        and r["metrics"]["max_abs_diff"] < 2.0
+    ))
     failed_count = len(failed_cases)
     
     print(f"\n总验证次数: {total_cases}")
@@ -162,7 +186,9 @@ def main():
         if sample not in sample_stats:
             sample_stats[sample] = {"total": 0, "success": 0, "failed": 0}
         sample_stats[sample]["total"] += 1
-        if r["metrics"]["max_abs_diff"] < 2.0:
+        max_diff = r["metrics"]["max_abs_diff"]
+        is_valid = not (np.isnan(max_diff) or np.isinf(max_diff))
+        if is_valid and max_diff < 2.0:
             sample_stats[sample]["success"] += 1
         else:
             sample_stats[sample]["failed"] += 1
