@@ -24,7 +24,7 @@ Status BackboneImplement::init(const TaskConfig &param)
     m_taskConfig = param;
     m_backbone_engine = std::make_shared<TensorRT>(
         m_taskConfig.backbone_engine().engine_path(),
-        "",
+        std::vector<std::string>(),
         std::vector<std::string>(m_taskConfig.backbone_engine().input_names().begin(), 
                                 m_taskConfig.backbone_engine().input_names().end()),
         std::vector<std::string>(m_taskConfig.backbone_engine().output_names().begin(), 

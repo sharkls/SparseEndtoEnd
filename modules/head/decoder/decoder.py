@@ -43,13 +43,13 @@ class SparseBox3DDecoder(object):
     ):
         squeeze_cls = track_id is not None
 
-        # 调试：在sigmoid之前打印最大的前10个cls_scores值
-        print(f"[DEBUG] Top-10 largest cls_scores[output_idx] before sigmoid:")
-        cls_scores_flat = cls_scores[output_idx].flatten()
-        top_values, top_indices = torch.topk(cls_scores_flat, min(10, cls_scores_flat.numel()))
-        for i, (value, idx) in enumerate(zip(top_values, top_indices)):
-            print(f"[DEBUG] {i}: value={value:.6f}, flat_idx={idx}")
-        print()
+        # # 调试：在sigmoid之前打印最大的前10个cls_scores值
+        # print(f"[DEBUG] Top-10 largest cls_scores[output_idx] before sigmoid:")
+        # cls_scores_flat = cls_scores[output_idx].flatten()
+        # top_values, top_indices = torch.topk(cls_scores_flat, min(10, cls_scores_flat.numel()))
+        # for i, (value, idx) in enumerate(zip(top_values, top_indices)):
+        #     print(f"[DEBUG] {i}: value={value:.6f}, flat_idx={idx}")
+        # print()
 
         cls_scores = cls_scores[output_idx].sigmoid()   # 1， 900， 10
 
