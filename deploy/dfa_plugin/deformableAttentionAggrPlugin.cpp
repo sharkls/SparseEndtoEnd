@@ -20,14 +20,14 @@ int thomas_deform_attn_cuda_forward(cudaStream_t stream,
                                     const float* samplingLoc,
                                     const float* attnWeight,
                                     float* output,
-                                    int batch,
-                                    int mSpatialSize,
-                                    int mChannels,
-                                    int mNumCams,
-                                    int mNumLevels,
-                                    int mNumQuery,
-                                    int mNumPoint,
-                                    int mNumGroups);
+                                    int batch_size,
+                                    int num_cams,
+                                    int num_feat,
+                                    int num_embeds,
+                                    int num_scale,
+                                    int num_anchors,
+                                    int num_pts,
+                                    int num_groups);
 
 // 声明FP16版本的CUDA函数（优化版本：使用FP32临时缓冲区，通过workspace提供）
 int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
@@ -38,14 +38,14 @@ int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
                                          const __half* attnWeight,
                                          __half* output,
                                          float* workspace,  // TensorRT提供的workspace
-                                         int batch,
-                                         int mSpatialSize,
-                                         int mChannels,
-                                         int mNumCams,
-                                         int mNumLevels,
-                                         int mNumQuery,
-                                         int mNumPoint,
-                                         int mNumGroups);
+                                         int batch_size,
+                                         int num_cams,
+                                         int num_feat,
+                                         int num_embeds,
+                                         int num_scale,
+                                         int num_anchors,
+                                         int num_pts,
+                                         int num_groups);
 
 // 声明混合精度版本的CUDA函数：FP16 value + FP32 keypoints（关键点保持FP32精度）
 int thomas_deform_attn_cuda_forward_mixed(cudaStream_t stream,
@@ -56,14 +56,14 @@ int thomas_deform_attn_cuda_forward_mixed(cudaStream_t stream,
                                           const float* attnWeight,      // FP32注意力权重
                                           __half* output,               // FP16输出
                                           float* workspace,              // TensorRT提供的workspace
-                                          int batch,
-                                          int mSpatialSize,
-                                          int mChannels,
-                                          int mNumCams,
-                                          int mNumLevels,
-                                          int mNumQuery,
-                                          int mNumPoint,
-                                          int mNumGroups);
+                                          int batch_size,
+                                          int num_cams,
+                                          int num_feat,
+                                          int num_embeds,
+                                          int num_scale,
+                                          int num_anchors,
+                                          int num_pts,
+                                          int num_groups);
 
 namespace custom
 {
