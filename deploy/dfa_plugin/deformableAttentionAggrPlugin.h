@@ -19,7 +19,13 @@ static const char* PLUGIN_VERSION{"1"};
 class DeformableAttentionAggrPlugin : public nvinfer1::IPluginV2DynamicExt
 {
   public:
+    // 默认构造函数：使用保守的默认值
     DeformableAttentionAggrPlugin() = default;
+    
+    // 带参数的构造函数：在插件创建时传入维度信息
+    DeformableAttentionAggrPlugin(int32_t batch, int32_t numAnchors, int32_t numEmbeds)
+        : mBatch_(batch), mNumAnchors_(numAnchors), mNumEmbeds_(numEmbeds) {}
+    
     ~DeformableAttentionAggrPlugin() = default;
 
     /// @brief PART1: Custom Plugin Class: DeformableAttentionAggrPlugin -> nvinfer1::IPluginV2DynamicExt Methods
@@ -95,6 +101,16 @@ class DeformableAttentionAggrPlugin : public nvinfer1::IPluginV2DynamicExt
 
   private:
     std::string mNamespace_;
+    
+    // 序列化的维度参数：在插件创建时确定，避免运行时访问未初始化的内存
+    int32_t mBatch_ = 1;           // batch size
+    int32_t mNumAnchors_ = 900;    // number of anchors (从inputs[3]获取)
+    int32_t mNumEmbeds_ = 256;     // embedding dimension (从inputs[0]获取)
+    
+    // 运行时缓存：在enqueue中安全获取后缓存，用于后续调用
+    mutable int32_t mCachedBatch_ = -1;
+    mutable int32_t mCachedNumAnchors_ = -1;
+    mutable int32_t mCachedNumEmbeds_ = -1;
 };
 
 /// @brief Second define a PluginCreator Class.

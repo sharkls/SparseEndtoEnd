@@ -45,23 +45,51 @@ PRECISION_ARGS=$(get_precision_args)
 
 # 组合插件参数
 PLUGIN_ARGS=""
-if [[ -n "${ENVTARGETPLUGIN}" && -f "${ENVTARGETPLUGIN}" ]]; then
-    PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENVTARGETPLUGIN}"
-    echo "[INFO] DeformableAttentionAggrPlugin enabled: ${ENVTARGETPLUGIN}"
+# 检查DFA插件（使用绝对路径）
+if [[ -n "${ENVTARGETPLUGIN}" ]]; then
+    # 转换为绝对路径
+    if [[ ! "${ENVTARGETPLUGIN}" = /* ]]; then
+        DFA_PLUGIN_PATH="${SCRIPT_DIR}/${ENVTARGETPLUGIN}"
+    else
+        DFA_PLUGIN_PATH="${ENVTARGETPLUGIN}"
+    fi
+    if [[ -f "${DFA_PLUGIN_PATH}" ]]; then
+        PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${DFA_PLUGIN_PATH}"
+        echo "[INFO] DeformableAttentionAggrPlugin enabled: ${DFA_PLUGIN_PATH}"
+    else
+        echo "[WARNING] DeformableAttentionAggrPlugin not found: ${DFA_PLUGIN_PATH}"
+        echo "[WARNING] Engine will be built without DeformableAttentionAggrPlugin"
+    fi
 fi
-if [[ -n "${ENV_LAYER_NORM_PLUGIN}" && -f "${ENV_LAYER_NORM_PLUGIN}" ]]; then
-    PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENV_LAYER_NORM_PLUGIN}"
-    echo "[INFO] LayerNormPlugin enabled: ${ENV_LAYER_NORM_PLUGIN}"
-else
-    echo "[WARNING] LayerNormPlugin not found: ${ENV_LAYER_NORM_PLUGIN}"
-    echo "[WARNING] Engine will be built without LayerNormPlugin optimization"
+# 检查LayerNorm插件（使用绝对路径）
+if [[ -n "${ENV_LAYER_NORM_PLUGIN}" ]]; then
+    if [[ ! "${ENV_LAYER_NORM_PLUGIN}" = /* ]]; then
+        LN_PLUGIN_PATH="${SCRIPT_DIR}/${ENV_LAYER_NORM_PLUGIN}"
+    else
+        LN_PLUGIN_PATH="${ENV_LAYER_NORM_PLUGIN}"
+    fi
+    if [[ -f "${LN_PLUGIN_PATH}" ]]; then
+        PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${LN_PLUGIN_PATH}"
+        echo "[INFO] LayerNormPlugin enabled: ${LN_PLUGIN_PATH}"
+    else
+        echo "[WARNING] LayerNormPlugin not found: ${LN_PLUGIN_PATH}"
+        echo "[WARNING] Engine will be built without LayerNormPlugin optimization"
+    fi
 fi
-if [[ -n "${ENV_SPARSEBOX_PLUGIN}" && -f "${ENV_SPARSEBOX_PLUGIN}" ]]; then
-    PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${ENV_SPARSEBOX_PLUGIN}"
-    echo "[INFO] SparseBox3DKeyPointsPlugin enabled: ${ENV_SPARSEBOX_PLUGIN}"
-else
-    echo "[WARNING] SparseBox3DKeyPointsPlugin not found: ${ENV_SPARSEBOX_PLUGIN}"
-    echo "[WARNING] Engine will be built without SparseBox3DKeyPointsPlugin optimization"
+# 检查SparseBox插件（使用绝对路径）
+if [[ -n "${ENV_SPARSEBOX_PLUGIN}" ]]; then
+    if [[ ! "${ENV_SPARSEBOX_PLUGIN}" = /* ]]; then
+        SPARSEBOX_PLUGIN_PATH="${SCRIPT_DIR}/${ENV_SPARSEBOX_PLUGIN}"
+    else
+        SPARSEBOX_PLUGIN_PATH="${ENV_SPARSEBOX_PLUGIN}"
+    fi
+    if [[ -f "${SPARSEBOX_PLUGIN_PATH}" ]]; then
+        PLUGIN_ARGS="${PLUGIN_ARGS} --plugins=${SPARSEBOX_PLUGIN_PATH}"
+        echo "[INFO] SparseBox3DKeyPointsPlugin enabled: ${SPARSEBOX_PLUGIN_PATH}"
+    else
+        echo "[WARNING] SparseBox3DKeyPointsPlugin not found: ${SPARSEBOX_PLUGIN_PATH}"
+        echo "[WARNING] Engine will be built without SparseBox3DKeyPointsPlugin optimization"
+    fi
 fi
 
 # STEP1: build sparse4dbackbone engine

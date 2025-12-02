@@ -2,8 +2,24 @@
 
 # Compile src, build dir, target
 SRC_PATH      :=	.
-TARGET		  :=	$(ENVTARGETPLUGIN)
-BUILD_PATH    :=	$(ENVBUILDDIR)
+# 如果ENVTARGETPLUGIN是相对路径，使用lib/deformableAttentionAggr.so
+# 否则使用ENVTARGETPLUGIN指定的路径
+ifeq ($(ENVTARGETPLUGIN),)
+    TARGET := lib/deformableAttentionAggr.so
+else
+    # 提取文件名和目录
+    TARGET_NAME := $(notdir $(ENVTARGETPLUGIN))
+    TARGET_DIR := $(dir $(ENVTARGETPLUGIN))
+    # 如果是相对路径，使用lib目录
+    ifneq ($(patsubst /%,%,$(TARGET_DIR)),$(TARGET_DIR))
+        # 绝对路径，直接使用
+        TARGET := $(ENVTARGETPLUGIN)
+    else
+        # 相对路径，使用lib目录
+        TARGET := lib/$(TARGET_NAME)
+    endif
+endif
+BUILD_PATH    :=	build
 
 # Compile level flag
 DEBUG		  :=	0
@@ -57,9 +73,8 @@ CXXFLAGS      +=  	-w
 endif
 
 # Compile
-TARGET_PATH	  :=	$(firstword $(subst /, ,$(TARGET)))
-all: 
-	$(MAKE) $(TARGET)
+TARGET_PATH	  :=	$(dir $(TARGET))
+all: $(TARGET)
 $(TARGET): $(APP_DEPS) $(APP_OBJS)
 	@mkdir -p $(TARGET_PATH)
 	@nvcc $(CUDAFLAGS) $(APP_OBJS) -o $@ $(INCS) $(LIBS)
@@ -89,8 +104,8 @@ show:
 	@echo APP_MKS	:	$(APP_MKS)
 
 clean:
-	rm -r build
-	rm -r lib
+	rm -rf build
+	rm -rf lib
 
 ifneq ($(MAKECMDGOALS), clean)
 -include $(APP_MKS)

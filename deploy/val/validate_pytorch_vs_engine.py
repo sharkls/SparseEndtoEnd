@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# Copyright (c) 2024 SparseEnd2End. All rights reserved @author: sharkls.
-# /bin/python3 deploy/val/validate_pytorch_vs_engine.py --sample_idx 0 --num_samples 1 --use_val_dataset
+# Copyright (c) 2024 SparseEnd2End. All rights reserved @author: Thomas Von Wu.
 
 """
 验证PyTorch模型和TensorRT引擎在FP32精度下的输出差异
@@ -127,6 +126,21 @@ def parse_args():
         default="deploy/val/validate_pytorch_vs_engine.log",
         help="日志文件路径"
     )
+    parser.add_argument(
+        "--analyze_plugin_error",
+        action="store_true",
+        help="详细分析插件可能的误差来源（会记录更多统计信息）"
+    )
+    parser.add_argument(
+        "--capture_keypoints",
+        action="store_true",
+        help="捕获并对比关键点输出（需要hook PyTorch模型）"
+    )
+    parser.add_argument(
+        "--analyze_error_patterns",
+        action="store_true",
+        help="分析误差模式（anchor尺寸、角度等与误差的关系）"
+    )
     return parser.parse_args()
 
 
@@ -232,9 +246,11 @@ class Sparse4DBackboneWrapper(nn.Module):
 
 class Sparse4DHead1stWrapper(nn.Module):
     """Head第一帧包装类，用于提取head输出"""
-    def __init__(self, head):
+    def __init__(self, head, capture_keypoints=False):
         super(Sparse4DHead1stWrapper, self).__init__()
         self.head = head
+        self.capture_keypoints = capture_keypoints
+        self.captured_keypoints = []  # 存储捕获的关键点
 
     def forward(
         self,
@@ -340,6 +356,32 @@ class Sparse4DHead1stWrapper(nn.Module):
         # 替换cache和get方法
         self.head.instance_bank.cache = cache_wrapper
         self.head.instance_bank.get = get_wrapper
+        
+        # 如果启用关键点捕获，注册hook
+        keypoints_hooks = []
+        if self.capture_keypoints:
+            self.captured_keypoints = []
+            # 遍历head中的所有层，找到kps_generator
+            def register_keypoints_hooks(module, prefix=""):
+                for name, child in module.named_children():
+                    full_name = f"{prefix}.{name}" if prefix else name
+                    if hasattr(child, 'kps_generator'):
+                        # 注册forward hook来捕获关键点
+                        def make_hook(layer_name):
+                            def hook_fn(module, input, output):
+                                if isinstance(output, torch.Tensor):
+                                    self.captured_keypoints.append({
+                                        'layer': layer_name,
+                                        'keypoints': output.clone().detach(),
+                                        'anchor': input[0].clone().detach() if len(input) > 0 and isinstance(input[0], torch.Tensor) else None,
+                                        'instance_feature': input[1].clone().detach() if len(input) > 1 and isinstance(input[1], torch.Tensor) else None,
+                                    })
+                            return hook_fn
+                        child.kps_generator.register_forward_hook(make_hook(full_name))
+                    # 递归注册子模块
+                    register_keypoints_hooks(child, full_name)
+            
+            register_keypoints_hooks(self.head)
         
         try:
             # 直接调用head的forward方法
@@ -488,10 +530,24 @@ class TensorRTEngine:
         self.input_names = lTensorName[:nInput]
         self.output_names = lTensorName[nInput:]
         
+        # 检测引擎精度类型（通过检查输出张量的数据类型）
+        self.engine_dtype = np.float32  # 默认FP32
+        if len(self.output_names) > 0:
+            first_output_dtype = self.engine.get_tensor_dtype(self.output_names[0])
+            if first_output_dtype == trt.float16:
+                self.engine_dtype = np.float16
+                self.logger.info("检测到FP16引擎")
+            elif first_output_dtype == trt.float32:
+                self.engine_dtype = np.float32
+                self.logger.info("检测到FP32引擎")
+            else:
+                self.logger.warning(f"未知的引擎精度类型: {first_output_dtype}，使用FP32")
+        
         self.logger.info(f"Engine输入数量: {nInput}")
         self.logger.info(f"Engine输出数量: {nIO - nInput}")
         self.logger.info(f"输入名称: {self.input_names}")
         self.logger.info(f"输出名称: {self.output_names}")
+        self.logger.info(f"引擎精度: {self.engine_dtype}")
         
         # 创建CUDA流
         self.stream = cudart.cudaStreamCreate()[1]
@@ -503,12 +559,35 @@ class TensorRTEngine:
         for name in self.input_names:
             if name not in inputs:
                 raise ValueError(f"Missing input: {name}")
-            bufferH.append(inputs[name])
+            input_data = inputs[name]
+            
+            # 检查输入张量的数据类型，如果引擎是FP16且输入是FP32，尝试转换为FP16
+            # 但对于某些输入（如int32类型的spatial_shapes），保持原类型
+            input_tensor_dtype = self.engine.get_tensor_dtype(name)
+            if input_tensor_dtype == trt.float16 and input_data.dtype == np.float32:
+                # 对于FP16引擎的浮点输入，转换为FP16
+                input_data = input_data.astype(np.float16)
+            elif input_tensor_dtype == trt.int32 and input_data.dtype != np.int32:
+                # 对于int32输入，确保是int32类型
+                input_data = input_data.astype(np.int32)
+            
+            bufferH.append(input_data)
         
-        # 准备输出缓冲区
+        # 准备输出缓冲区 - 根据引擎精度类型设置dtype
         for i, name in enumerate(self.output_names):
             shape = self.context.get_tensor_shape(name)
-            bufferH.append(np.zeros(shape, dtype=np.float32))
+            # 获取该张量的实际数据类型
+            tensor_dtype = self.engine.get_tensor_dtype(name)
+            if tensor_dtype == trt.float16:
+                output_dtype = np.float16
+            elif tensor_dtype == trt.float32:
+                output_dtype = np.float32
+            elif tensor_dtype == trt.int32:
+                output_dtype = np.int32
+            else:
+                # 默认使用引擎的全局精度类型
+                output_dtype = self.engine_dtype
+            bufferH.append(np.zeros(shape, dtype=output_dtype))
         
         # 分配GPU内存
         bufferD = []
@@ -556,13 +635,44 @@ class TensorRTEngine:
             cudart.cudaStreamDestroy(self.stream)
 
 
-def compute_metrics(pytorch_output: np.ndarray, engine_output: np.ndarray, name: str) -> Dict:
+def compute_metrics(pytorch_output: np.ndarray, engine_output: np.ndarray, name: str, analyze_plugin: bool = False) -> Dict:
     """计算输出差异指标"""
     if pytorch_output.shape != engine_output.shape:
         return {
             "name": name,
             "error": f"Shape mismatch: PyTorch {pytorch_output.shape} vs Engine {engine_output.shape}"
         }
+    
+    # 检查NaN和Inf值
+    pytorch_has_nan = np.isnan(pytorch_output).any()
+    pytorch_has_inf = np.isinf(pytorch_output).any()
+    engine_has_nan = np.isnan(engine_output).any()
+    engine_has_inf = np.isinf(engine_output).any()
+    
+    if pytorch_has_nan or pytorch_has_inf or engine_has_nan or engine_has_inf:
+        return {
+            "name": name,
+            "error": f"NaN/Inf detected: PyTorch (NaN: {pytorch_has_nan}, Inf: {pytorch_has_inf}), "
+                     f"Engine (NaN: {engine_has_nan}, Inf: {engine_has_inf})",
+            "pytorch_stats": {
+                "min": float(np.nanmin(pytorch_output)) if not pytorch_has_nan else None,
+                "max": float(np.nanmax(pytorch_output)) if not pytorch_has_nan else None,
+                "nan_count": int(np.isnan(pytorch_output).sum()),
+                "inf_count": int(np.isinf(pytorch_output).sum()),
+            },
+            "engine_stats": {
+                "min": float(np.nanmin(engine_output)) if not engine_has_nan else None,
+                "max": float(np.nanmax(engine_output)) if not engine_has_nan else None,
+                "nan_count": int(np.isnan(engine_output).sum()),
+                "inf_count": int(np.isinf(engine_output).sum()),
+            }
+        }
+    
+    # 确保数据类型一致（统一转换为float32进行比较，避免FP16精度损失）
+    if pytorch_output.dtype != engine_output.dtype:
+        # 将两个数组都转换为float32进行比较
+        pytorch_output = pytorch_output.astype(np.float32)
+        engine_output = engine_output.astype(np.float32)
     
     diff = pytorch_output - engine_output
     abs_diff = np.abs(diff)
@@ -591,7 +701,327 @@ def compute_metrics(pytorch_output: np.ndarray, engine_output: np.ndarray, name:
         },
     }
     
+    # 如果启用插件误差分析，添加更详细的统计信息
+    if analyze_plugin:
+        # 计算误差分布
+        abs_diff_flat = abs_diff.flatten()
+        metrics["error_distribution"] = {
+            "p50": float(np.percentile(abs_diff_flat, 50)),
+            "p75": float(np.percentile(abs_diff_flat, 75)),
+            "p90": float(np.percentile(abs_diff_flat, 90)),
+            "p95": float(np.percentile(abs_diff_flat, 95)),
+            "p99": float(np.percentile(abs_diff_flat, 99)),
+        }
+        
+        # 计算大误差的比例（超过mean+2*std的误差）
+        threshold = np.mean(abs_diff_flat) + 2 * np.std(abs_diff_flat)
+        large_error_ratio = float(np.sum(abs_diff_flat > threshold) / len(abs_diff_flat))
+        metrics["large_error_ratio"] = large_error_ratio
+        metrics["large_error_threshold"] = float(threshold)
+        
+        # 对于anchor相关的输出，分析各个维度的误差
+        if "anchor" in name.lower() and len(pytorch_output.shape) >= 2:
+            # anchor通常是 [B, N, 11]，分析每个维度的误差
+            if pytorch_output.shape[-1] == 11:
+                dim_errors = []
+                for dim in range(11):
+                    dim_diff = np.abs(pytorch_output[..., dim] - engine_output[..., dim])
+                    dim_errors.append({
+                        "dim": dim,
+                        "mean_abs_diff": float(np.mean(dim_diff)),
+                        "max_abs_diff": float(np.max(dim_diff)),
+                    })
+                metrics["dimension_errors"] = dim_errors
+        
+        # 对于关键点相关的输出（如果形状匹配 [B, N, num_pts, 3]）
+        if len(pytorch_output.shape) == 4 and pytorch_output.shape[-1] == 3:
+            # 可能是关键点输出，分析每个点的误差
+            point_errors = []
+            num_points = pytorch_output.shape[2]
+            for pt_idx in range(min(num_points, 13)):  # 通常最多13个点（7固定+6可学习）
+                pt_diff = np.abs(pytorch_output[:, :, pt_idx, :] - engine_output[:, :, pt_idx, :])
+                point_errors.append({
+                    "point_idx": pt_idx,
+                    "mean_abs_diff": float(np.mean(pt_diff)),
+                    "max_abs_diff": float(np.max(pt_diff)),
+                })
+            metrics["point_errors"] = point_errors
+    
     return metrics
+
+
+def analyze_error_patterns(
+    pytorch_anchor: np.ndarray,
+    engine_anchor: np.ndarray,
+    logger: logging.Logger
+) -> Dict:
+    """
+    分析anchor误差模式，找出误差与anchor属性（尺寸、角度等）的关系
+    
+    Args:
+        pytorch_anchor: [B, N, 11] PyTorch anchor输出
+        engine_anchor: [B, N, 11] TensorRT engine anchor输出
+        logger: 日志记录器
+    
+    Returns:
+        包含误差模式分析的字典
+    """
+    from dataset.config.nusc_std_bbox3d import W, L, H, SIN_YAW, COS_YAW, X, Y, Z
+    
+    if pytorch_anchor.shape != engine_anchor.shape:
+        return {"error": "Shape mismatch"}
+    
+    # 计算各维度误差
+    diff = pytorch_anchor - engine_anchor
+    abs_diff = np.abs(diff)
+    
+    # 提取anchor属性
+    anchor_x = pytorch_anchor[:, :, X]
+    anchor_y = pytorch_anchor[:, :, Y]
+    anchor_z = pytorch_anchor[:, :, Z]
+    anchor_w = np.exp(pytorch_anchor[:, :, W])  # 实际宽度
+    anchor_l = np.exp(pytorch_anchor[:, :, L])  # 实际长度
+    anchor_h = np.exp(pytorch_anchor[:, :, H])  # 实际高度
+    anchor_sin_yaw = pytorch_anchor[:, :, SIN_YAW]
+    anchor_cos_yaw = pytorch_anchor[:, :, COS_YAW]
+    anchor_yaw = np.arctan2(anchor_sin_yaw, anchor_cos_yaw)
+    
+    # 计算anchor尺寸（对角线长度）
+    anchor_size = np.sqrt(anchor_w**2 + anchor_l**2 + anchor_h**2)
+    
+    # 计算位置误差
+    pos_error_x = abs_diff[:, :, X]
+    pos_error_y = abs_diff[:, :, Y]
+    pos_error_z = abs_diff[:, :, Z]
+    pos_error_total = np.sqrt(pos_error_x**2 + pos_error_y**2 + pos_error_z**2)
+    
+    # 分析误差与anchor属性的关系
+    patterns = {}
+    
+    # 1. 误差与anchor尺寸的关系
+    size_bins = np.percentile(anchor_size.flatten(), [0, 25, 50, 75, 100])
+    for i in range(len(size_bins) - 1):
+        mask = (anchor_size >= size_bins[i]) & (anchor_size < size_bins[i+1])
+        if np.sum(mask) > 0:
+            patterns[f"size_bin_{i}"] = {
+                "size_range": (float(size_bins[i]), float(size_bins[i+1])),
+                "count": int(np.sum(mask)),
+                "mean_pos_error": float(np.mean(pos_error_total[mask])),
+                "mean_x_error": float(np.mean(pos_error_x[mask])),
+                "mean_y_error": float(np.mean(pos_error_y[mask])),
+            }
+    
+    # 2. 误差与角度的关系
+    angle_bins = np.linspace(-np.pi, np.pi, 9)  # 8个角度区间
+    for i in range(len(angle_bins) - 1):
+        mask = (anchor_yaw >= angle_bins[i]) & (anchor_yaw < angle_bins[i+1])
+        if np.sum(mask) > 0:
+            patterns[f"angle_bin_{i}"] = {
+                "angle_range": (float(angle_bins[i]), float(angle_bins[i+1])),
+                "count": int(np.sum(mask)),
+                "mean_pos_error": float(np.mean(pos_error_total[mask])),
+                "mean_x_error": float(np.mean(pos_error_x[mask])),
+                "mean_y_error": float(np.mean(pos_error_y[mask])),
+            }
+    
+    # 3. 误差与位置的关系（距离原点的距离）
+    distance_from_origin = np.sqrt(anchor_x**2 + anchor_y**2 + anchor_z**2)
+    dist_bins = np.percentile(distance_from_origin.flatten(), [0, 25, 50, 75, 100])
+    for i in range(len(dist_bins) - 1):
+        mask = (distance_from_origin >= dist_bins[i]) & (distance_from_origin < dist_bins[i+1])
+        if np.sum(mask) > 0:
+            patterns[f"distance_bin_{i}"] = {
+                "distance_range": (float(dist_bins[i]), float(dist_bins[i+1])),
+                "count": int(np.sum(mask)),
+                "mean_pos_error": float(np.mean(pos_error_total[mask])),
+                "mean_x_error": float(np.mean(pos_error_x[mask])),
+                "mean_y_error": float(np.mean(pos_error_y[mask])),
+            }
+    
+    # 4. 找出误差最大的anchor
+    max_error_indices = np.unravel_index(np.argmax(pos_error_total), pos_error_total.shape)
+    patterns["max_error_anchor"] = {
+        "batch_idx": int(max_error_indices[0]),
+        "anchor_idx": int(max_error_indices[1]),
+        "pos_error": float(pos_error_total[max_error_indices]),
+        "x_error": float(pos_error_x[max_error_indices]),
+        "y_error": float(pos_error_y[max_error_indices]),
+        "z_error": float(pos_error_z[max_error_indices]),
+        "anchor_size": float(anchor_size[max_error_indices]),
+        "anchor_angle": float(anchor_yaw[max_error_indices]),
+        "anchor_distance": float(distance_from_origin[max_error_indices]),
+    }
+    
+    # 输出分析结果
+    logger.info("=" * 80)
+    logger.info("误差模式分析")
+    logger.info("=" * 80)
+    logger.info(f"最大位置误差: {patterns['max_error_anchor']['pos_error']:.6f}")
+    logger.info(f"  位置: batch={patterns['max_error_anchor']['batch_idx']}, anchor={patterns['max_error_anchor']['anchor_idx']}")
+    logger.info(f"  误差分解: X={patterns['max_error_anchor']['x_error']:.6f}, Y={patterns['max_error_anchor']['y_error']:.6f}, Z={patterns['max_error_anchor']['z_error']:.6f}")
+    logger.info(f"  Anchor属性: size={patterns['max_error_anchor']['anchor_size']:.2f}, angle={patterns['max_error_anchor']['anchor_angle']:.3f}, distance={patterns['max_error_anchor']['anchor_distance']:.2f}")
+    
+    logger.info("\n按anchor尺寸分组的误差:")
+    for key, value in patterns.items():
+        if key.startswith("size_bin_"):
+            logger.info(f"  尺寸范围 [{value['size_range'][0]:.2f}, {value['size_range'][1]:.2f}]: "
+                       f"平均位置误差={value['mean_pos_error']:.6f}, "
+                       f"X误差={value['mean_x_error']:.6f}, Y误差={value['mean_y_error']:.6f}, "
+                       f"样本数={value['count']}")
+    
+    logger.info("\n按角度分组的误差:")
+    for key, value in patterns.items():
+        if key.startswith("angle_bin_"):
+            logger.info(f"  角度范围 [{value['angle_range'][0]:.3f}, {value['angle_range'][1]:.3f}]: "
+                       f"平均位置误差={value['mean_pos_error']:.6f}, "
+                       f"X误差={value['mean_x_error']:.6f}, Y误差={value['mean_y_error']:.6f}, "
+                       f"样本数={value['count']}")
+    
+    return patterns
+
+
+def check_plugin_implementation(logger: logging.Logger) -> Dict:
+    """
+    检查SparseBox3DKeyPointsPlugin的实现，分析可能的FP16精度问题
+    
+    Args:
+        logger: 日志记录器
+    
+    Returns:
+        插件实现分析结果
+    """
+    import os
+    
+    logger.info("=" * 80)
+    logger.info("插件实现检查")
+    logger.info("=" * 80)
+    
+    analysis = {}
+    
+    # 1. 检查插件文件是否存在
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    project_root = os.path.abspath(os.path.join(script_dir, '../..'))
+    plugin_path = os.path.join(project_root, "deploy/sparsebox_plugin/lib/SparseBox3DKeyPointsPlugin.so")
+    kernel_path = os.path.join(project_root, "deploy/sparsebox_plugin/SparseBox3DKeyPointsKernel.cu")
+    
+    analysis["plugin_file_exists"] = os.path.exists(plugin_path)
+    analysis["kernel_file_exists"] = os.path.exists(kernel_path)
+    
+    if analysis["plugin_file_exists"]:
+        logger.info(f"✓ 插件库文件存在: {plugin_path}")
+    else:
+        logger.warning(f"✗ 插件库文件不存在: {plugin_path}")
+    
+    if analysis["kernel_file_exists"]:
+        logger.info(f"✓ Kernel源文件存在: {kernel_path}")
+        
+        # 读取kernel文件，检查关键实现
+        try:
+            with open(kernel_path, 'r', encoding='utf-8') as f:
+                kernel_content = f.read()
+            
+            # 检查关键实现点
+            checks = {
+                "FP32中间计算": "toFloat" in kernel_content or "float" in kernel_content,
+                "旋转矩阵计算": "rotation" in kernel_content.lower() or "matmul" in kernel_content.lower(),
+                "中心点累加": "center" in kernel_content.lower() and ("+" in kernel_content or "add" in kernel_content.lower()),
+                "数值范围检查": "clamp" in kernel_content.lower() or "fmaxf" in kernel_content or "fminf" in kernel_content,
+            }
+            
+            analysis["implementation_checks"] = checks
+            
+            logger.info("\n实现检查:")
+            for check_name, passed in checks.items():
+                status = "✓" if passed else "✗"
+                logger.info(f"  {status} {check_name}: {'通过' if passed else '未找到'}")
+            
+            # 检查FP16精度处理
+            if "toFloat" in kernel_content:
+                logger.info("\n✓ 检测到FP16到FP32的转换（toFloat函数）")
+                logger.info("  建议: 确保所有关键计算（旋转矩阵、中心点累加）都在FP32精度下进行")
+            else:
+                logger.warning("\n✗ 未检测到FP16到FP32的转换")
+                logger.warning("  警告: 如果使用FP16，可能导致精度损失")
+            
+            # 检查数值稳定性
+            if "clamp" in kernel_content.lower() or "fmaxf" in kernel_content:
+                logger.info("\n✓ 检测到数值范围检查/裁剪")
+                logger.info("  这有助于提高数值稳定性")
+            else:
+                logger.warning("\n✗ 未检测到数值范围检查")
+                logger.warning("  建议: 添加数值范围检查以提高FP16下的稳定性")
+            
+        except Exception as e:
+            logger.warning(f"读取kernel文件失败: {e}")
+            analysis["kernel_read_error"] = str(e)
+    else:
+        logger.warning(f"✗ Kernel源文件不存在: {kernel_path}")
+    
+    # 2. 检查插件参数
+    logger.info("\n插件使用建议:")
+    logger.info("  1. 对于FP16引擎，建议在关键计算步骤使用FP32精度")
+    logger.info("  2. 旋转矩阵乘法和中心点累加是误差的主要来源，应特别关注")
+    logger.info("  3. 考虑使用混合精度：输入输出FP16，中间计算FP32")
+    
+    return analysis
+
+
+def compare_keypoints(
+    pytorch_keypoints: List[Dict],
+    logger: logging.Logger
+) -> Dict:
+    """
+    对比关键点输出（目前只能分析PyTorch端的关键点，因为TensorRT引擎无法输出中间层）
+    
+    Args:
+        pytorch_keypoints: PyTorch捕获的关键点列表
+        logger: 日志记录器
+    
+    Returns:
+        关键点分析结果
+    """
+    if not pytorch_keypoints:
+        return {"error": "No keypoints captured"}
+    
+    logger.info("=" * 80)
+    logger.info("关键点输出分析")
+    logger.info("=" * 80)
+    
+    analysis = {}
+    for i, kp_data in enumerate(pytorch_keypoints):
+        layer_name = kp_data['layer']
+        keypoints = kp_data['keypoints']
+        anchor = kp_data['anchor']
+        
+        logger.info(f"\n层 {i}: {layer_name}")
+        logger.info(f"  关键点形状: {keypoints.shape}")
+        
+        if anchor is not None:
+            logger.info(f"  Anchor形状: {anchor.shape}")
+            # 分析关键点的统计信息
+            kp_np = keypoints.detach().cpu().numpy()
+            analysis[layer_name] = {
+                "shape": list(keypoints.shape),
+                "keypoints_stats": {
+                    "min": float(np.min(kp_np)),
+                    "max": float(np.max(kp_np)),
+                    "mean": float(np.mean(kp_np)),
+                    "std": float(np.std(kp_np)),
+                },
+                "keypoints_range": {
+                    "x_range": (float(np.min(kp_np[:, :, :, 0])), float(np.max(kp_np[:, :, :, 0]))),
+                    "y_range": (float(np.min(kp_np[:, :, :, 1])), float(np.max(kp_np[:, :, :, 1]))),
+                    "z_range": (float(np.min(kp_np[:, :, :, 2])), float(np.max(kp_np[:, :, :, 2]))),
+                }
+            }
+            logger.info(f"  关键点范围: X[{analysis[layer_name]['keypoints_range']['x_range'][0]:.2f}, {analysis[layer_name]['keypoints_range']['x_range'][1]:.2f}], "
+                       f"Y[{analysis[layer_name]['keypoints_range']['y_range'][0]:.2f}, {analysis[layer_name]['keypoints_range']['y_range'][1]:.2f}], "
+                       f"Z[{analysis[layer_name]['keypoints_range']['z_range'][0]:.2f}, {analysis[layer_name]['keypoints_range']['z_range'][1]:.2f}]")
+    
+    logger.info("\n注意: TensorRT引擎无法直接输出中间层（关键点），需要修改引擎构建才能对比。")
+    logger.info("建议: 检查SparseBox3DKeyPointsPlugin的实现，特别是FP16精度下的数值稳定性。")
+    
+    return analysis
 
 
 def compute_3d_iou(box1: np.ndarray, box2: np.ndarray) -> float:
@@ -763,11 +1193,13 @@ def validate_backbone(
     pytorch_model: nn.Module,
     engine: TensorRTEngine,
     img: torch.Tensor,
-    logger: logging.Logger
+    logger: logging.Logger,
+    analyze_plugin: bool = False
 ) -> Dict:
     """验证Backbone输出"""
     logger.info("=" * 80)
     logger.info("验证 Backbone")
+    logger.info(f"引擎精度类型: {engine.engine_dtype}")
     logger.info("=" * 80)
     
     # 确保img在正确的设备上
@@ -806,9 +1238,24 @@ def validate_backbone(
             engine_output_name = engine.output_names[0]
         engine_output_np = engine_outputs[engine_output_name]
     logger.info(f"TensorRT输出名称: {engine_output_name}, 形状: {engine_output_np.shape}")
+    logger.info(f"TensorRT输出数据类型: {engine_output_np.dtype}, PyTorch输出数据类型: {pytorch_output_np.dtype}")
+    
+    # 检查输出中的NaN/Inf
+    if np.isnan(engine_output_np).any():
+        nan_count = np.isnan(engine_output_np).sum()
+        logger.warning(f"TensorRT输出包含 {nan_count} 个NaN值")
+    if np.isinf(engine_output_np).any():
+        inf_count = np.isinf(engine_output_np).sum()
+        logger.warning(f"TensorRT输出包含 {inf_count} 个Inf值")
+    if np.isnan(pytorch_output_np).any():
+        nan_count = np.isnan(pytorch_output_np).sum()
+        logger.warning(f"PyTorch输出包含 {nan_count} 个NaN值")
+    if np.isinf(pytorch_output_np).any():
+        inf_count = np.isinf(pytorch_output_np).sum()
+        logger.warning(f"PyTorch输出包含 {inf_count} 个Inf值")
     
     # 计算差异
-    metrics = compute_metrics(pytorch_output_np, engine_output_np, "backbone_output")
+    metrics = compute_metrics(pytorch_output_np, engine_output_np, "backbone_output", analyze_plugin=analyze_plugin)
     
     logger.info(f"Backbone验证结果:")
     logger.info(f"  MSE: {metrics['mse']:.6e}")
@@ -1101,11 +1548,14 @@ def validate_head(
     time_interval: torch.Tensor,
     image_wh: torch.Tensor,
     lidar2img: torch.Tensor,
-    logger: logging.Logger
+    logger: logging.Logger,
+    analyze_plugin: bool = False,
+    head_wrapper=None
 ) -> Dict:
     """验证Head输出"""
     logger.info("=" * 80)
     logger.info("验证 Head (第一帧)")
+    logger.info(f"引擎精度类型: {engine.engine_dtype}")
     logger.info("=" * 80)
     
     # 确保所有输入在正确的设备上
@@ -1149,7 +1599,14 @@ def validate_head(
         "image_wh": image_wh.detach().cpu().numpy(),
         "lidar2img": lidar2img.detach().cpu().numpy(),
     }
+    
+    # 记录输入数据信息（用于调试）
+    logger.debug(f"引擎输入数据类型: {[f'{k}: {v.dtype}' for k, v in engine_inputs.items()]}")
+    
     engine_outputs = engine.infer(engine_inputs)
+    
+    # 记录输出数据信息（用于调试）
+    logger.debug(f"引擎输出数据类型: {[f'{k}: {v.dtype}' for k, v in engine_outputs.items()]}")
     
     # 比较所有输出
     all_metrics = {}
@@ -1172,10 +1629,13 @@ def validate_head(
         if engine_name:
             pytorch_np = pred_instance_feature.detach().cpu().numpy()
             engine_np = engine_outputs[engine_name]
-            metrics = compute_metrics(pytorch_np, engine_np, "pred_instance_feature")
+            metrics = compute_metrics(pytorch_np, engine_np, "pred_instance_feature", analyze_plugin=analyze_plugin)
             all_metrics["pred_instance_feature"] = metrics
             logger.info(f"pred_instance_feature验证结果 (引擎输出名称: {engine_name}):")
             logger.info(f"  MSE: {metrics['mse']:.6e}, MAE: {metrics['mae']:.6e}, Max Diff: {metrics['max_abs_diff']:.6e}")
+            if analyze_plugin and "error_distribution" in metrics:
+                logger.info(f"  误差分布 - P50: {metrics['error_distribution']['p50']:.6e}, P95: {metrics['error_distribution']['p95']:.6e}, P99: {metrics['error_distribution']['p99']:.6e}")
+                logger.info(f"  大误差比例: {metrics.get('large_error_ratio', 0):.2%}")
         else:
             logger.warning(f"未找到pred_instance_feature对应的引擎输出，可用输出: {list(engine_outputs.keys())}")
     
@@ -1189,10 +1649,18 @@ def validate_head(
         if engine_name:
             pytorch_np = pred_anchor.detach().cpu().numpy()
             engine_np = engine_outputs[engine_name]
-            metrics = compute_metrics(pytorch_np, engine_np, "pred_anchor")
+            metrics = compute_metrics(pytorch_np, engine_np, "pred_anchor", analyze_plugin=analyze_plugin)
             all_metrics["pred_anchor"] = metrics
             logger.info(f"pred_anchor验证结果 (引擎输出名称: {engine_name}):")
             logger.info(f"  MSE: {metrics['mse']:.6e}, MAE: {metrics['mae']:.6e}, Max Diff: {metrics['max_abs_diff']:.6e}")
+            if analyze_plugin:
+                if "error_distribution" in metrics:
+                    logger.info(f"  误差分布 - P50: {metrics['error_distribution']['p50']:.6e}, P95: {metrics['error_distribution']['p95']:.6e}, P99: {metrics['error_distribution']['p99']:.6e}")
+                    logger.info(f"  大误差比例: {metrics.get('large_error_ratio', 0):.2%}")
+                if "dimension_errors" in metrics:
+                    logger.info(f"  各维度误差:")
+                    for dim_err in metrics["dimension_errors"]:
+                        logger.info(f"    维度 {dim_err['dim']}: MAE={dim_err['mean_abs_diff']:.6e}, Max={dim_err['max_abs_diff']:.6e}")
         else:
             logger.warning(f"未找到pred_anchor对应的引擎输出，可用输出: {list(engine_outputs.keys())}")
     
@@ -1206,10 +1674,13 @@ def validate_head(
         if engine_name:
             pytorch_np = pred_class_score.detach().cpu().numpy()
             engine_np = engine_outputs[engine_name]
-            metrics = compute_metrics(pytorch_np, engine_np, "pred_class_score")
+            metrics = compute_metrics(pytorch_np, engine_np, "pred_class_score", analyze_plugin=analyze_plugin)
             all_metrics["pred_class_score"] = metrics
             logger.info(f"pred_class_score验证结果 (引擎输出名称: {engine_name}):")
             logger.info(f"  MSE: {metrics['mse']:.6e}, MAE: {metrics['mae']:.6e}, Max Diff: {metrics['max_abs_diff']:.6e}")
+            if analyze_plugin and "error_distribution" in metrics:
+                logger.info(f"  误差分布 - P50: {metrics['error_distribution']['p50']:.6e}, P95: {metrics['error_distribution']['p95']:.6e}, P99: {metrics['error_distribution']['p99']:.6e}")
+                logger.info(f"  大误差比例: {metrics.get('large_error_ratio', 0):.2%}")
         else:
             logger.warning(f"未找到pred_class_score对应的引擎输出，可用输出: {list(engine_outputs.keys())}")
     
@@ -1223,10 +1694,13 @@ def validate_head(
         if engine_name:
             pytorch_np = pred_quality_score.detach().cpu().numpy()
             engine_np = engine_outputs[engine_name]
-            metrics = compute_metrics(pytorch_np, engine_np, "pred_quality_score")
+            metrics = compute_metrics(pytorch_np, engine_np, "pred_quality_score", analyze_plugin=analyze_plugin)
             all_metrics["pred_quality_score"] = metrics
             logger.info(f"pred_quality_score验证结果 (引擎输出名称: {engine_name}):")
             logger.info(f"  MSE: {metrics['mse']:.6e}, MAE: {metrics['mae']:.6e}, Max Diff: {metrics['max_abs_diff']:.6e}")
+            if analyze_plugin and "error_distribution" in metrics:
+                logger.info(f"  误差分布 - P50: {metrics['error_distribution']['p50']:.6e}, P95: {metrics['error_distribution']['p95']:.6e}, P99: {metrics['error_distribution']['p99']:.6e}")
+                logger.info(f"  大误差比例: {metrics.get('large_error_ratio', 0):.2%}")
         else:
             logger.warning(f"未找到pred_quality_score对应的引擎输出，可用输出: {list(engine_outputs.keys())}")
     
@@ -1235,6 +1709,12 @@ def validate_head(
         logger.warning(f"未找到任何匹配的输出！")
         logger.warning(f"PyTorch输出: pred_instance_feature, pred_anchor, pred_class_score, pred_quality_score")
         logger.warning(f"TensorRT可用输出: {list(engine_outputs.keys())}")
+    
+    # 如果启用关键点捕获，分析关键点（通过head_wrapper访问）
+    if head_wrapper is not None and hasattr(head_wrapper, 'capture_keypoints') and head_wrapper.capture_keypoints:
+        if hasattr(head_wrapper, 'captured_keypoints') and head_wrapper.captured_keypoints:
+            keypoints_analysis = compare_keypoints(head_wrapper.captured_keypoints, logger)
+            all_metrics["keypoints_analysis"] = keypoints_analysis
     
     return all_metrics
 
@@ -1259,6 +1739,11 @@ def main():
     logger.info(f"Head引擎: {args.head_engine}")
     logger.info(f"样本索引: {args.sample_idx}")
     logger.info(f"样本数量: {args.num_samples}")
+    
+    # 如果启用插件误差分析，先检查插件实现
+    if args.analyze_plugin_error or args.capture_keypoints or args.analyze_error_patterns:
+        plugin_analysis = check_plugin_implementation(logger)
+        logger.info("")
     
     # 设置随机种子
     set_random_seed(seed=100, deterministic=args.deterministic)
@@ -1303,7 +1788,7 @@ def main():
     
     # 创建包装类
     backbone_wrapper = Sparse4DBackboneWrapper(model).to(device)
-    head_wrapper = Sparse4DHead1stWrapper(model.head).to(device)
+    head_wrapper = Sparse4DHead1stWrapper(model.head, capture_keypoints=args.capture_keypoints).to(device)
     
     # 加载TensorRT引擎
     logger.info("加载TensorRT引擎...")
@@ -1416,7 +1901,7 @@ def main():
             logger.info(f"图像数据形状: {img.shape if hasattr(img, 'shape') else 'unknown'}")
         
         # 验证Backbone
-        backbone_metrics = validate_backbone(backbone_wrapper, backbone_engine, img, logger)
+        backbone_metrics = validate_backbone(backbone_wrapper, backbone_engine, img, logger, analyze_plugin=args.analyze_plugin_error)
         
         # 获取backbone输出（用于head验证）
         with torch.no_grad():
@@ -1675,8 +2160,57 @@ def main():
                 time_interval,
                 image_wh,
                 lidar2img,
-                logger
+                logger,
+                analyze_plugin=args.analyze_plugin_error,
+                head_wrapper=head_wrapper
             )
+            
+            # 如果启用误差模式分析，分析pred_anchor的误差模式
+            if args.analyze_error_patterns and "pred_anchor" in head_metrics:
+                pred_anchor_metrics = head_metrics["pred_anchor"]
+                if "error" not in pred_anchor_metrics:
+                    # 需要重新获取PyTorch和TensorRT的anchor输出
+                    with torch.no_grad():
+                        outputs = head_wrapper(
+                            feature,
+                            spatial_shapes,
+                            level_start_index,
+                            instance_feature,
+                            anchor,
+                            time_interval,
+                            image_wh,
+                            lidar2img,
+                        )
+                        pytorch_pred_anchor = outputs[1].detach().cpu().numpy()
+                    
+                    # 获取TensorRT的anchor输出
+                    engine_inputs = {
+                        "feature": feature.detach().cpu().numpy(),
+                        "spatial_shapes": spatial_shapes.detach().cpu().numpy().astype(np.int32),
+                        "level_start_index": level_start_index.detach().cpu().numpy().astype(np.int32),
+                        "instance_feature": instance_feature.detach().cpu().numpy(),
+                        "anchor": anchor.detach().cpu().numpy(),
+                        "time_interval": time_interval.detach().cpu().numpy(),
+                        "image_wh": image_wh.detach().cpu().numpy(),
+                        "lidar2img": lidar2img.detach().cpu().numpy(),
+                    }
+                    engine_outputs = current_head_engine.infer(engine_inputs)
+                    
+                    # 找到pred_anchor输出
+                    engine_pred_anchor = None
+                    for name in ["pred_anchor", "anchor", "output_1"]:
+                        if name in engine_outputs:
+                            engine_pred_anchor = engine_outputs[name]
+                            break
+                    
+                    if engine_pred_anchor is not None:
+                        error_patterns = analyze_error_patterns(pytorch_pred_anchor, engine_pred_anchor, logger)
+                        head_metrics["error_patterns"] = error_patterns
+            
+            # 如果启用关键点捕获，分析关键点
+            if args.capture_keypoints and hasattr(head_wrapper, 'captured_keypoints') and head_wrapper.captured_keypoints:
+                keypoints_analysis = compare_keypoints(head_wrapper.captured_keypoints, logger)
+                head_metrics["keypoints_analysis"] = keypoints_analysis
         else:
             # 第二帧验证（需要额外的输入：temp_instance_feature, temp_anchor, mask, track_id）
             # 注意：当前脚本的head_wrapper只支持第一帧，第二帧需要额外的包装类

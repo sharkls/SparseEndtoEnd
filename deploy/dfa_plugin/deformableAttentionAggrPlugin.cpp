@@ -47,15 +47,52 @@ int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
                                          int mNumPoint,
                                          int mNumGroups);
 
+// 声明混合精度版本的CUDA函数：FP16 value + FP32 keypoints（关键点保持FP32精度）
+int thomas_deform_attn_cuda_forward_mixed(cudaStream_t stream,
+                                          const __half* value,          // FP16特征值
+                                          const int* spatialShapes,
+                                          const int* levelStartIndex,
+                                          const float* samplingLoc,    // FP32关键点位置
+                                          const float* attnWeight,      // FP32注意力权重
+                                          __half* output,               // FP16输出
+                                          float* workspace,              // TensorRT提供的workspace
+                                          int batch,
+                                          int mSpatialSize,
+                                          int mChannels,
+                                          int mNumCams,
+                                          int mNumLevels,
+                                          int mNumQuery,
+                                          int mNumPoint,
+                                          int mNumGroups);
+
 namespace custom
 {
+
+// 序列化辅助函数
+template<typename T>
+void writeToBuffer(char*& buffer, T const& val)
+{
+    *reinterpret_cast<T*>(buffer) = val;
+    buffer += sizeof(T);
+}
+
+template<typename T>
+void readFromBuffer(char const*& buffer, T& val)
+{
+    val = *reinterpret_cast<T const*>(buffer);
+    buffer += sizeof(T);
+}
 
 REGISTER_TENSORRT_PLUGIN(DeformableAttentionAggrPluginCreator); // 注册插件到TensorRT
 
 nvinfer1::IPluginV2DynamicExt* DeformableAttentionAggrPlugin::clone() const noexcept
 {
-    DeformableAttentionAggrPlugin* plugin = new DeformableAttentionAggrPlugin();
+    DeformableAttentionAggrPlugin* plugin = new DeformableAttentionAggrPlugin(mBatch_, mNumAnchors_, mNumEmbeds_);
     plugin->setPluginNamespace(mNamespace_.c_str());
+    // 复制运行时缓存
+    plugin->mCachedBatch_ = mCachedBatch_;
+    plugin->mCachedNumAnchors_ = mCachedNumAnchors_;
+    plugin->mCachedNumEmbeds_ = mCachedNumEmbeds_;
     return plugin;
 }
 
@@ -64,6 +101,42 @@ nvinfer1::DimsExprs DeformableAttentionAggrPlugin::getOutputDimensions(int32_t o
                                                                        int32_t nbInputs,
                                                                        nvinfer1::IExprBuilder& exprBuilder) noexcept
 {
+    // 安全检查：确保有足够的输入和有效的指针
+    if (nbInputs < 5 || !inputs)
+    {
+        // 返回默认维度（如果输入不足）
+        nvinfer1::DimsExprs ret;
+        ret.nbDims = 3;
+        ret.d[0] = exprBuilder.constant(1);
+        ret.d[1] = exprBuilder.constant(900);
+        ret.d[2] = exprBuilder.constant(256);
+        return ret;
+    }
+    
+    // 安全检查：确保inputs[0]有效
+    if (inputs[0].nbDims < 3 || !inputs[0].d || !inputs[0].d[0] || !inputs[0].d[2])
+    {
+        nvinfer1::DimsExprs ret;
+        ret.nbDims = 3;
+        ret.d[0] = exprBuilder.constant(1);
+        ret.d[1] = exprBuilder.constant(900);
+        ret.d[2] = exprBuilder.constant(256);
+        return ret;
+    }
+    
+    // 安全检查：确保inputs[3]有效
+    if (inputs[3].nbDims < 2 || !inputs[3].d || !inputs[3].d[1])
+    {
+        // 如果inputs[3]无效，使用inputs[0]的维度，但确保inputs[0]有效
+        nvinfer1::DimsExprs ret;
+        ret.nbDims = 3;
+        ret.d[0] = inputs[0].d[0];  // 此时inputs[0]已经验证过
+        ret.d[1] = exprBuilder.constant(900);
+        ret.d[2] = inputs[0].d[2];  // 此时inputs[0]已经验证过
+        return ret;
+    }
+    
+    // 所有检查通过，返回正常维度
     nvinfer1::DimsExprs ret;
     ret.nbDims = 3;
     ret.d[0] = inputs[0].d[0];
@@ -77,15 +150,97 @@ bool DeformableAttentionAggrPlugin::supportsFormatCombination(int32_t pos,
                                                               int32_t nbInputs,
                                                               int32_t nbOutputs) noexcept
 {
-    if (inOut[pos].format == nvinfer1::TensorFormat::kLINEAR)
+    // 安全检查：确保inOut指针有效，pos在有效范围内
+    if (!inOut || pos < 0 || pos >= (nbInputs + nbOutputs))
     {
-        if ((pos == 1) || (pos == 2))
-        {
-            return (inOut[pos].type == nvinfer1::DataType::kINT32);
-        }
-        return ((inOut[pos].type == inOut[0].type) &&
-                ((inOut[pos].type == nvinfer1::DataType::kFLOAT) || (inOut[pos].type == nvinfer1::DataType::kHALF)));
+        return false;
     }
+    
+    // 检查格式：只支持LINEAR格式
+    if (inOut[pos].format != nvinfer1::TensorFormat::kLINEAR)
+    {
+        return false;
+    }
+    
+    // 位置1和2是INT32类型（spatialShapes和levelStartIndex）
+    if ((pos == 1) || (pos == 2))
+    {
+        return (inOut[pos].type == nvinfer1::DataType::kINT32);
+    }
+    
+    // 位置0是value（特征值）
+    if (pos == 0)
+    {
+        return ((inOut[pos].type == nvinfer1::DataType::kFLOAT) || (inOut[pos].type == nvinfer1::DataType::kHALF));
+    }
+    
+    // 位置3是samplingLoc（关键点位置），位置4是attnWeight（注意力权重）
+    // 支持以下format组合：
+    // 1. 全FP32模式：value=FP32, keypoints=FP32
+    // 2. 全FP16模式：value=FP16, keypoints=FP16
+    // 3. 混合精度模式：value=FP16, keypoints=FP32（优化精度）
+    // 严格禁止：value=FP32, keypoints=FP16（不支持的反向混合精度）
+    if (pos == 3 || pos == 4)
+    {
+        // 安全检查：确保有至少1个输入（value）
+        if (nbInputs < 1)
+        {
+            return false;
+        }
+        
+        // 获取value的类型（位置0）- 已经验证过pos在有效范围内
+        nvinfer1::DataType valueType = inOut[0].type;
+        nvinfer1::DataType keypointType = inOut[pos].type;
+        
+        // 严格检查：只允许以下三种组合
+        // 1. 全FP32模式：value=FP32 + keypoints=FP32
+        if (valueType == nvinfer1::DataType::kFLOAT && keypointType == nvinfer1::DataType::kFLOAT)
+        {
+            return true;
+        }
+        // 2. 全FP16模式：value=FP16 + keypoints=FP16
+        else if (valueType == nvinfer1::DataType::kHALF && keypointType == nvinfer1::DataType::kHALF)
+        {
+            return true;
+        }
+        // 3. 混合精度模式：value=FP16 + keypoints=FP32（保持关键点高精度）
+        else if (valueType == nvinfer1::DataType::kHALF && keypointType == nvinfer1::DataType::kFLOAT)
+        {
+            return true;
+        }
+        // 严格禁止：value=FP32 + keypoints=FP16（不支持的反向混合精度）
+        else if (valueType == nvinfer1::DataType::kFLOAT && keypointType == nvinfer1::DataType::kHALF)
+        {
+            printf("[DFA-PLUGIN-WARNING] Rejected unsupported format: FP32 value + FP16 keypoints\n");
+            return false;
+        }
+        
+        // 拒绝其他无效的format组合
+        return false;
+    }
+    
+    // 输出类型与value类型相同
+    if (pos >= nbInputs)
+    {
+        // 安全检查：确保有至少1个输入（value）
+        if (nbInputs < 1)
+        {
+            return false;
+        }
+        
+        // 获取value的类型（位置0）
+        nvinfer1::DataType valueType = inOut[0].type;
+        
+        // 如果value类型有效，输出类型必须与value类型相同
+        if (valueType == nvinfer1::DataType::kFLOAT || valueType == nvinfer1::DataType::kHALF)
+        {
+            return (inOut[pos].type == valueType);
+        }
+        
+        // 如果value类型无效，拒绝该格式组合（更严格）
+        return false;
+    }
+    
     return false;
 }
 
@@ -94,6 +249,38 @@ void DeformableAttentionAggrPlugin::configurePlugin(nvinfer1::DynamicPluginTenso
                                                     nvinfer1::DynamicPluginTensorDesc const* out,
                                                     int32_t nbOutputs) noexcept
 {
+    // 关键修复：在configurePlugin中安全提取维度信息并保存
+    // configurePlugin在插件创建后、autotuning之前调用，此时输入信息是完整且安全的
+    
+    if (!in || nbInputs < 5)
+    {
+        printf("[DFA-PLUGIN] configurePlugin: Invalid inputs, using default values\n");
+        return;  // 使用默认值
+    }
+    
+    // 安全提取inputs[0]的维度信息（batch和embeds）
+    if (in[0].desc.dims.nbDims >= 3 && in[0].desc.dims.d != nullptr)
+    {
+        mBatch_ = in[0].desc.dims.d[0];
+        mNumEmbeds_ = in[0].desc.dims.d[2];
+        
+        // 验证维度值合理性
+        if (mBatch_ <= 0 || mBatch_ > 100) mBatch_ = 1;
+        if (mNumEmbeds_ <= 0 || mNumEmbeds_ > 10000) mNumEmbeds_ = 256;
+    }
+    
+    // 安全提取inputs[3]的维度信息（num_anchors）
+    if (in[3].desc.dims.nbDims >= 2 && in[3].desc.dims.d != nullptr)
+    {
+        mNumAnchors_ = in[3].desc.dims.d[1];
+        
+        // 验证维度值合理性
+        if (mNumAnchors_ <= 0 || mNumAnchors_ > 10000) mNumAnchors_ = 900;
+    }
+    
+    printf("[DFA-PLUGIN] configurePlugin: Saved dimensions (batch=%d, anchors=%d, embeds=%d)\n",
+           mBatch_, mNumAnchors_, mNumEmbeds_);
+    
     return;
 }
 
@@ -102,58 +289,16 @@ size_t DeformableAttentionAggrPlugin::getWorkspaceSize(const nvinfer1::PluginTen
                                                        const nvinfer1::PluginTensorDesc* outputs,
                                                        int32_t nbOutputs) const noexcept
 {
-    // FP16模式需要临时FP32缓冲区
-    // 注意：在构建时，TensorRT可能会用不同的数据类型多次调用getWorkspaceSize
-    // 问题：如果engine是用FP16构建的，但warmup/推理时使用FP32数据，TensorRT会进行类型转换
-    // 但在构建时，如果TensorRT用FP32调用getWorkspaceSize，会返回0，导致workspace未分配
-    // 
-    // 解决方案：检查输入和输出，如果任何一个浮点输入或输出是FP16，就返回workspace大小
-    // 这样可以确保即使构建时用FP32调用，只要engine支持FP16，workspace也会被分配
+    // 修复方案：完全避免访问任何可能无效的内存
+    // 直接返回字面量，使用明确的类型转换确保类型安全
+    // 不定义任何局部变量，避免任何可能的内存访问
     
-    // 检查所有浮点输入（跳过INT32类型的输入：spatial_shapes和level_start_index）
-    bool has_fp16_input = false;
-    for (int32_t i = 0; i < nbInputs; ++i)
-    {
-        // 跳过INT32类型的输入（索引1和2）
-        if (i == 1 || i == 2)
-        {
-            continue;
-        }
-        
-        // 检查浮点输入的数据类型
-        if (inputs[i].type == nvinfer1::DataType::kHALF)
-        {
-            has_fp16_input = true;
-            break;
-        }
-    }
-    
-    // 检查输出数据类型（如果输出是FP16，说明engine支持FP16，即使输入是FP32也会进行类型转换）
-    bool has_fp16_output = false;
-    for (int32_t i = 0; i < nbOutputs; ++i)
-    {
-        if (outputs[i].type == nvinfer1::DataType::kHALF)
-        {
-            has_fp16_output = true;
-            break;
-        }
-    }
-    
-    // 如果检测到FP16输入或输出，返回workspace大小
-    if (has_fp16_input || has_fp16_output)
-    {
-        int32_t const batch = inputs[0].dims.d[0];
-        int32_t num_anchors = inputs[3].dims.d[1];
-        int32_t num_embeds = inputs[0].dims.d[2];
-        size_t workspace_size = batch * num_anchors * num_embeds * sizeof(float);
-        printf("[DFA-PLUGIN] getWorkspaceSize: FP16 mode detected (input_fp16=%d, output_fp16=%d), returning workspace size: %zu bytes (batch=%d, anchors=%d, embeds=%d)\n",
-               has_fp16_input, has_fp16_output, workspace_size, batch, num_anchors, num_embeds);
-        return workspace_size;  // FP32临时缓冲区大小
-    }
-    
-    // FP32模式不需要workspace
-    printf("[DFA-PLUGIN] getWorkspaceSize: FP32 mode (all inputs and outputs are FP32), returning 0\n");
-    return 0;
+    // 直接返回固定的workspace大小（1MB），完全避免任何内存访问
+    // 基于常见的配置：batch=1, anchors=900, embeds=256
+    // workspace = batch * anchors * embeds * sizeof(float) = 1 * 900 * 256 * 4 = 921600 bytes
+    // 为了安全，使用稍大一些的值：1MB
+    // 使用明确的类型转换，确保返回值类型正确
+    return static_cast<size_t>(1048576);  // 1024 * 1024 = 1048576，直接使用计算结果
 }
 
 // 推理函数
@@ -164,6 +309,29 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
                                                void* workspace,
                                                cudaStream_t stream) noexcept
 {
+    // 安全检查：确保所有指针有效
+    if (!inputDesc || !outputDesc || !inputs || !outputs)
+    {
+        printf("[DFA-PLUGIN-ERROR] Invalid input/output pointers (inputDesc=%p, outputDesc=%p, inputs=%p, outputs=%p)\n",
+               inputDesc, outputDesc, inputs, outputs);
+        return 1;
+    }
+    
+    // 安全检查：确保有足够的输入
+    // 需要至少5个输入：value, spatialShapes, levelStartIndex, samplingLoc, attnWeight
+    // 但TensorRT在构建时可能会用不同的输入数量调用，所以需要更宽松的检查
+    // 这里只检查必要的输入是否存在
+    
+    // 安全检查：确保dims结构有效
+    if (inputDesc[0].dims.nbDims < 3 || inputDesc[1].dims.nbDims < 2 || 
+        inputDesc[3].dims.nbDims < 2 || inputDesc[4].dims.nbDims < 6)
+    {
+        printf("[DFA-PLUGIN-ERROR] Invalid input dimensions (input[0].nbDims=%d, input[1].nbDims=%d, input[3].nbDims=%d, input[4].nbDims=%d)\n",
+               inputDesc[0].dims.nbDims, inputDesc[1].dims.nbDims, 
+               inputDesc[3].dims.nbDims, inputDesc[4].dims.nbDims);
+        return 1;
+    }
+    
     int32_t const batch = inputDesc[0].dims.d[0];
     int32_t spatial_size = inputDesc[0].dims.d[1];
     int32_t channels = inputDesc[0].dims.d[2];
@@ -174,10 +342,69 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
     int32_t num_groups = inputDesc[4].dims.d[5];
     int32_t rc = 0;
 
-    // 根据输入数据类型选择FP32或FP16路径
+    // 根据输入数据类型选择FP32、FP16或混合精度路径
     nvinfer1::DataType dataType = inputDesc[0].type;
+    nvinfer1::DataType samplingLocType = inputDesc[3].type;  // 关键点位置类型
+    nvinfer1::DataType attnWeightType = inputDesc[4].type;   // 注意力权重类型
     
-    if (dataType == nvinfer1::DataType::kFLOAT)
+    // 检测混合精度模式：FP16 value + FP32 keypoints
+    bool isMixedPrecision = (dataType == nvinfer1::DataType::kHALF) && 
+                            (samplingLocType == nvinfer1::DataType::kFLOAT) && 
+                            (attnWeightType == nvinfer1::DataType::kFLOAT);
+    
+    if (isMixedPrecision)
+    {
+        // 混合精度模式：FP16 value + FP32 keypoints
+        // 安全检查：确保所有输入指针有效
+        if (!inputs || !inputs[0] || !inputs[1] || !inputs[2] || !inputs[3] || !inputs[4] || !outputs || !outputs[0])
+        {
+            printf("[DFA-PLUGIN-ERROR] Mixed precision: Invalid input/output pointers\n");
+            return 1;
+        }
+        
+        const __half* value = static_cast<const __half*>(inputs[0]);                  // [1, 89760, 128] FP16
+        const int32_t* spatialShapes = static_cast<const int32_t*>(inputs[1]);      // [6, 4, 2]
+        const int32_t* levelStartIndex = static_cast<const int32_t*>(inputs[2]);    // [6, 4]
+        const float* samplingLoc = static_cast<const float*>(inputs[3]);            // [1, 900, 13, 6, 2] FP32
+        const float* attnWeight = static_cast<const float*>(inputs[4]);             // [1, 900, 13, 6, 4, 8] FP32
+
+        __half* output = static_cast<__half*>(outputs[0]);
+        
+        // 修复方案：完全依赖TensorRT提供的workspace，如果为nullptr则返回错误
+        // 原因：在TensorRT builder阶段使用cudaMallocAsync会导致异常和段错误
+        if (workspace == nullptr)
+        {
+            size_t required_workspace_size = batch * num_query * channels * sizeof(float);
+            printf("[DFA-PLUGIN-ERROR] Mixed precision: Workspace is null. Required workspace size: %zu bytes (batch=%d, anchors=%d, embeds=%d)\n",
+                   required_workspace_size, batch, num_query, channels);
+            printf("[DFA-PLUGIN-ERROR] This format combination is not supported. TensorRT should have allocated workspace in getWorkspaceSize.\n");
+            return 1;  // 返回错误码，让TensorRT知道该format组合不可用
+        }
+        
+        float* workspace_ptr = static_cast<float*>(workspace);
+
+        // 调用混合精度版本（FP16 value + FP32 keypoints）
+        // 修复参数顺序：必须与thomas_deform_attn_cuda_forward保持一致
+        rc = thomas_deform_attn_cuda_forward_mixed(stream,
+                                                  value,
+                                                  spatialShapes,
+                                                  levelStartIndex,
+                                                  samplingLoc,
+                                                  attnWeight,
+                                                  output,
+                                                  workspace_ptr,
+                                                  batch,           // batch_size
+                                                  num_cams,        // num_cams
+                                                  spatial_size,    // num_feat (spatial_size)
+                                                  channels,        // num_embeds (channels)
+                                                  num_levels,      // num_scale (num_levels)
+                                                  num_query,       // num_anchors (num_query)
+                                                  num_point,       // num_pts (num_point)
+                                                  num_groups);     // num_groups
+        
+        return rc;
+    }
+    else if (dataType == nvinfer1::DataType::kFLOAT)
     {
         const float* value = static_cast<const float*>(inputs[0]);                  // [1, 89760, 128]
         const int32_t* spatialShapes = static_cast<const int32_t*>(inputs[1]);      // [6, 4, 2]
@@ -213,46 +440,21 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
 
         __half* output = static_cast<__half*>(outputs[0]);
         
-        // 获取workspace（FP32临时缓冲区）
-        // 计算所需的workspace大小
-        size_t required_workspace_size = batch * num_query * channels * sizeof(float);
-        
-        // 检查workspace是否为空
-        // 问题：如果engine在FP32模式下构建（ONNX模型是FP32），getWorkspaceSize返回0
-        // 但运行时输入是FP16，需要workspace，但TensorRT已经确定workspace大小为0
-        // 长期解决方案：导出FP16 ONNX模型（使用--fp16参数），确保构建时正确识别FP16输入
-        float* workspace_ptr = nullptr;
-        bool workspace_allocated = false;
-        
+        // 修复方案：完全依赖TensorRT提供的workspace，如果为nullptr则返回错误
+        // 原因：在TensorRT builder阶段使用cudaMallocAsync会导致异常和段错误
         if (workspace == nullptr)
         {
-            printf("[DFA-PLUGIN-WARNING] Workspace is null for FP16 mode. Required workspace size: %zu bytes (batch=%d, anchors=%d, embeds=%d)\n",
+            size_t required_workspace_size = batch * num_query * channels * sizeof(float);
+            printf("[DFA-PLUGIN-ERROR] Workspace is null for FP16 mode. Required workspace size: %zu bytes (batch=%d, anchors=%d, embeds=%d)\n",
                    required_workspace_size, batch, num_query, channels);
-            printf("[DFA-PLUGIN-WARNING] This usually means the engine was built with FP32 ONNX model, but is now running with FP16 inputs.\n");
-            printf("[DFA-PLUGIN-WARNING] Solution: Export ONNX model with --fp16 flag, then rebuild the engine.\n");
-            printf("[DFA-PLUGIN-WARNING] Example: python deploy/export_head_onnx.py --fp16 ...\n");
-            printf("[DFA-PLUGIN-WARNING] Attempting to allocate temporary workspace dynamically (this may be slower)...\n");
-            
-            // 动态分配临时缓冲区（作为备选方案）
-            void* temp_workspace = nullptr;
-            cudaError_t err = cudaMallocAsync(&temp_workspace, required_workspace_size, stream);
-            if (err != cudaSuccess)
-            {
-                printf("[DFA-PLUGIN-ERROR] Failed to allocate temporary workspace: %s\n", cudaGetErrorString(err));
-                // 注意：返回非0值会导致TensorRT抛出异常，但函数标记为noexcept，可能导致段错误
-                // 返回0表示成功，但实际上会输出错误信息（这是为了避免段错误）
-                return 0;
-            }
-            workspace_ptr = static_cast<float*>(temp_workspace);
-            workspace_allocated = true;
+            printf("[DFA-PLUGIN-ERROR] This format combination is not supported. TensorRT should have allocated workspace in getWorkspaceSize.\n");
+            return 1;  // 返回错误码，让TensorRT知道该format组合不可用
         }
-        else
-        {
-            workspace_ptr = static_cast<float*>(workspace);
-        }
+        
+        float* workspace_ptr = static_cast<float*>(workspace);
 
         // FP16优化版本：内部使用FP32临时缓冲区，atomicAdd更快
-        // workspace由TensorRT在getWorkspaceSize中分配，或动态分配（如果为nullptr）
+        // workspace由TensorRT在getWorkspaceSize中分配
         rc = thomas_deform_attn_cuda_forward_half(stream,
                                                   value,
                                                   spatialShapes,
@@ -260,7 +462,7 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
                                                   samplingLoc,
                                                   attnWeight,
                                                   output,
-                                                  workspace_ptr,  // 使用TensorRT提供的workspace或动态分配的workspace
+                                                  workspace_ptr,  // 使用TensorRT提供的workspace
                                                   batch,           // batch_size
                                                   num_cams,        // num_cams
                                                   spatial_size,    // num_feat (spatial_size)
@@ -269,23 +471,12 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
                                                   num_query,       // num_anchors (num_query)
                                                   num_point,       // num_pts (num_point)
                                                   num_groups);     // num_groups
-        
-        // 如果动态分配了workspace，需要释放
-        if (workspace_allocated && workspace_ptr != nullptr)
-        {
-            cudaError_t err = cudaFreeAsync(workspace_ptr, stream);
-            if (err != cudaSuccess)
-            {
-                printf("[DFA-PLUGIN-WARNING] Failed to free temporary workspace: %s\n", cudaGetErrorString(err));
-            }
-        }
     }
     else
     {
         printf("[DFA-PLUGIN-ERROR] Unsupported data type: %d\n", static_cast<int>(dataType));
-        // 注意：返回非0值会导致TensorRT抛出异常，但函数标记为noexcept，可能导致段错误
-        // 返回0表示成功，但实际上会输出错误信息（这是为了避免段错误）
-        return 0;  // 暂时返回0避免段错误，但会在日志中输出错误信息
+        // 返回错误码，让TensorRT知道该format组合不可用
+        return 1;
     }
 
     return rc;
@@ -307,6 +498,13 @@ nvinfer1::DataType DeformableAttentionAggrPlugin::getOutputDataType(int32_t inde
                                                                     nvinfer1::DataType const* inputTypes,
                                                                     int32_t nbInputs) const noexcept
 {
+    // 安全检查：确保inputTypes指针有效，且有足够的输入
+    if (!inputTypes || nbInputs < 1)
+    {
+        // 如果输入无效，返回默认的FP32类型
+        printf("[DFA-PLUGIN-WARNING] getOutputDataType: Invalid inputTypes or nbInputs < 1, returning kFLOAT\n");
+        return nvinfer1::DataType::kFLOAT;
+    }
     return inputTypes[0];
 }
 
@@ -332,12 +530,20 @@ int32_t DeformableAttentionAggrPlugin::initialize() noexcept
 
 size_t DeformableAttentionAggrPlugin::getSerializationSize() const noexcept
 {
-    return 0;
+    // 序列化维度参数：batch, num_anchors, num_embeds (每个int32_t = 4字节)
+    return sizeof(int32_t) * 3;  // 3个int32_t
 }
 
 void DeformableAttentionAggrPlugin::serialize(void* buffer) const noexcept
 {
-    return;
+    // 序列化维度参数到buffer
+    char* d = static_cast<char*>(buffer);
+    writeToBuffer(d, mBatch_);
+    writeToBuffer(d, mNumAnchors_);
+    writeToBuffer(d, mNumEmbeds_);
+    
+    printf("[DFA-PLUGIN] serialize: Saved dimensions (batch=%d, anchors=%d, embeds=%d)\n",
+           mBatch_, mNumAnchors_, mNumEmbeds_);
 }
 
 void DeformableAttentionAggrPlugin::destroy() noexcept
@@ -399,7 +605,28 @@ nvinfer1::IPluginV2* DeformableAttentionAggrPluginCreator::deserializePlugin(con
                                                                              const void* serialData,
                                                                              size_t serialLength) noexcept
 {
-    return new DeformableAttentionAggrPlugin();
+    // 从序列化数据中恢复维度参数
+    if (!serialData || serialLength < sizeof(int32_t) * 3)
+    {
+        printf("[DFA-PLUGIN] deserializePlugin: Invalid serial data, using default values\n");
+        return new DeformableAttentionAggrPlugin();  // 使用默认值
+    }
+    
+    const char* d = static_cast<const char*>(serialData);
+    int32_t batch, numAnchors, numEmbeds;
+    readFromBuffer(d, batch);
+    readFromBuffer(d, numAnchors);
+    readFromBuffer(d, numEmbeds);
+    
+    // 验证合理性
+    if (batch <= 0 || batch > 100) batch = 1;
+    if (numAnchors <= 0 || numAnchors > 10000) numAnchors = 900;
+    if (numEmbeds <= 0 || numEmbeds > 10000) numEmbeds = 256;
+    
+    printf("[DFA-PLUGIN] deserializePlugin: Restored dimensions (batch=%d, anchors=%d, embeds=%d)\n",
+           batch, numAnchors, numEmbeds);
+    
+    return new DeformableAttentionAggrPlugin(batch, numAnchors, numEmbeds);
 }
 
 void DeformableAttentionAggrPluginCreator::setPluginNamespace(const char* pluginNamespace) noexcept

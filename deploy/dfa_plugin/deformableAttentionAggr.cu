@@ -270,6 +270,86 @@ __global__ void thomas_deformable_aggregation_kernel_half(
     }
 }
 
+// 混合精度版本的聚合kernel：FP16 value + FP32 keypoints
+// 关键优化：关键点使用FP32精度，减少精度损失
+__global__ void thomas_deformable_aggregation_kernel_mixed(
+    const int num_kernels,
+    __half* output,                          // 输出（FP16，但不会被使用）
+    const __half* mc_ms_feat,                // FP16特征值
+    const int* spatial_shape,
+    const int* scale_start_index,
+    const float* sample_location,            // FP32关键点位置（混合精度）
+    const float* weights,                    // FP32注意力权重（混合精度）
+    float* temp_output,                      // 临时FP32缓冲区 [batch_size * num_anchors * num_embeds]
+    int batch_size,
+    int num_cams,
+    int num_feat,
+    int num_embeds,
+    int num_scale,
+    int num_anchors,
+    int num_pts,
+    int num_groups)
+{
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_kernels)
+        return;
+    
+    // 保存原始的全局线程索引用于权重计算
+    const int original_idx = idx;
+    
+    // 计算各个维度的索引
+    const int channel_index = idx % num_embeds;      // 获取通道索引值
+    idx /= num_embeds;
+    const int scale_index = idx % num_scale;         // 获取尺度索引值
+    idx /= num_scale;
+    const int cam_index = idx % num_cams;            // 获取相机索引值
+    idx /= num_cams;
+    const int pts_index = idx % num_pts;             // 获取映射点索引值
+    idx /= num_pts;
+    int anchor_index = idx % num_anchors;            // 获取锚点索引值
+    idx /= num_anchors;
+    const int batch_index = idx % batch_size;        // 获取批次索引值
+    
+    // 修复：使用与PyTorch版本一致的权重索引计算
+    const float weight = weights[original_idx / (num_embeds / num_groups)];  // FP32权重
+
+    anchor_index = batch_index * num_anchors + anchor_index;     // 计算当前线程中锚点索引值
+    const int loc_offset = ((anchor_index * num_pts + pts_index) * num_cams + cam_index) << 1;  // 计算当前线程中关键映射点索引值
+
+    // 确认3D关键点映射到图像上的采样点在图像范围内（使用FP32精度）
+    const float loc_w = sample_location[loc_offset];  // 直接使用FP32，无需转换
+    if (loc_w <= 0 || loc_w >= 1)
+        return;
+    const float loc_h = sample_location[loc_offset + 1];  // 直接使用FP32，无需转换
+    if (loc_h <= 0 || loc_h >= 1)
+        return;
+
+    int cam_scale_index = cam_index * num_scale + scale_index;   // 计算当前线程中相机尺度的索引值
+    const int value_offset =
+        (batch_index * num_feat + scale_start_index[cam_scale_index]) * num_embeds + channel_index;  // 计算当前线程中特征值的偏移量
+
+    cam_scale_index = cam_scale_index << 1;
+    const int h = spatial_shape[cam_scale_index];
+    const int w = spatial_shape[cam_scale_index + 1];
+
+    // 计算采样点的像素坐标（使用FP32精度）
+    const float h_im = loc_h * h - 0.5;
+    const float w_im = loc_w * w - 0.5;
+
+    if (h_im > -1 && w_im > -1 && h_im < h && w_im < w)
+    {
+        // 使用FP16进行采样（减少转换开销）
+        const __half sampled_half = thomas_bilinear_sampling_half(mc_ms_feat, h, w, num_embeds, h_im, w_im, value_offset);
+        
+        // 转换为FP32进行乘法和累加（使用FP32的atomicAdd，更快）
+        const float sampled_val = __half2float(sampled_half);
+        const float result = sampled_val * weight;  // weight已经是FP32，无需转换
+        
+        // 使用FP32的atomicAdd（比half的atomicCAS快得多）
+        atomicAdd(temp_output + anchor_index * num_embeds + channel_index, result);
+    }
+}
+
 // FP16版本的转换kernel：将FP32临时缓冲区转换为FP16输出
 __global__ void convert_float_to_half_kernel(
     const float* input,
@@ -419,6 +499,91 @@ int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
     if (err != cudaSuccess)
     {
         printf("[DFA-PLUGIN-ERROR] Convert kernel launch failed with Error \"%s : %s\".\n",
+               cudaGetErrorString(err),
+               cudaGetErrorName(err));
+        return -1;
+    }
+
+    return 0;
+}
+
+// 混合精度版本的前向传播函数：FP16 value + FP32 keypoints
+// 关键优化：关键点使用FP32精度，减少精度损失，提高最终anchor精度
+int thomas_deform_attn_cuda_forward_mixed(cudaStream_t stream,
+                                         const __half* value,          // FP16特征值
+                                         const int* spatialShapes,
+                                         const int* levelStartIndex,
+                                         const float* samplingLoc,      // FP32关键点位置
+                                         const float* attnWeight,       // FP32注意力权重
+                                         __half* output,               // FP16输出
+                                         float* workspace,              // TensorRT提供的workspace（FP32临时缓冲区）
+                                         int batch_size,                // batch_size
+                                         int num_cams,                  // num_cams
+                                         int num_feat,                  // num_feat (spatial_size)
+                                         int num_embeds,                // num_embeds (channels)
+                                         int num_scale,                 // num_scale (num_levels)
+                                         int num_anchors,               // num_anchors (num_query)
+                                         int num_pts,                   // num_pts (num_point)
+                                         int num_groups)
+{
+    const int num_kernels = batch_size * num_pts * num_embeds * num_anchors * num_cams * num_scale;
+    const int output_size = batch_size * num_anchors * num_embeds;
+    cudaError_t err = cudaSuccess;
+
+    // 使用TensorRT提供的workspace（FP32临时缓冲区）
+    float* temp_output = workspace;
+
+    // 初始化临时缓冲区为零
+    err = cudaMemsetAsync(temp_output, 0, output_size * sizeof(float), stream);
+    if (err != cudaSuccess)
+    {
+        printf("[DFA-PLUGIN-ERROR] Mixed precision: Temporary buffer initialization failed with Error \"%s : %s\".\n",
+               cudaGetErrorString(err),
+               cudaGetErrorName(err));
+        return -1;
+    }
+
+    // 执行混合精度聚合kernel（FP16 value + FP32 keypoints，使用FP32临时缓冲区）
+    // 修复参数顺序：正确的调用顺序应该和thomas_deform_attn_cuda_forward一致
+    thomas_deformable_aggregation_kernel_mixed<<<(int)ceil(((double)num_kernels / 128)), 128, 0, stream>>>(
+        num_kernels,
+        output,  // 虽然传入，但不会被使用
+        value,   // FP16特征值
+        spatialShapes,
+        levelStartIndex,
+        samplingLoc,  // FP32关键点位置
+        attnWeight,   // FP32注意力权重
+        temp_output,  // 使用FP32临时缓冲区
+        batch_size,
+        num_cams,
+        num_feat,
+        num_embeds,
+        num_scale,
+        num_anchors,
+        num_pts,
+        num_groups);
+    
+    err = cudaGetLastError();
+    if (err != cudaSuccess)
+    {
+        printf("[DFA-PLUGIN-ERROR] Mixed precision: Kernel Launch Failed with Error \"%s : %s\".\n",
+               cudaGetErrorString(err),
+               cudaGetErrorName(err));
+        return -1;
+    }
+
+    // 将FP32临时缓冲区转换为FP16输出（向量化转换，更快）
+    const int num_threads_convert = 256;
+    const int num_blocks_convert = (output_size + num_threads_convert - 1) / num_threads_convert;
+    convert_float_to_half_kernel<<<num_blocks_convert, num_threads_convert, 0, stream>>>(
+        temp_output,
+        output,
+        output_size);
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess)
+    {
+        printf("[DFA-PLUGIN-ERROR] Mixed precision: Convert kernel launch failed with Error \"%s : %s\".\n",
                cudaGetErrorString(err),
                cudaGetErrorName(err));
         return -1;
