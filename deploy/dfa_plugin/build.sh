@@ -18,8 +18,8 @@ echo "[INFO] Cleaning previous build..."
 make clean
 
 # 编译插件（使用DEBUG=1以包含调试符号）
-echo "[INFO] Building DFA plugin with DEBUG=1..."
-make DEBUG=1
+echo "[INFO] Building DFA plugin with DEBUG=0..."
+make DEBUG=0
 
 # 检查编译结果
 if [ $? -eq 0 ]; then
@@ -29,4 +29,3 @@ else
     echo "[ERROR] Plugin compilation failed!"
     exit 1
 fi
-
