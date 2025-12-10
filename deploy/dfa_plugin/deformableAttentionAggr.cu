@@ -137,57 +137,60 @@ __global__ void thomas_deformable_aggregation_kernel(
     int num_pts,
     int num_groups)
 {
+    // 与PyTorch版本一致的实现，增加必要的边界检查防止越界访问
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_kernels)
-        return;
+    if (idx >= num_kernels) return;
+
+    // 权重索引计算 - 在idx被修改前计算（与PyTorch一致）
+    const float weight = *(weights + idx / (num_embeds / num_groups));
     
-    // 保存原始的全局线程索引用于权重计算
-    const int original_idx = idx;
-    
-    // 计算各个维度的索引
-    const int channel_index = idx % num_embeds;      // 获取通道索引值
+    // 计算各个维度的索引（与PyTorch完全一致的顺序）
+    const int channel_index = idx % num_embeds;
     idx /= num_embeds;
-    const int scale_index = idx % num_scale;         // 获取尺度索引值
+    const int scale_index = idx % num_scale;
     idx /= num_scale;
-    const int cam_index = idx % num_cams;            // 获取相机索引值
+    const int cam_index = idx % num_cams;
     idx /= num_cams;
-    const int pts_index = idx % num_pts;             // 获取映射点索引值
+    const int pts_index = idx % num_pts;
     idx /= num_pts;
-    int anchor_index = idx % num_anchors;            // 获取锚点索引值
+    int anchor_index = idx % num_anchors;
     idx /= num_anchors;
-    const int batch_index = idx % batch_size;        // 获取批次索引值
-    
-    // 修复：使用与PyTorch版本一致的权重索引计算
-    const float weight = *(weights + original_idx / (num_embeds / num_groups));
+    const int batch_index = idx % batch_size;
+    idx /= batch_size;
 
-    anchor_index = batch_index * num_anchors + anchor_index;     // 计算当前线程中锚点索引值
-    const int loc_offset = ((anchor_index * num_pts + pts_index) * num_cams + cam_index) << 1;  // 计算当前线程中关键映射点索引值
+    anchor_index = batch_index * num_anchors + anchor_index;
+    const int loc_offset = ((anchor_index * num_pts + pts_index) * num_cams + cam_index) << 1;
 
-    // 确认3D关键点映射到图像上的采样点在图像范围内
+    // 确认3D关键点映射到图像上的采样点在图像范围内（与PyTorch一致）
     const float loc_w = sample_location[loc_offset];
-    if (loc_w <= 0 || loc_w >= 1)
-        return;
+    if (loc_w <= 0 || loc_w >= 1) return;
     const float loc_h = sample_location[loc_offset + 1];
-    if (loc_h <= 0 || loc_h >= 1)
-        return;
+    if (loc_h <= 0 || loc_h >= 1) return;
+    
+    int cam_scale_index = cam_index * num_scale + scale_index;
+    const int value_offset = (batch_index * num_feat + scale_start_index[cam_scale_index]) * num_embeds + channel_index;
 
-    int cam_scale_index = cam_index * num_scale + scale_index;   // 计算当前线程中相机尺度的索引值
-    const int value_offset =
-        (batch_index * num_feat + scale_start_index[cam_scale_index]) * num_embeds + channel_index;  // 计算当前线程中特征值的偏移量
+    // 边界检查：确保value_offset在有效范围内（防止越界读取导致崩溃）
+    const int max_read_offset = batch_size * num_feat * num_embeds;
+    if (value_offset < 0 || value_offset >= max_read_offset) return;
 
     cam_scale_index = cam_scale_index << 1;
     const int h = spatial_shape[cam_scale_index];
     const int w = spatial_shape[cam_scale_index + 1];
 
-    // 计算采样点的像素坐标
     const float h_im = loc_h * h - 0.5;
     const float w_im = loc_w * w - 0.5;
 
-    if (h_im > -1 && w_im > -1 && h_im < h && w_im < w)
-    {
-        atomicAdd(output + anchor_index * num_embeds + channel_index,
-                  thomas_bilinear_sampling(mc_ms_feat, h, w, num_embeds, h_im, w_im, value_offset) * weight);
-    }
+    // 边界检查：确保输出索引在有效范围内（防止越界写入导致崩溃）
+    const int out_idx = anchor_index * num_embeds + channel_index;
+    const int max_write_idx = batch_size * num_anchors * num_embeds;
+    if (out_idx < 0 || out_idx >= max_write_idx) return;
+
+    // 与PyTorch一致：执行atomicAdd（bilinear_sampling内部处理边界）
+    atomicAdd(
+        output + out_idx,
+        thomas_bilinear_sampling(mc_ms_feat, h, w, num_embeds, h_im, w_im, value_offset) * weight
+    );
 }
 
 // FP16版本的kernel - 优化版本：使用float临时缓冲区减少原子操作开销
@@ -209,65 +212,64 @@ __global__ void thomas_deformable_aggregation_kernel_half(
     int num_pts,
     int num_groups)
 {
+    // 与PyTorch版本一致的实现（FP16输入版本），增加必要的边界检查
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_kernels)
-        return;
+    if (idx >= num_kernels) return;
+
+    // 权重索引计算 - 在idx被修改前计算（与PyTorch一致）
+    const __half weight = *(weights + idx / (num_embeds / num_groups));
     
-    // 保存原始的全局线程索引用于权重计算
-    const int original_idx = idx;
-    
-    // 计算各个维度的索引
-    const int channel_index = idx % num_embeds;      // 获取通道索引值
+    // 计算各个维度的索引（与PyTorch完全一致的顺序）
+    const int channel_index = idx % num_embeds;
     idx /= num_embeds;
-    const int scale_index = idx % num_scale;         // 获取尺度索引值
+    const int scale_index = idx % num_scale;
     idx /= num_scale;
-    const int cam_index = idx % num_cams;            // 获取相机索引值
+    const int cam_index = idx % num_cams;
     idx /= num_cams;
-    const int pts_index = idx % num_pts;             // 获取映射点索引值
+    const int pts_index = idx % num_pts;
     idx /= num_pts;
-    int anchor_index = idx % num_anchors;            // 获取锚点索引值
+    int anchor_index = idx % num_anchors;
     idx /= num_anchors;
-    const int batch_index = idx % batch_size;        // 获取批次索引值
-    
-    // 修复：使用与PyTorch版本一致的权重索引计算
-    const __half weight = *(weights + original_idx / (num_embeds / num_groups));
+    const int batch_index = idx % batch_size;
+    idx /= batch_size;
 
-    anchor_index = batch_index * num_anchors + anchor_index;     // 计算当前线程中锚点索引值
-    const int loc_offset = ((anchor_index * num_pts + pts_index) * num_cams + cam_index) << 1;  // 计算当前线程中关键映射点索引值
+    anchor_index = batch_index * num_anchors + anchor_index;
+    const int loc_offset = ((anchor_index * num_pts + pts_index) * num_cams + cam_index) << 1;
 
-    // 确认3D关键点映射到图像上的采样点在图像范围内
+    // 确认3D关键点映射到图像上的采样点在图像范围内（与PyTorch一致）
     const float loc_w = __half2float(sample_location[loc_offset]);
-    if (loc_w <= 0 || loc_w >= 1)
-        return;
+    if (loc_w <= 0 || loc_w >= 1) return;
     const float loc_h = __half2float(sample_location[loc_offset + 1]);
-    if (loc_h <= 0 || loc_h >= 1)
-        return;
+    if (loc_h <= 0 || loc_h >= 1) return;
+    
+    int cam_scale_index = cam_index * num_scale + scale_index;
+    const int value_offset = (batch_index * num_feat + scale_start_index[cam_scale_index]) * num_embeds + channel_index;
 
-    int cam_scale_index = cam_index * num_scale + scale_index;   // 计算当前线程中相机尺度的索引值
-    const int value_offset =
-        (batch_index * num_feat + scale_start_index[cam_scale_index]) * num_embeds + channel_index;  // 计算当前线程中特征值的偏移量
+    // 边界检查：确保value_offset在有效范围内
+    const int max_read_offset = batch_size * num_feat * num_embeds;
+    if (value_offset < 0 || value_offset >= max_read_offset) return;
 
     cam_scale_index = cam_scale_index << 1;
     const int h = spatial_shape[cam_scale_index];
     const int w = spatial_shape[cam_scale_index + 1];
 
-    // 计算采样点的像素坐标
     const float h_im = loc_h * h - 0.5;
     const float w_im = loc_w * w - 0.5;
 
-    if (h_im > -1 && w_im > -1 && h_im < h && w_im < w)
-    {
-        // 使用FP16进行采样（减少转换开销）
-        const __half sampled_half = thomas_bilinear_sampling_half(mc_ms_feat, h, w, num_embeds, h_im, w_im, value_offset);
-        
-        // 转换为FP32进行乘法和累加（使用FP32的atomicAdd，更快）
-        const float sampled_val = __half2float(sampled_half);
-        const float weight_val = __half2float(weight);
-        const float result = sampled_val * weight_val;
-        
-        // 使用FP32的atomicAdd（比half的atomicCAS快得多）
-        atomicAdd(temp_output + anchor_index * num_embeds + channel_index, result);
-    }
+    // 边界检查：确保输出索引在有效范围内
+    const int out_idx = anchor_index * num_embeds + channel_index;
+    const int max_write_idx = batch_size * num_anchors * num_embeds;
+    if (out_idx < 0 || out_idx >= max_write_idx) return;
+
+    // 使用FP16进行采样
+    const __half sampled_half = thomas_bilinear_sampling_half(mc_ms_feat, h, w, num_embeds, h_im, w_im, value_offset);
+    
+    // 转换为FP32进行乘法和累加（使用FP32的atomicAdd，更快且精度更高）
+    const float sampled_val = __half2float(sampled_half);
+    const float weight_val = __half2float(weight);
+    const float result = sampled_val * weight_val;
+    
+    atomicAdd(temp_output + out_idx, result);
 }
 
 // 混合精度版本的聚合kernel：FP16 value + FP32 keypoints
@@ -290,64 +292,63 @@ __global__ void thomas_deformable_aggregation_kernel_mixed(
     int num_pts,
     int num_groups)
 {
+    // 与PyTorch版本一致的实现（混合精度版本），增加必要的边界检查
     int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    if (idx >= num_kernels)
-        return;
-    
-    // 保存原始的全局线程索引用于权重计算
-    const int original_idx = idx;
-    
-    // 计算各个维度的索引
-    const int channel_index = idx % num_embeds;      // 获取通道索引值
-    idx /= num_embeds;
-    const int scale_index = idx % num_scale;         // 获取尺度索引值
-    idx /= num_scale;
-    const int cam_index = idx % num_cams;            // 获取相机索引值
-    idx /= num_cams;
-    const int pts_index = idx % num_pts;             // 获取映射点索引值
-    idx /= num_pts;
-    int anchor_index = idx % num_anchors;            // 获取锚点索引值
-    idx /= num_anchors;
-    const int batch_index = idx % batch_size;        // 获取批次索引值
-    
-    // 修复：使用与PyTorch版本一致的权重索引计算
-    const float weight = weights[original_idx / (num_embeds / num_groups)];  // FP32权重
+    if (idx >= num_kernels) return;
 
-    anchor_index = batch_index * num_anchors + anchor_index;     // 计算当前线程中锚点索引值
-    const int loc_offset = ((anchor_index * num_pts + pts_index) * num_cams + cam_index) << 1;  // 计算当前线程中关键映射点索引值
+    // 权重索引计算 - 在idx被修改前计算（与PyTorch一致）
+    const float weight = weights[idx / (num_embeds / num_groups)];  // FP32权重
+    
+    // 计算各个维度的索引（与PyTorch完全一致的顺序）
+    const int channel_index = idx % num_embeds;
+    idx /= num_embeds;
+    const int scale_index = idx % num_scale;
+    idx /= num_scale;
+    const int cam_index = idx % num_cams;
+    idx /= num_cams;
+    const int pts_index = idx % num_pts;
+    idx /= num_pts;
+    int anchor_index = idx % num_anchors;
+    idx /= num_anchors;
+    const int batch_index = idx % batch_size;
+    idx /= batch_size;
+
+    anchor_index = batch_index * num_anchors + anchor_index;
+    const int loc_offset = ((anchor_index * num_pts + pts_index) * num_cams + cam_index) << 1;
 
     // 确认3D关键点映射到图像上的采样点在图像范围内（使用FP32精度）
     const float loc_w = sample_location[loc_offset];  // 直接使用FP32，无需转换
-    if (loc_w <= 0 || loc_w >= 1)
-        return;
+    if (loc_w <= 0 || loc_w >= 1) return;
     const float loc_h = sample_location[loc_offset + 1];  // 直接使用FP32，无需转换
-    if (loc_h <= 0 || loc_h >= 1)
-        return;
+    if (loc_h <= 0 || loc_h >= 1) return;
+    
+    int cam_scale_index = cam_index * num_scale + scale_index;
+    const int value_offset = (batch_index * num_feat + scale_start_index[cam_scale_index]) * num_embeds + channel_index;
 
-    int cam_scale_index = cam_index * num_scale + scale_index;   // 计算当前线程中相机尺度的索引值
-    const int value_offset =
-        (batch_index * num_feat + scale_start_index[cam_scale_index]) * num_embeds + channel_index;  // 计算当前线程中特征值的偏移量
+    // 边界检查：确保value_offset在有效范围内
+    const int max_read_offset = batch_size * num_feat * num_embeds;
+    if (value_offset < 0 || value_offset >= max_read_offset) return;
 
     cam_scale_index = cam_scale_index << 1;
     const int h = spatial_shape[cam_scale_index];
     const int w = spatial_shape[cam_scale_index + 1];
 
-    // 计算采样点的像素坐标（使用FP32精度）
     const float h_im = loc_h * h - 0.5;
     const float w_im = loc_w * w - 0.5;
 
-    if (h_im > -1 && w_im > -1 && h_im < h && w_im < w)
-    {
-        // 使用FP16进行采样（减少转换开销）
-        const __half sampled_half = thomas_bilinear_sampling_half(mc_ms_feat, h, w, num_embeds, h_im, w_im, value_offset);
-        
-        // 转换为FP32进行乘法和累加（使用FP32的atomicAdd，更快）
-        const float sampled_val = __half2float(sampled_half);
-        const float result = sampled_val * weight;  // weight已经是FP32，无需转换
-        
-        // 使用FP32的atomicAdd（比half的atomicCAS快得多）
-        atomicAdd(temp_output + anchor_index * num_embeds + channel_index, result);
-    }
+    // 边界检查：确保输出索引在有效范围内
+    const int out_idx = anchor_index * num_embeds + channel_index;
+    const int max_write_idx = batch_size * num_anchors * num_embeds;
+    if (out_idx < 0 || out_idx >= max_write_idx) return;
+
+    // 使用FP16进行采样
+    const __half sampled_half = thomas_bilinear_sampling_half(mc_ms_feat, h, w, num_embeds, h_im, w_im, value_offset);
+    
+    // 转换为FP32进行乘法和累加
+    const float sampled_val = __half2float(sampled_half);
+    const float result = sampled_val * weight;  // weight已经是FP32，无需转换
+    
+    atomicAdd(temp_output + out_idx, result);
 }
 
 // FP16版本的转换kernel：将FP32临时缓冲区转换为FP16输出

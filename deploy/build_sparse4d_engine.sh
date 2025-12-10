@@ -8,10 +8,10 @@
 PRECISION=${1:-fp16}
 
 # 验证精度参数
-if [[ "$PRECISION" != "fp32" && "$PRECISION" != "fp16" && "$PRECISION" != "int8" ]]; then
+if [[ "$PRECISION" != "fp32" && "$PRECISION" != "fp16" && "$PRECISION" != "int8" && "$PRECISION" != "mixed" ]]; then
     echo "错误: 不支持的精度类型 '$PRECISION'"
-    echo "支持的精度: fp32, fp16, int8"
-    echo "使用方法: $0 [fp32|fp16|int8]"
+    echo "支持的精度: fp32, fp16, int8, mixed"
+    echo "使用方法: $0 [fp32|fp16|int8|mixed]"
     exit 1
 fi
 
@@ -30,18 +30,27 @@ get_precision_args() {
     case "$PRECISION" in
         "fp32")
             echo ""
+            echo ""
             ;;
         "fp16")
+            echo "--fp16"
             echo "--fp16"
             ;;
         "int8")
             echo "--int8 --strictTypeConstraints"
+            echo "--int8 --strictTypeConstraints"
+            ;;
+        "mixed")
+            echo "--fp16"
+            echo ""
             ;;
     esac
 }
 
 # 获取精度参数
-PRECISION_ARGS=$(get_precision_args)
+args_output="$(get_precision_args)"
+BACKBONE_ARGS=$(echo "$args_output" | head -n 1)
+HEAD_ARGS=$(echo "$args_output" | tail -n 1)
 
 # 组合插件参数
 PLUGIN_ARGS=""
@@ -117,7 +126,7 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
     --exportProfile=${ENVTRTDIR}/buildProfile_backbone.json \
     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_backbone.json \
     --profilingVerbosity=detailed \
-    ${PRECISION_ARGS} \
+    ${BACKBONE_ARGS} \
     >${ENVTRTDIR}/build_backbone.log 2>&1
 
 # STEP2: build 1st frame sparse4dhead engine
@@ -137,7 +146,7 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
     --exportProfile=${ENVTRTDIR}/buildProfile_head1.json \
     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head1.json \
     --profilingVerbosity=detailed \
-    ${PRECISION_ARGS} \
+    ${HEAD_ARGS} \
     >${ENVTRTDIR}/build_head1.log 2>&1
 
 # STEP3: build frame > 2 sparse4dhead engine
@@ -157,7 +166,7 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
     --exportProfile=${ENVTRTDIR}/buildProfile_head2.json \
     --exportLayerInfo=${ENVTRTDIR}/buildLayerInfo_head2.json \
     --profilingVerbosity=detailed \
-    ${PRECISION_ARGS} \
+    ${HEAD_ARGS} \
     >${ENVTRTDIR}/build_head2.log 2>&1
 
 echo "success build ${PRECISION} engines."

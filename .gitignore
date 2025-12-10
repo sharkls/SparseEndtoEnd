@@ -65,3 +65,5 @@ C++/Output/Lib/
 C++/Output/val_bin/
 C++/Output/vis/
 C++/Submodules/ThirdParty
+
+*.shape

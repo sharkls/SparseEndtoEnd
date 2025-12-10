@@ -20,8 +20,8 @@ from tool.utils.save_bin import save_bins
 
 from modules.sparse4d_detector import Sparse4D
 from dataset.dataloader_wrapper import dataloader_wrapper
-from dataset import NuScenes4DDetTrackDataset
 from dataset.utils.scatter_gather import scatter
+from dataset import NuScenes4DDetTrackDataset
 
 
 def build_module(cfg, default_args: Optional[Dict] = None) -> Any:
@@ -34,7 +34,7 @@ def build_module(cfg, default_args: Optional[Dict] = None) -> Any:
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Export each module bin file!")
+    parser = argparse.ArgumentParser(description="Export verification data (Backbone/Head I/O + GT)!")
     parser.add_argument(
         "--config",
         default="dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py",
@@ -52,12 +52,12 @@ def parse_args():
     parser.add_argument(
         "--log",
         type=str,
-        default="script/tutorial/save_bin.log",
+        default="script/tutorial/generate_data.log",
     )
     parser.add_argument(
         "--save-dir",
         type=str,
-        default="script/tutorial/asset",
+        default="deploy/val_data_e2e_fp32",
         help="Directory to save exported bin files"
     )
     args = parser.parse_args()
@@ -503,11 +503,19 @@ def main():
     # set cudnn_benchmark
     if cfg.get("cudnn_benchmark", False):
         torch.backends.cudnn.benchmark = True
-    cfg["data"]["test"]["test_mode"] = True
+    
+    # FORCE load GT by setting test_mode=False
+    # Note: Ensure the dataset config used supports validation data or loading annotations
+    cfg["data"]["test"]["test_mode"] = False
 
     # build the dataloader
     samples_per_gpu = cfg["data"]["test"].pop("samples_per_gpu", 1)
     dataset = build_module(cfg["data"]["test"])
+    
+    # Check if dataset has annotations
+    if not hasattr(dataset, "data_infos") or len(dataset.data_infos) == 0:
+        logger.warning("Dataset seems empty or failed to load annotations!")
+
     data_loader = dataloader_wrapper(
         dataset,
         samples_per_gpu=samples_per_gpu,
@@ -530,17 +538,24 @@ def main():
     head_hook = Sparse4D_head(model.head)
 
     for i, data in enumerate(data_loader):
-        if i == 3:
+        if i >= 3: # Save first 3 frames (enough for Frame 0 and Frame 1 comparison)
             break
         with torch.no_grad():
             data = scatter(data, [0])[0]
             ori_imgs = data["ori_img"].detach().cpu().numpy()
             imgs = data["img"].detach().cpu().numpy()
             
-            # Save GT
+            # --- SAVE GT ---
             if "gt_bboxes_3d" in data:
-                gt_boxes = data["gt_bboxes_3d"].data[0][0].tensor.numpy()
+                # DataContainer -> Tensor -> Numpy
+                # gt_bboxes_3d is usually a list of LiDARIstance3DBox or similar
+                # We need the raw tensor (x, y, z, w, l, h, yaw, vx, vy)
+                # Structure: data['gt_bboxes_3d'].data[0][0] is the LiDARInstance3DBoxes object
+                gt_boxes_obj = data["gt_bboxes_3d"].data[0][0]
+                gt_boxes = gt_boxes_obj.tensor.numpy()
                 gt_labels = data["gt_labels_3d"].data[0][0].numpy()
+                
+                logger.info(f"Saving GT for sample {i}: {len(gt_boxes)} boxes")
                 save_bins(
                     inputs=[gt_boxes],
                     outputs=[gt_labels],
@@ -549,6 +564,9 @@ def main():
                     logger=logger,
                     save_prefix=args.save_dir,
                 )
+            else:
+                logger.warning(f"No GT found for sample {i}")
+            # ---------------
 
             save_bins(
                 inputs=[ori_imgs],
@@ -672,3 +690,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

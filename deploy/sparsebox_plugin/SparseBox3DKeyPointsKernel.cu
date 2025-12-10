@@ -279,16 +279,17 @@ __global__ void sparseBox3DKeyPointsKernel(
     const unsigned int sizeX_bits = __float_as_uint(sizeX);
     const unsigned int sizeY_bits = __float_as_uint(sizeY);
     const unsigned int sizeZ_bits = __float_as_uint(sizeZ);
-    const unsigned int exp_mask_size = 0x7F800000;
+    // 关键修复：重命名变量以避免重复声明错误
+    const unsigned int exp_mask_for_size = 0x7F800000;
     
     // 检查 exp 结果是否有效，并 clamp 到合理范围
     // FP16 最大值是 65504，但为了安全，我们使用更保守的值
     const float max_size_safe = 50000.0f;  // 保守的最大值，确保不会溢出
     const float min_size_safe = 1e-6f;     // 防止下溢的最小值
     
-    if ((sizeX_bits & exp_mask_size) == exp_mask_size || sizeX > max_size_safe || sizeX < min_size_safe) {
+    if ((sizeX_bits & exp_mask_for_size) == exp_mask_for_size || sizeX > max_size_safe || sizeX < min_size_safe) {
         #ifdef DEBUG_NAN
-        if ((sizeX_bits & exp_mask_size) == exp_mask_size) {
+        if ((sizeX_bits & exp_mask_for_size) == exp_mask_for_size) {
             printf("[DEBUG_NAN] anchorIdx=%d: sizeX is NaN/Inf after expf (bits=0x%08x, log_size_x=%.6f, sizeX=%.6f)\n",
                    anchorIdx, sizeX_bits, log_size_x, sizeX);
         }
@@ -296,42 +297,44 @@ __global__ void sparseBox3DKeyPointsKernel(
         sizeX = fmaxf(fminf(sizeX, max_size_safe), min_size_safe);
         // 再次检查clamp后的值
         const unsigned int sizeX_bits_after = __float_as_uint(sizeX);
-        if ((sizeX_bits_after & exp_mask_size) == exp_mask_size) {
+        if ((sizeX_bits_after & exp_mask_for_size) == exp_mask_for_size) {
             sizeX = 1.0f;
         }
     }
-    if ((sizeY_bits & exp_mask_size) == exp_mask_size || sizeY > max_size_safe || sizeY < min_size_safe) {
+    if ((sizeY_bits & exp_mask_for_size) == exp_mask_for_size || sizeY > max_size_safe || sizeY < min_size_safe) {
         #ifdef DEBUG_NAN
-        if ((sizeY_bits & exp_mask_size) == exp_mask_size) {
+        if ((sizeY_bits & exp_mask_for_size) == exp_mask_for_size) {
             printf("[DEBUG_NAN] anchorIdx=%d: sizeY is NaN/Inf after expf (bits=0x%08x, log_size_y=%.6f, sizeY=%.6f)\n",
                    anchorIdx, sizeY_bits, log_size_y, sizeY);
         }
         #endif
         sizeY = fmaxf(fminf(sizeY, max_size_safe), min_size_safe);
         const unsigned int sizeY_bits_after = __float_as_uint(sizeY);
-        if ((sizeY_bits_after & exp_mask_size) == exp_mask_size) {
+        if ((sizeY_bits_after & exp_mask_for_size) == exp_mask_for_size) {
             sizeY = 1.0f;
         }
     }
-    if ((sizeZ_bits & exp_mask_size) == exp_mask_size || sizeZ > max_size_safe || sizeZ < min_size_safe) {
+    if ((sizeZ_bits & exp_mask_for_size) == exp_mask_for_size || sizeZ > max_size_safe || sizeZ < min_size_safe) {
         #ifdef DEBUG_NAN
-        if ((sizeZ_bits & exp_mask_size) == exp_mask_size) {
+        if ((sizeZ_bits & exp_mask_for_size) == exp_mask_for_size) {
             printf("[DEBUG_NAN] anchorIdx=%d: sizeZ is NaN/Inf after expf (bits=0x%08x, log_size_z=%.6f, sizeZ=%.6f)\n",
                    anchorIdx, sizeZ_bits, log_size_z, sizeZ);
         }
         #endif
         sizeZ = fmaxf(fminf(sizeZ, max_size_safe), min_size_safe);
         const unsigned int sizeZ_bits_after = __float_as_uint(sizeZ);
-        if ((sizeZ_bits_after & exp_mask_size) == exp_mask_size) {
+        if ((sizeZ_bits_after & exp_mask_for_size) == exp_mask_for_size) {
             sizeZ = 1.0f;
         }
     }
     
         // sin/cos yaw 应该已经在 [-1, 1] 范围内，只检查有效性
-        // 关键修复：确保 sinYaw 和 cosYaw 在有效范围内，避免旋转计算产生 NaN
-        float sinYaw = isFinite(sinYaw_raw) ? fmaxf(fminf(sinYaw_raw, 1.0f), -1.0f) : 0.0f;
-        float cosYaw = isFinite(cosYaw_raw) ? fmaxf(fminf(cosYaw_raw, 1.0f), -1.0f) : 1.0f;
-        // 再次检查（防止 clamp 后仍异常）
+        // 关键修复：PyTorch 实现并未限制 sin/cos 必须在 [-1, 1] 范围内
+        // 为了对齐精度，我们只检查 NaN/Inf，不进行范围截断
+        float sinYaw = isFinite(sinYaw_raw) ? sinYaw_raw : 0.0f;
+        float cosYaw = isFinite(cosYaw_raw) ? cosYaw_raw : 1.0f;
+        
+        // 再次检查（防止 NaN/Inf）
         if (!isFinite(sinYaw)) sinYaw = 0.0f;
         if (!isFinite(cosYaw)) cosYaw = 1.0f;
 
@@ -1078,13 +1081,13 @@ __global__ void sparseBox3DKeyPointsKernel(
         const unsigned int bitsX = __float_as_uint(safeX);
         const unsigned int bitsY = __float_as_uint(safeY);
         const unsigned int bitsZ = __float_as_uint(safeZ);
-        const unsigned int exp_mask = 0x7F800000;
+        const unsigned int exp_mask_final_check = 0x7F800000;
         
         // 检查是否为NaN（指数全1且尾数非0）或Inf（指数全1且尾数为0）
         // 如果指数全1，说明是NaN或Inf，都需要处理
         // 关键调试：如果检测到NaN/Inf，记录详细信息（仅在调试模式下）
         #ifdef DEBUG_NAN
-        if ((bitsX & exp_mask) == exp_mask) {
+        if ((bitsX & exp_mask_final_check) == exp_mask_final_check) {
             printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, X: NaN/Inf detected (bits=0x%08x)\n", anchorIdx, i, bitsX);
             printf("  centerX=%.6f, sizeX=%.6f, localX=%.6f, rotX=%.6f, finalX=%.6f, safeX=%.6f\n",
                    centerX, sizeX, localX, rotX, finalX, safeX);
@@ -1093,7 +1096,7 @@ __global__ void sparseBox3DKeyPointsKernel(
             }
             safeX = 0.0f;
         }
-        if ((bitsY & exp_mask) == exp_mask) {
+        if ((bitsY & exp_mask_final_check) == exp_mask_final_check) {
             printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, Y: NaN/Inf detected (bits=0x%08x)\n", anchorIdx, i, bitsY);
             printf("  centerY=%.6f, sizeY=%.6f, localY=%.6f, rotY=%.6f, finalY=%.6f, safeY=%.6f\n",
                    centerY, sizeY, localY, rotY, finalY, safeY);
@@ -1102,7 +1105,7 @@ __global__ void sparseBox3DKeyPointsKernel(
             }
             safeY = 0.0f;
         }
-        if ((bitsZ & exp_mask) == exp_mask) {
+        if ((bitsZ & exp_mask_final_check) == exp_mask_final_check) {
             printf("[DEBUG_NAN] anchorIdx=%d, pt=%d, Z: NaN/Inf detected (bits=0x%08x)\n", anchorIdx, i, bitsZ);
             printf("  centerZ=%.6f, sizeZ=%.6f, localZ=%.6f, finalZ=%.6f, safeZ=%.6f\n",
                    centerZ, sizeZ, localZ, finalZ, safeZ);
@@ -1112,13 +1115,13 @@ __global__ void sparseBox3DKeyPointsKernel(
             safeZ = 0.0f;
         }
         #else
-        if ((bitsX & exp_mask) == exp_mask) {
+        if ((bitsX & exp_mask_final_check) == exp_mask_final_check) {
             safeX = 0.0f;
         }
-        if ((bitsY & exp_mask) == exp_mask) {
+        if ((bitsY & exp_mask_final_check) == exp_mask_final_check) {
             safeY = 0.0f;
         }
-        if ((bitsZ & exp_mask) == exp_mask) {
+        if ((bitsZ & exp_mask_final_check) == exp_mask_final_check) {
             safeZ = 0.0f;
         }
         #endif
@@ -1156,21 +1159,10 @@ __global__ void sparseBox3DKeyPointsKernel(
             // 使用内存屏障确保写入顺序
             __threadfence();
             
-            // 写入前最后一次检查：使用位操作确保绝对不是NaN/Inf（绝对保险）
-            const unsigned int bitsX_final = __float_as_uint(safeX);
-            const unsigned int bitsY_final = __float_as_uint(safeY);
-            const unsigned int bitsZ_final = __float_as_uint(safeZ);
-            const unsigned int exp_mask_final = 0x7F800000;
-            
-            // 如果是指数全1（NaN或Inf），使用0
-            float finalX_write = ((bitsX_final & exp_mask_final) == exp_mask_final) ? 0.0f : safeX;
-            float finalY_write = ((bitsY_final & exp_mask_final) == exp_mask_final) ? 0.0f : safeY;
-            float finalZ_write = ((bitsZ_final & exp_mask_final) == exp_mask_final) ? 0.0f : safeZ;
-            
-            // 转换并写入输出（fromFloat内部已经有NaN检查，但使用安全值更可靠）
-            outPtr[offset + 0] = fromFloat<T>(finalX_write);
-            outPtr[offset + 1] = fromFloat<T>(finalY_write);
-            outPtr[offset + 2] = fromFloat<T>(finalZ_write);
+            // 写入输出
+            outPtr[offset + 0] = fromFloat<T>(safeX);
+            outPtr[offset + 1] = fromFloat<T>(safeY);
+            outPtr[offset + 2] = fromFloat<T>(safeZ);
         }
     }
 }

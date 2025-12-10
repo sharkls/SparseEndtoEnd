@@ -289,16 +289,49 @@ size_t DeformableAttentionAggrPlugin::getWorkspaceSize(const nvinfer1::PluginTen
                                                        const nvinfer1::PluginTensorDesc* outputs,
                                                        int32_t nbOutputs) const noexcept
 {
-    // 修复方案：完全避免访问任何可能无效的内存
-    // 直接返回字面量，使用明确的类型转换确保类型安全
-    // 不定义任何局部变量，避免任何可能的内存访问
+    // 动态计算所需的 workspace 大小，避免硬编码导致的越界
+    // 基本需求：batch * num_query * channels * sizeof(float)
     
-    // 直接返回固定的workspace大小（1MB），完全避免任何内存访问
-    // 基于常见的配置：batch=1, anchors=900, embeds=256
-    // workspace = batch * anchors * embeds * sizeof(float) = 1 * 900 * 256 * 4 = 921600 bytes
-    // 为了安全，使用稍大一些的值：1MB
-    // 使用明确的类型转换，确保返回值类型正确
-    return static_cast<size_t>(1048576);  // 1024 * 1024 = 1048576，直接使用计算结果
+    // 默认值（保底 4MB）
+    size_t workspaceSize = 4 * 1024 * 1024;
+    
+    if (inputs && nbInputs >= 5)
+    {
+        // 尝试从输入推断维度
+        // inputs[0]: value [batch, spatial, channels]
+        // inputs[3]: samplingLoc [batch, num_query, ...]
+        
+        int32_t batch = 1;
+        int32_t num_query = 900;
+        int32_t channels = 256;
+        
+        if (inputs[0].dims.nbDims >= 3)
+        {
+            batch = inputs[0].dims.d[0] > 0 ? inputs[0].dims.d[0] : 1;
+            channels = inputs[0].dims.d[2] > 0 ? inputs[0].dims.d[2] : 256;
+        }
+        
+        if (inputs[3].dims.nbDims >= 2)
+        {
+            num_query = inputs[3].dims.d[1] > 0 ? inputs[3].dims.d[1] : 900;
+        }
+        
+        // 计算实际需求
+        size_t required = static_cast<size_t>(batch) * num_query * channels * sizeof(float);
+        
+        // 如果计算值大于默认值，使用计算值并增加 50% 余量
+        if (required > workspaceSize)
+        {
+            workspaceSize = static_cast<size_t>(required * 1.5);
+        }
+        else
+        {
+            // 即使计算值较小，也至少保留 required + 1MB 的空间
+            workspaceSize = std::max(workspaceSize, required + 1024 * 1024);
+        }
+    }
+    
+    return workspaceSize;
 }
 
 // 推理函数

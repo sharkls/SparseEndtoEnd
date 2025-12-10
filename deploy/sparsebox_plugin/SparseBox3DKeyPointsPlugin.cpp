@@ -100,15 +100,29 @@ nvinfer1::DimsExprs SparseBox3DKeyPointsPlugin::getOutputDimensions(
 bool SparseBox3DKeyPointsPlugin::supportsFormatCombination(
     int pos,
     const nvinfer1::PluginTensorDesc* inOut,
-    int,
-    int) noexcept
+    int nbInputs,
+    int nbOutputs) noexcept
 {
     const auto& desc = inOut[pos];
     if (desc.format != TensorFormat::kLINEAR)
     {
         return false;
     }
-    return desc.type == DataType::kFLOAT || desc.type == DataType::kHALF;
+
+    // Output (pos == nbInputs) must be FLOAT (forcing FP32 output)
+    if (pos == nbInputs)
+    {
+        return desc.type == DataType::kFLOAT;
+    }
+
+    // Input 0 (Anchor) can be Float or Half
+    if (pos == 0)
+    {
+        return desc.type == DataType::kFLOAT || desc.type == DataType::kHALF;
+    }
+
+    // Other Inputs (Feature) must match Input 0
+    return desc.type == inOut[0].type;
 }
 
 int SparseBox3DKeyPointsPlugin::enqueue(

@@ -24,7 +24,7 @@ SparseE2E:
   MultiViewMultiScaleDeformableAttentionAggregationPath: "/share/Code/Sparse4dE2E/onboard/assets/trt_engine/deformableAttentionAggr.so"
   Sparse4dHeadFirstFrameEngine:
     # - EnginePath: "/share/Code/Sparse4dE2E/deploy/engine/sparse4dhead1st.engine"
-    - EnginePath: "/share/Code/Sparse4dE2E/deploy/engine/sparse4dhead1st.engine"
+    - EnginePath: "/share/Code/Sparse4dE2E/deploy/engine/enginev1/engine32/sparse4dhead1st.engine"
     - EngineInputNames:
         [
           "feature",

@@ -27,8 +27,8 @@ set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/Output/Lib)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR}/Output)
 
 # 包含头文件的路径(Fastdds 、 Proto定义文件)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/FastddsSer/data)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ProtoSer/param)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/Fastddsser/data)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/Protoser/param)
 
 # 包含头文件的路径
 include_directories(${CMAKE_SOURCE_DIR}/Include)
@@ -62,8 +62,8 @@ link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/tinyxml2/lib)
 link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/glog/lib)
 
 # 子目录的路径
-add_subdirectory(Submodules/FastddsSer)
-add_subdirectory(Submodules/ProtoSer)
+add_subdirectory(Submodules/Fastddsser)
+add_subdirectory(Submodules/Protoser)
 add_subdirectory(Src)
 
 # 源文件的路径
