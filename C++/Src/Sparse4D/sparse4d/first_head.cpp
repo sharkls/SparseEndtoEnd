@@ -83,7 +83,7 @@ Status FirstHeadImplement::forward(common::PipelineContext& pipeline_context,
     bool success = m_first_head_engine->infer(input_buffers.data(), output_buffers.data(), stream);
     
     if (success) {
-        LOG(INFO) << "[INFO] First head completed successfully";
+        // LOG(INFO) << "[INFO] First head completed successfully";
         return Status::kSuccess;
     } else {
         LOG(ERROR) << "[ERROR] First head failed";

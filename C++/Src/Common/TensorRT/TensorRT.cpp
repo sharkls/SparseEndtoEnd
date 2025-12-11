@@ -167,9 +167,6 @@ bool TensorRT::infer(void* const* buffers, const cudaStream_t& stream) {
 }
 
 bool TensorRT::infer(void* const* input_buffers, void* const* output_buffers, const cudaStream_t& stream) {
-  // 计时开始
-  auto start_time = std::chrono::high_resolution_clock::now();
-  
   // 检测TensorRT版本并选择合适的enqueue方法
   int numBindings = engine_->getNbBindings();
   
@@ -254,20 +251,7 @@ bool TensorRT::infer(void* const* input_buffers, void* const* output_buffers, co
     
     // 调用enqueueV2（TensorRT 8.0+ 会自动检测并启用 CUDA Graph）
     bool result = context_->enqueueV2(all_buffers.data(), stream, nullptr);
-    
-    // 计时结束（enqueue 时间，不包括 GPU 执行时间）
-    auto end_time = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end_time - start_time);
-    double elapsed_ms = duration.count() / 1000.0;
-    
-    // 输出计时信息（仅在前几次调用时输出，避免日志过多）
-    // 注意：这是 enqueue 时间，不是完整的 GPU 执行时间
-    static thread_local int call_count = 0;
-    call_count++;
-    // std::cout << "[TIMING] TensorRT::infer() [" << engine_path_ << "] call #" << call_count 
-    //           << " enqueue time: " << std::fixed << std::setprecision(3) << elapsed_ms << " ms" << std::endl;
-  
-    
+
     if (!result) {
       std::cout << "[ERROR] enqueueV2 failed!" << std::endl;
     }

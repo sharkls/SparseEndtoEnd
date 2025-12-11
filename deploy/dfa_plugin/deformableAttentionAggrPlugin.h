@@ -23,8 +23,8 @@ class DeformableAttentionAggrPlugin : public nvinfer1::IPluginV2DynamicExt
     DeformableAttentionAggrPlugin() = default;
     
     // 带参数的构造函数：在插件创建时传入维度信息
-    DeformableAttentionAggrPlugin(int32_t batch, int32_t numAnchors, int32_t numEmbeds)
-        : mBatch_(batch), mNumAnchors_(numAnchors), mNumEmbeds_(numEmbeds) {}
+    DeformableAttentionAggrPlugin(int32_t batch, int32_t numAnchors, int32_t numEmbeds, float valueScale = 1.0f)
+        : mBatch_(batch), mNumAnchors_(numAnchors), mNumEmbeds_(numEmbeds), mValueScale_(valueScale) {}
     
     ~DeformableAttentionAggrPlugin() = default;
 
@@ -106,6 +106,7 @@ class DeformableAttentionAggrPlugin : public nvinfer1::IPluginV2DynamicExt
     int32_t mBatch_ = 1;           // batch size
     int32_t mNumAnchors_ = 900;    // number of anchors (从inputs[3]获取)
     int32_t mNumEmbeds_ = 256;     // embedding dimension (从inputs[0]获取)
+    float mValueScale_ = 1.0f;     // INT8 scale for value input
     
     // 运行时缓存：在enqueue中安全获取后缓存，用于后续调用
     mutable int32_t mCachedBatch_ = -1;

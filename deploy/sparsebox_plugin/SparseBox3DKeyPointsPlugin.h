@@ -16,6 +16,7 @@ struct SparseBox3DKeyPointsParams
     std::vector<float> fixScale;
     std::vector<float> fcWeight;
     std::vector<float> fcBias;
+    float inputScale = 1.0f; // Scale for INT8 input instance feature
 };
 
 class SparseBox3DKeyPointsPlugin : public nvinfer1::IPluginV2DynamicExt
@@ -44,7 +45,7 @@ public:
         const nvinfer1::DynamicPluginTensorDesc* inputs,
         int nbInputs,
         const nvinfer1::DynamicPluginTensorDesc* outputs,
-        int nbOutputs) noexcept override {}
+        int nbOutputs) noexcept override;
 
     size_t getWorkspaceSize(
         const nvinfer1::PluginTensorDesc* inputs,
@@ -135,5 +136,3 @@ private:
     std::vector<nvinfer1::PluginField> mFields;
 };
 } // namespace sparse4d
-
-

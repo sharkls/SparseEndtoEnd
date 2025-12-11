@@ -32,8 +32,10 @@ Status FirstHeadImplement::init(const TaskConfig &param)
     }
     
     // 第一帧头部引擎
+    std::string engine_path = m_taskConfig.head1st_engine().engine_path();
+
     m_first_head_engine = std::make_shared<TensorRT>(
-        m_taskConfig.head1st_engine().engine_path(),
+        engine_path,
         plugin_paths,
         std::vector<std::string>(m_taskConfig.head1st_engine().input_names().begin(), 
                                 m_taskConfig.head1st_engine().input_names().end()),

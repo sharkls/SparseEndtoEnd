@@ -17,9 +17,9 @@ cd "$SCRIPT_DIR" || exit 1
 echo "[INFO] Cleaning previous build..."
 make clean
 
-# 编译插件（使用DEBUG=1以包含调试符号）
-echo "[INFO] Building DFA plugin with DEBUG=1..."
-make DEBUG=1
+# 编译插件（DEBUG=0 为 Release 模式，启用 O3 优化）
+echo "[INFO] Building DFA plugin in RELEASE mode..."
+make DEBUG=0
 
 # 检查编译结果
 if [ $? -eq 0 ]; then

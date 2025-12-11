@@ -152,8 +152,19 @@ ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
 # STEP3: build frame > 2 sparse4dhead engine
 echo "STEP3: build frame > 2 sparse4dhead ${PRECISION} engine -> saving in ${ENV_HEAD2_ENGINE}..."
 sleep 2s
+
+# 准备安全输入路径
+SAFE_INPUT_DIR="${SCRIPT_DIR}/val_data_trtexec"
+LOAD_INPUTS_ARGS=""
+if [[ -f "${SAFE_INPUT_DIR}/spatial_shapes.bin" && -f "${SAFE_INPUT_DIR}/level_start_index.bin" ]]; then
+    echo "[INFO] Using safe inputs for trtexec to avoid segmentation fault."
+    # 注意：输入名称必须与 ONNX 中的输入节点名称完全匹配
+    LOAD_INPUTS_ARGS="--loadInputs=spatial_shapes:${SAFE_INPUT_DIR}/spatial_shapes.bin,level_start_index:${SAFE_INPUT_DIR}/level_start_index.bin"
+fi
+
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
     ${PLUGIN_ARGS} \
+    ${LOAD_INPUTS_ARGS} \
     --memPoolSize=workspace:2048 \
     --saveEngine=${ENV_HEAD2_ENGINE} \
     --verbose \

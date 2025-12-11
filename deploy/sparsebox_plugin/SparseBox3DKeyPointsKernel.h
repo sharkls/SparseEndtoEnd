@@ -1,6 +1,7 @@
 #pragma once
 
-#include <cuda_runtime_api.h>
+#include <cuda_runtime.h>
+#include <cstdint>
 
 namespace sparse4d
 {
@@ -11,19 +12,19 @@ struct SparseBox3DKeyPointsKernelParams
     int32_t embedDims;
     int32_t numPts;
     int32_t numLearnablePts;
-    const void* anchor;          // [B, N, 11]
-    const void* instanceFeature; // [B, N, embedDims] or nullptr
-    void* output;                // [B, N, numPts, 3]
-    const float* fixScale;       // numPts * 3
-    const float* fcWeight;       // numLearnablePts*3 x embedDims
-    const float* fcBias;         // numLearnablePts*3
-    bool useFP16;
-    bool outputFP32;            // 新增：输出是否为 FP32（当输入是 FP16 但输出是 FP32 时）
+    const void* anchor;           // FP32 or FP16
+    const void* instanceFeature;  // FP32, FP16, or INT8
+    void* output;                 // FP32
+    const float* fixScale;
+    const float* fcWeight;
+    const float* fcBias;
+    bool useFP16;                 // true if anchor/feature is FP16
+    bool useInt8;                 // true if feature is INT8
+    float featureScale;           // Scale factor for INT8 feature
+    bool outputFP32;              // true if output should be FP32 (always true now)
 };
 
 int launchSparseBox3DKeyPointsKernel(
     const SparseBox3DKeyPointsKernelParams& params,
     cudaStream_t stream);
 } // namespace sparse4d
-
-

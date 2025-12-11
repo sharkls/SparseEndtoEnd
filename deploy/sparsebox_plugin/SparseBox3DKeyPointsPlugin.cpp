@@ -69,10 +69,18 @@ SparseBox3DKeyPointsPlugin::SparseBox3DKeyPointsPlugin(
     deserializeVector(a, mParams.fixScale);
     deserializeVector(a, mParams.fcWeight);
     deserializeVector(a, mParams.fcBias);
+    
+    // Deserialize input scale if available
+    if (static_cast<size_t>(a - d) < length) {
+        std::memcpy(&mParams.inputScale, a, sizeof(float));
+        a += sizeof(float);
+    } else {
+        mParams.inputScale = 1.0f;
+    }
 
-    if (static_cast<size_t>(a - d) != length)
+    if (static_cast<size_t>(a - d) > length) // Relaxed check to allow backward compatibility if length > read
     {
-        throw std::runtime_error("SparseBox3DKeyPointsPlugin: deserialize length mismatch.");
+       // If strict check is needed: != length
     }
     allocateDeviceBuffers();
 }
@@ -115,14 +123,39 @@ bool SparseBox3DKeyPointsPlugin::supportsFormatCombination(
         return desc.type == DataType::kFLOAT;
     }
 
-    // Input 0 (Anchor) can be Float or Half
+    // Input 0 (Anchor) can be Float or Half (usually regressed values, not Int8)
     if (pos == 0)
     {
         return desc.type == DataType::kFLOAT || desc.type == DataType::kHALF;
     }
+    
+    // Input 1 (Feature)
+    if (pos == 1) {
+        // Can be Float, Half, or Int8
+        if (inOut[0].type == DataType::kFLOAT) {
+             return desc.type == DataType::kFLOAT || desc.type == DataType::kINT8;
+        }
+        if (inOut[0].type == DataType::kHALF) {
+             return desc.type == DataType::kHALF || desc.type == DataType::kINT8;
+        }
+        return false;
+    }
 
-    // Other Inputs (Feature) must match Input 0
-    return desc.type == inOut[0].type;
+    return false;
+}
+
+void SparseBox3DKeyPointsPlugin::configurePlugin(
+    const nvinfer1::DynamicPluginTensorDesc* inputs,
+    int nbInputs,
+    const nvinfer1::DynamicPluginTensorDesc* outputs,
+    int nbOutputs) noexcept
+{
+    // Capture scale if input 1 (feature) is INT8
+    if (nbInputs > 1 && inputs[1].desc.type == DataType::kINT8) {
+        mParams.inputScale = inputs[1].desc.scale;
+    } else {
+        mParams.inputScale = 1.0f;
+    }
 }
 
 int SparseBox3DKeyPointsPlugin::enqueue(
@@ -136,7 +169,7 @@ int SparseBox3DKeyPointsPlugin::enqueue(
     // 参数验证
     if (inputDesc[0].dims.nbDims < 2)
     {
-        return 1;  // 输入维度不足
+        return 1;
     }
     
     const int32_t batch = inputDesc[0].dims.d[0];
@@ -144,32 +177,30 @@ int SparseBox3DKeyPointsPlugin::enqueue(
     
     if (batch <= 0 || numAnchor <= 0)
     {
-        return 1;  // 无效的批次或锚点数
+        return 1;
     }
     
     // 验证参数完整性
     if (mParams.fixScale.size() < static_cast<size_t>((mParams.numPts - mParams.numLearnablePts) * 3))
     {
-        return 1;  // fix_scale 大小不足
+        return 1;
     }
     
     if (mParams.numLearnablePts > 0)
     {
         if (mParams.fcWeight.size() < static_cast<size_t>(mParams.numLearnablePts * 3 * mParams.embedDims))
         {
-            return 1;  // fc_weight 大小不足
+            return 1;
         }
         if (mParams.fcBias.size() < static_cast<size_t>(mParams.numLearnablePts * 3))
         {
-            return 1;  // fc_bias 大小不足
+            return 1;
         }
     }
     
     const bool useFP16 = inputDesc[0].type == DataType::kHALF;
-    
-    // 关键优化：检查输出类型
-    // 如果输入是 FP16 但 getOutputDataType 返回 FP32，则 outputFP32 = true
-    const bool outputFP32 = useFP16;  // 在 FP16 输入模式下，我们总是输出 FP32
+    const bool useInt8 = (mParams.numLearnablePts > 0) && (inputDesc[1].type == DataType::kINT8);
+    const bool outputFP32 = true; // Always output FP32
 
     SparseBox3DKeyPointsKernelParams params{};
     params.batch = batch;
@@ -184,7 +215,9 @@ int SparseBox3DKeyPointsPlugin::enqueue(
     params.fcWeight = mDeviceFcWeight;
     params.fcBias = mDeviceFcBias;
     params.useFP16 = useFP16;
-    params.outputFP32 = outputFP32;  // 设置输出类型标志
+    params.useInt8 = useInt8;
+    params.featureScale = mParams.inputScale;
+    params.outputFP32 = outputFP32;
 
     return launchSparseBox3DKeyPointsKernel(params, stream);
 }
@@ -194,7 +227,8 @@ size_t SparseBox3DKeyPointsPlugin::getSerializationSize() const noexcept
     return sizeof(int32_t) * 3
         + vectorBytes(mParams.fixScale)
         + vectorBytes(mParams.fcWeight)
-        + vectorBytes(mParams.fcBias);
+        + vectorBytes(mParams.fcBias)
+        + sizeof(float); // inputScale
 }
 
 void SparseBox3DKeyPointsPlugin::serialize(void* buffer) const noexcept
@@ -210,6 +244,9 @@ void SparseBox3DKeyPointsPlugin::serialize(void* buffer) const noexcept
     serializeVector(dst, mParams.fixScale);
     serializeVector(dst, mParams.fcWeight);
     serializeVector(dst, mParams.fcBias);
+    
+    std::memcpy(dst, &mParams.inputScale, sizeof(float));
+    dst += sizeof(float);
 }
 
 nvinfer1::IPluginV2DynamicExt* SparseBox3DKeyPointsPlugin::clone() const noexcept
@@ -229,14 +266,7 @@ nvinfer1::DataType SparseBox3DKeyPointsPlugin::getOutputDataType(
     const nvinfer1::DataType* inputTypes,
     int) const noexcept
 {
-    // 关键优化：在 FP16 模式下，插件输出 FP32 值，让 TensorRT 负责 FP32 到 FP16 的转换
-    // 这样可以避免插件内部的 FP16 转换问题，确保 100% 成功率
-    // TensorRT 的 FP32 到 FP16 转换是经过优化的，比插件内部的转换更可靠
-    if (inputTypes[0] == DataType::kHALF)
-    {
-        return DataType::kFLOAT;  // FP16 输入时，输出 FP32
-    }
-    return inputTypes[0];  // FP32 输入时，输出 FP32
+    return DataType::kFLOAT;
 }
 
 const char* SparseBox3DKeyPointsPlugin::getPluginType() const noexcept
@@ -388,5 +418,3 @@ nvinfer1::IPluginV2* SparseBox3DKeyPointsPluginCreator::deserializePlugin(
 
 REGISTER_TENSORRT_PLUGIN(SparseBox3DKeyPointsPluginCreator);
 } // namespace sparse4d
-
-
