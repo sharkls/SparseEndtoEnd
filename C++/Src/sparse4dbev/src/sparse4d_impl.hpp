@@ -46,6 +46,8 @@ public:
 private:
     bool init_memory();
     bool init_aux_data();
+    bool init_bindings();
+    bool warmupInference();
 
 private:
     TaskConfig config_;

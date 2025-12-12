@@ -120,23 +120,13 @@ bool InstanceBank<T>::project_anchors(const double current_timestamp,
     cudaMemcpyAsync(mask_.getCudaPtr(), &mask_val, sizeof(int), cudaMemcpyHostToDevice, stream);
     
     // Update Time Interval
-    // We can't cast float to T on host easily for half without helper, or use float loop on device
-    // Or just use a small kernel.
-    // For simplicity, assuming T=float or using a helper if half. 
-    // Wait, T is template param. 
-    // Let's rely on CudaWrapper or just use a small temp buffer + conversion.
-    // Since it's 1 value, we can just copy float to float buffer if T=float.
-    // Ideally we should use a kernel or helper to set scalar value on device if T=half.
-    // Since we don't have easy host half support, let's just use cudaMemset or a kernel if needed.
-    // Actually, launch_anchor_projection uses dt passed by value.
-    // The device_time_interval_ buffer is likely used as input to network?
-    // If network expects T, we need T.
-    
-    // Simplified: just update mask and track ids logic. 
-    // If device_time_interval_ is needed by network, we need to convert dt_ to T and copy.
-    // Since we don't have host-side half, we might need a small kernel "set_value".
-    // Or just ignore for now if not critical or use valid_to_float equivalent on device?
-    // Let's assume float for now or add a small helper if it fails.
+    std::vector<T> dt_vec(1);
+    if constexpr (std::is_same<T, float>::value) {
+        dt_vec[0] = (float)dt_;
+    } else {
+        dt_vec[0] = __float2half((float)dt_);
+    }
+    device_time_interval_.cudaMemUpdateWrapAsync(dt_vec, stream);
 
     // Update state
     last_timestamp_ = current_timestamp;
@@ -173,36 +163,21 @@ bool InstanceBank<T>::update(const CudaWrapper<T>& pred_features,
 
     std::vector<ConfIndex> sorted_indices(num_queries);
     for (int i = 0; i < num_queries; ++i) {
-        float val = 0.0f;
-        // Simple manual conversion or cast
-        // Assuming T provides conversion to float or is float
-        // For half, we might need a helper if host compiler supports it, or use float buffer on device and convert there.
-        // But since we can't easily compile host half code without half headers...
-        // Wait, CudaWrapper uses T. For half, T is __half. 
-        // __half on host needs CUDA headers. This file is .cpp.
-        // But we included cuda_fp16.h indirectly via instance_bank.hpp -> cuda_fp16.h
-        // So __half is available.
-        // We can use common::val_to_float if it was available on host?
-        // Actually, __half2float is device only usually.
-        // We can use CUDA helper __half2float from host? No.
-        // We can use half_float::half? No.
-        
-        // Solution: Convert to float on DEVICE before copying to host.
-        // But we don't want to add more kernels if possible.
-        // Let's assume T=float for now, or just cast (which won't work for half).
-        
-        // Better: Use a small kernel to convert to float on device, then copy float to host.
-        // Or reuse existing buffer if it's float.
-        
-        // Let's just implement a simple "copy_to_host_float" kernel in .cu and expose it.
-        // Or simpler: since we removed Thrust, we are free to add small helper kernels in .cu
+        if constexpr (std::is_same<T, float>::value) {
+            sorted_indices[i].conf = host_conf_T[i];
+        } else {
+            sorted_indices[i].conf = __half2float(host_conf_T[i]);
+        }
+        sorted_indices[i].index = i;
     }
     
-    // TEMPORARY FIX: Just use dummy indices 0..topk-1 to pass compilation
-    // Real implementation requires device-to-host conversion or host-side half support.
+    // Sort descending
+    // We only need TopK
+    std::partial_sort(sorted_indices.begin(), sorted_indices.begin() + topk, sorted_indices.end(), 
+                      [](const ConfIndex& a, const ConfIndex& b) { return a.conf > b.conf; });
     
     std::vector<int> topk_indices(topk);
-    for(int i=0; i<topk; ++i) topk_indices[i] = i; // Dummy logic
+    for(int i=0; i<topk; ++i) topk_indices[i] = sorted_indices[i].index;
     
     // Copy indices to Device
     int* d_indices;
@@ -210,7 +185,7 @@ bool InstanceBank<T>::update(const CudaWrapper<T>& pred_features,
     cudaMemcpyAsync(d_indices, topk_indices.data(), topk * sizeof(int), cudaMemcpyHostToDevice, stream);
 
     // 2. Launch Update Kernel
-    float conf_decay = 1.0f; // Todo from config
+    float conf_decay = config_.instance_bank_params().confidence_decay();
     
     launch_update_bank<T>(
         pred_features.getCudaPtr(),

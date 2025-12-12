@@ -29,7 +29,6 @@ bool EngineWrapper::init(const std::string& engine_path, const std::vector<std::
     
     // 1. Load Plugins
     // Use RTLD_LAZY to match TensorRT.cpp
-    /*
     for (const auto& path : plugin_paths) {
         // Always dlopen, rely on OS ref counting
         LOG(INFO) << "Loading plugin: " << path;
@@ -40,11 +39,14 @@ bool EngineWrapper::init(const std::string& engine_path, const std::vector<std::
         }
     }
     
-    // Call initLibNvInferPlugins every time, matching TensorRT.cpp behavior
-    initLibNvInferPlugins(&g_plugin_logger, "");
-    LOG(INFO) << "LibNvInferPlugins initialized.";
-    */
-    LOG(WARNING) << "Skipping plugin loading to debug segfault.";
+    // Call initLibNvInferPlugins only once
+    static bool plugins_initialized = false;
+    if (!plugins_initialized) {
+        initLibNvInferPlugins(&g_plugin_logger, "");
+        plugins_initialized = true;
+        LOG(INFO) << "LibNvInferPlugins initialized.";
+    }
+    // LOG(WARNING) << "Skipping plugin loading to debug segfault.";
 
     // 2. Load Engine File
     std::ifstream file(engine_path, std::ios::binary);
@@ -67,15 +69,15 @@ bool EngineWrapper::init(const std::string& engine_path, const std::vector<std::
     
     // Wrap in try-catch to handle potential TRT exceptions and avoid ABI unwind issues
     try {
-        // Use custom deleter for ABI safety
+        // Use custom deleter for ABI safety and correct destruction
         struct RuntimeDeleter {
-            void operator()(nvinfer1::IRuntime* ptr) { if (ptr) delete ptr; }
+            void operator()(nvinfer1::IRuntime* ptr) { if (ptr) ptr->destroy(); }
         };
         struct EngineDeleter {
-            void operator()(nvinfer1::ICudaEngine* ptr) { if (ptr) delete ptr; }
+            void operator()(nvinfer1::ICudaEngine* ptr) { if (ptr) ptr->destroy(); }
         };
         struct ContextDeleter {
-            void operator()(nvinfer1::IExecutionContext* ptr) { if (ptr) delete ptr; }
+            void operator()(nvinfer1::IExecutionContext* ptr) { if (ptr) ptr->destroy(); }
         };
 
         // Note: EngineWrapper header needs to be updated to use std::shared_ptr or unique_ptr
@@ -126,7 +128,36 @@ bool EngineWrapper::forward(const std::vector<void*>& bindings, cudaStream_t str
     
     // For TRT 8.5+ use enqueueV3, but enqueueV2 is safer for older versions
     // Assuming standard implicit batch or dynamic batch setup
-    return context_->enqueueV2(bindings.data(), stream, nullptr);
+    
+    // Debug checks
+    if (bindings.empty()) {
+        LOG(ERROR) << "EngineWrapper::forward - Bindings vector is empty!";
+        return false;
+    }
+    
+    int num_bindings = engine_->getNbBindings();
+    if (bindings.size() != static_cast<size_t>(num_bindings)) {
+        LOG(ERROR) << "EngineWrapper::forward - Bindings vector size (" << bindings.size() 
+                   << ") does not match engine bindings count (" << num_bindings << ")";
+        return false;
+    }
+    
+    for (int i = 0; i < num_bindings; ++i) {
+        if (bindings[i] == nullptr) {
+            LOG(ERROR) << "EngineWrapper::forward - Binding " << i << " (" << engine_->getBindingName(i) << ") is NULL!";
+            return false;
+        }
+        // Optional: Check pointer alignment
+        // if ((reinterpret_cast<uintptr_t>(bindings[i]) % 16) != 0) {
+        //     LOG(WARNING) << "EngineWrapper::forward - Binding " << i << " is not 16-byte aligned!";
+        // }
+    }
+
+    bool status = context_->enqueueV2(bindings.data(), stream, nullptr);
+    if (!status) {
+        LOG(ERROR) << "EngineWrapper::forward - enqueueV2 failed!";
+    }
+    return status;
 }
 
 int EngineWrapper::get_binding_index(const std::string& name) const {

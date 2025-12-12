@@ -66,12 +66,19 @@ bool Sparse4DImpl<T>::init(const TaskConfig& config, const std::string& exe_path
     // 2. Initialize Engines
     LOG(INFO) << "Init Engines...";
     std::vector<std::string> plugins;
-    if (!config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path().empty()) {
+    
+    // Load plugins from head1st_engine config (which usually contains all necessary plugins)
+    for (int i = 0; i < config.head1st_engine().plugin_paths_size(); ++i) {
+        plugins.push_back(config.head1st_engine().plugin_paths(i));
+    }
+
+    // Fallback: if empty, try model_cfg_params (legacy)
+    if (plugins.empty() && !config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path().empty()) {
         plugins.push_back(config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path());
     }
 
     backbone_ = std::make_unique<EngineWrapper>();
-    // if (!backbone_->init(config.backbone_engine().engine_path(), plugins)) return false;
+    if (!backbone_->init(config.backbone_engine().engine_path(), plugins)) return false;
     // // Check precision: T=float checks for FP32 engine, T=half checks for FP16
     // if (!backbone_->check_precision<T>()) return false;
 
@@ -81,11 +88,107 @@ bool Sparse4DImpl<T>::init(const TaskConfig& config, const std::string& exe_path
     head2_ = std::make_unique<EngineWrapper>();
     if (!head2_->init(config.head2nd_engine().engine_path(), plugins)) return false;
 
-    // 3. Allocate Memory & Setup Bindings
-    if (!init_memory()) return false;
+    // 3. Load Aux Data (Allocates & Fills aux buffers like spatial_shapes)
+    // NOTE: MUST be called BEFORE init_memory if init_memory relies on correct allocations,
+    // OR before binding setup if binding setup relies on pointers from these.
+    // In our case, init_aux_data allocates spatial_shapes, etc.
+    if (!init_aux_data()) {
+        LOG(ERROR) << "Failed to init aux data";
+        return false;
+    }
 
-    // 4. Load Aux Data
-    if (!init_aux_data()) return false;
+    // 4. Allocate Memory (IO buffers)
+    if (!init_memory()) {
+        LOG(ERROR) << "Failed to init memory";
+        return false;
+    }
+
+    // 5. Setup Bindings (Map allocated buffers to engine bindings)
+    // NOTE: Must be called AFTER all buffers are allocated.
+    if (!init_bindings()) {
+        LOG(ERROR) << "Failed to init bindings";
+        return false;
+    }
+
+    // 3. Head Inference (Recurrent)
+    if (!warmupInference()) {
+        LOG(WARNING) << "[WARNING] Warmup inference failed, but continuing...";
+    }
+    LOG(INFO) << "[INFO] Warmup inference completed";
+
+    return true;
+}
+
+template <typename T>
+bool Sparse4DImpl<T>::warmupInference() {
+    if (stream_ == nullptr) {
+        LOG(ERROR) << "[ERROR] Inference stream is null, cannot perform warmup";
+        return false;
+    }
+
+    // 1. Initialize input_imgs and feature_maps with zero data
+    size_t input_size = input_imgs_.getSize();
+    if (input_size > 0) {
+        input_imgs_.cudaMemSetWrap(T(0.0f));
+    }
+    
+    size_t feat_size = feature_maps_.getSize();
+    if (feat_size > 0) {
+        feature_maps_.cudaMemSetWrap(T(0.0f));
+    }
+
+    // 2. Warmup Backbone
+    const int BACKBONE_WARMUP = 3;
+    LOG(INFO) << "[INFO] Warming up Backbone (" << BACKBONE_WARMUP << " iterations)...";
+    for (int i = 0; i < BACKBONE_WARMUP; ++i) {
+        if (!backbone_->forward(backbone_bindings_, stream_)) {
+            LOG(ERROR) << "Backbone warmup failed at iteration " << i;
+            // return false; // Continue to try other heads
+        }
+        cudaStreamSynchronize(stream_);
+    }
+
+    // 3. Warmup Head1
+    const int HEAD1_WARMUP = 5;
+    LOG(INFO) << "[INFO] Warming up Head1 (" << HEAD1_WARMUP << " iterations)...";
+    
+    // Set initial bindings for warmup (using init buffers)
+    // Head1 uses init_instance_feature and init_anchor for first frame
+    // We need to ensure bindings are set correctly for warmup
+    // The init_bindings() function sets pointers, but some are dynamic (nullptr)
+    // We need to temporarily set them for warmup
+    
+    int h1_feat_idx = head1_->get_binding_index("instance_feature");
+    int h1_anchor_idx = head1_->get_binding_index("anchor");
+    
+    if (h1_feat_idx != -1) head1_bindings_[h1_feat_idx] = init_instance_feature_.getCudaPtr();
+    if (h1_anchor_idx != -1) head1_bindings_[h1_anchor_idx] = init_anchor_.getCudaPtr();
+    
+    for (int i = 0; i < HEAD1_WARMUP; ++i) {
+        if (!head1_->forward(head1_bindings_, stream_)) {
+            LOG(ERROR) << "Head1 warmup failed at iteration " << i;
+        }
+        cudaStreamSynchronize(stream_);
+    }
+
+    // 4. Warmup Head2
+    const int HEAD2_WARMUP = 15;
+    LOG(INFO) << "[INFO] Warming up Head2 (" << HEAD2_WARMUP << " iterations)...";
+    
+    // Head2 uses temp buffers
+    int h2_feat_idx = head2_->get_binding_index("instance_feature");
+    int h2_anchor_idx = head2_->get_binding_index("anchor");
+    
+    // Use temp buffers (which contain zeros initially)
+    if (h2_feat_idx != -1) head2_bindings_[h2_feat_idx] = instance_bank_->get_temp_features().getCudaPtr();
+    if (h2_anchor_idx != -1) head2_bindings_[h2_anchor_idx] = instance_bank_->get_temp_anchors().getCudaPtr();
+    
+    for (int i = 0; i < HEAD2_WARMUP; ++i) {
+        if (!head2_->forward(head2_bindings_, stream_)) {
+            LOG(ERROR) << "Head2 warmup failed at iteration " << i;
+        }
+        cudaStreamSynchronize(stream_);
+    }
 
     return true;
 }
@@ -93,13 +196,23 @@ bool Sparse4DImpl<T>::init(const TaskConfig& config, const std::string& exe_path
 template <typename T>
 bool Sparse4DImpl<T>::init_memory() {
     // A. Preprocessor Out (Backbone In)
-    auto img_shape = backbone_->get_binding_shape(backbone_->get_binding_index("img"));
+    int img_idx = backbone_->get_binding_index("img");
+    if (img_idx == -1) {
+        LOG(ERROR) << "Backbone engine binding 'img' not found!";
+        return false;
+    }
+    auto img_shape = backbone_->get_binding_shape(img_idx);
     size_t img_vol = 1;
     for(int i=0; i<img_shape.nbDims; ++i) img_vol *= img_shape.d[i];
     input_imgs_.allocate(img_vol);
 
     // B. Backbone Out (Head In)
-    auto feat_shape = backbone_->get_binding_shape(backbone_->get_binding_index("feature"));
+    int feat_idx = backbone_->get_binding_index("feature");
+    if (feat_idx == -1) {
+        LOG(ERROR) << "Backbone engine binding 'feature' not found!";
+        return false;
+    }
+    auto feat_shape = backbone_->get_binding_shape(feat_idx);
     size_t feat_vol = 1;
     for(int i=0; i<feat_shape.nbDims; ++i) feat_vol *= feat_shape.d[i];
     feature_maps_.allocate(feat_vol);
@@ -112,14 +225,17 @@ bool Sparse4DImpl<T>::init_memory() {
     pred_quality_score_.allocate(900 * 2);
     pred_track_id_.allocate(900); // Only head2 has this, head1 ignores it
 
-    // D. Aux inputs (Need to load from file or set up constants)
-    // For now, allocating dummy sizes, resized in init_aux_data
-    spatial_shapes_.allocate(100); 
-    level_start_index_.allocate(100);
+    // D. Aux inputs (Dynamic ones)
+    // spatial_shapes and level_start_index are handled in init_aux_data.
+    // lidar2img and image_wh are dynamic but need initial allocation.
     lidar2img_.allocate(6 * 4 * 4);
     image_wh_.allocate(6 * 2);
 
-    // E. Setup Bindings Vectors
+    return true;
+}
+
+template <typename T>
+bool Sparse4DImpl<T>::init_bindings() {
     auto setup_bindings = [&](EngineWrapper* engine, std::vector<void*>& bindings) {
         int n = engine->get_num_bindings();
         bindings.resize(n);
@@ -131,7 +247,7 @@ bool Sparse4DImpl<T>::init_memory() {
             else if (name == "feature") bindings[i] = feature_maps_.getCudaPtr();
             else if (name == "instance_feature") {
                 // If input, it's from InstanceBank (temp) or init
-                bindings[i] = nullptr; // Set dynamically
+                bindings[i] = nullptr; // Set dynamically in forward
             }
             // Outputs
             else if (name == "pred_instance_feature") bindings[i] = pred_instance_feature_.getCudaPtr();
@@ -153,7 +269,7 @@ bool Sparse4DImpl<T>::init_memory() {
                 else if (name == "time_interval") bindings[i] = instance_bank_->get_time_interval().getCudaPtr();
                 // Head1 specific inputs might be "anchor" or "instance_feature" -> handled dynamically
                 else if (name == "anchor") {
-                     bindings[i] = nullptr; // Set dynamically
+                     bindings[i] = nullptr; // Set dynamically in forward
                 }
                 else {
                     LOG(WARNING) << "Unknown binding name: " << name;
@@ -241,6 +357,23 @@ template <typename T>
 void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& result) {
     if (!src_data) return;
 
+    // 0. Update image_wh
+    int w = config_.preprocessor_params().model_input_img_w();
+    int h = config_.preprocessor_params().model_input_img_h();
+    int num_cams = config_.preprocessor_params().num_cams();
+    std::vector<T> img_wh_data(num_cams * 2);
+    for(int i=0; i<num_cams; ++i) {
+        if constexpr (std::is_same<T, float>::value) {
+            img_wh_data[i*2 + 0] = (float)w;
+            img_wh_data[i*2 + 1] = (float)h;
+        } else {
+            // T is half
+            img_wh_data[i*2 + 0] = __float2half((float)w);
+            img_wh_data[i*2 + 1] = __float2half((float)h);
+        }
+    }
+    image_wh_.cudaMemUpdateWrapAsync(img_wh_data, stream_);
+
     // 1. Preprocessing
     if (!preprocessor_->forward(src_data, stream_, input_imgs_)) {
         LOG(ERROR) << "Preprocessing failed";
@@ -248,6 +381,22 @@ void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& res
     }
 
     // 2. Backbone Inference
+    // Validate Backbone Input/Output sizes before inference
+    {
+        size_t input_size = input_imgs_.getSize();
+        size_t feat_size = feature_maps_.getSize();
+        
+        // Expected size checking can be added here if needed
+        if (input_size == 0 || input_imgs_.getCudaPtr() == nullptr) {
+             LOG(ERROR) << "Backbone Input (img) is invalid! Size: " << input_size << ", Ptr: " << input_imgs_.getCudaPtr();
+             return;
+        }
+        if (feat_size == 0 || feature_maps_.getCudaPtr() == nullptr) {
+             LOG(ERROR) << "Backbone Output (feature) is invalid! Size: " << feat_size << ", Ptr: " << feature_maps_.getCudaPtr();
+             return;
+        }
+    }
+
     if (!backbone_->forward(backbone_bindings_, stream_)) {
         LOG(ERROR) << "Backbone inference failed";
         return;
@@ -292,10 +441,26 @@ void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& res
         }
     }
 
+    // Validation: Ensure all bindings are set
+    for (size_t i = 0; i < head_bindings.size(); ++i) {
+        if (head_bindings[i] == nullptr) {
+            std::string name = head_engine->get_binding_name(i);
+            LOG(ERROR) << "Binding " << i << " (" << name << ") is NULL before execution!";
+            return;
+        }
+    }
+
     // Execute Head
     if (!head_engine->forward(head_bindings, stream_)) {
          LOG(ERROR) << "Head inference failed";
          return;
+    }
+
+    // Handle Track IDs for First Frame (Head1 doesn't output them)
+    if (first_frame) {
+        int num_queries = config_.instance_bank_params().num_querys();
+        std::vector<int32_t> default_ids(num_queries, -1);
+        pred_track_id_.cudaMemUpdateWrapAsync(default_ids, stream_);
     }
 
     // 4. Update Instance Bank
@@ -310,6 +475,24 @@ void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& res
 
 template <typename T>
 bool Sparse4DImpl<T>::update_params(void* param) {
+    if (!param) return false;
+    
+    // param is float* (lidar2img matrix: 6*4*4=96 floats)
+    float* host_data = static_cast<float*>(param);
+    size_t num_elements = 6 * 4 * 4;
+
+    if constexpr (std::is_same<T, float>::value) {
+        std::vector<float> data(host_data, host_data + num_elements);
+        lidar2img_.cudaMemUpdateWrap(data);
+    } else {
+        // T is half
+        std::vector<T> data_h(num_elements);
+        for(size_t i=0; i<num_elements; ++i) {
+            data_h[i] = __float2half(host_data[i]); 
+        }
+        lidar2img_.cudaMemUpdateWrap(data_h);
+    }
+
     return true;
 }
 

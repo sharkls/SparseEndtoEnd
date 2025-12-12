@@ -111,8 +111,8 @@ if(CMAKE_PLATFORM MATCHES "86")
     if(BUILD_SPARSEBEV8_6)
         target_link_libraries(${PROJECT_NAME} PRIVATE SparseBEVAlg8.6)
         # Ensure the factory symbol CreateCoreObj is not dropped by --as-needed
-        # target_link_libraries(${PROJECT_NAME} PRIVATE "-Wl,--no-as-needed" sparse4dbev "-Wl,--as-needed")
-        target_link_libraries(${PROJECT_NAME} PRIVATE "-Wl,--no-as-needed" Sparse4DAlg "-Wl,--as-needed")
+        target_link_libraries(${PROJECT_NAME} PRIVATE "-Wl,--no-as-needed" sparse4dbev "-Wl,--as-needed")
+        # target_link_libraries(${PROJECT_NAME} PRIVATE "-Wl,--no-as-needed" Sparse4DAlg "-Wl,--as-needed")
     endif()
 
 endif()
