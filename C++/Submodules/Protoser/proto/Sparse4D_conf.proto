@@ -13,7 +13,7 @@ message TaskConfig {
     string homography_path = 8;
     bool enable_timer = 9;                                          // 程序运行方式
     bool use_half_precision = 10;                                   // 数据类型float
-    string precision_type = 11;                                     // 运行类型
+    string precision_type = 11;                                     // 运行类型 "fp32" or "fp16"
 }
 
 // 模型配置参数
