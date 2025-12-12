@@ -224,7 +224,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_dir", required=True)
     parser.add_argument("--plugin_dir", default="deploy")
+    parser.add_argument("--output_dir", default="./visualize/inference_vs_gt", help="Directory to save visualization images")
     args = parser.parse_args()
+    
+    os.makedirs(args.output_dir, exist_ok=True)
 
     # Load Plugins
     plugins = [
@@ -417,7 +420,7 @@ def main():
     print(f"Detected {len(gt_res['boxes'])} objects in GT (Raw Output).")
     
     # 3. Visualize
-    visualize_bev(gt_res, pred_res, "vis_frame1_bev.png")
+    visualize_bev(gt_res, pred_res, os.path.join(args.output_dir, "vis_frame1_bev.png"))
     
     # Also visualize Frame 0 for sanity check
     print("Visualizing Frame 0...")
@@ -427,7 +430,7 @@ def main():
     gt_anchor0 = load_bin(find_file(args.data_dir, "pred_anchor", "sample_0"), shape=(1, 900, 11))
     gt_res0 = decoder.decode(torch.from_numpy(gt_cls0).cuda(), torch.from_numpy(gt_anchor0).cuda())
     
-    visualize_bev(gt_res0, pred_res0, "vis_frame0_bev.png")
+    visualize_bev(gt_res0, pred_res0, os.path.join(args.output_dir, "vis_frame0_bev.png"))
 
 if __name__ == "__main__":
     main()

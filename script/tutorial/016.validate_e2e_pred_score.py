@@ -406,9 +406,10 @@ def main():
     parser.add_argument("--data_dir", required=True, help="Path to validation data")
     parser.add_argument("--plugin_dir", default="deploy", help="Path to deploy dir")
     parser.add_argument("--visualize", action="store_true", default=True, help="Enable visualization")
-    parser.add_argument("--output_dir", default=".", help="Directory to save visualization images")
+    parser.add_argument("--output_dir", default="./visualize/e2e", help="Directory to save visualization images")
     parser.add_argument("--score_threshold", type=float, default=0.3, help="Score threshold for visualization")
     args = parser.parse_args()
+    os.makedirs(args.output_dir, exist_ok=True)
     
     # Create decoder for visualization
     decoder = SimpleDecoder(num_output=300, score_threshold=args.score_threshold)
