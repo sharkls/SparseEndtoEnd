@@ -1,7 +1,17 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 #include <cstdint>
+#include <cmath>
 #include "../common/cuda_utils_templates.hpp"
+
+#define R_MEAN 0.485F
+#define G_MEAN 0.456F
+#define B_MEAN 0.406F
+#define R_STD 0.229F
+#define G_STD 0.224F
+#define B_STD 0.225F
+
+#define DIVUP(a, b) ((a % b != 0) ? (a / b + 1) : (a / b))
 
 namespace sparse4d {
 namespace bev {
@@ -15,81 +25,82 @@ __global__ void img_preprocess_kernel(
     uint32_t crop_h, uint32_t crop_w,
     T* __restrict__ dst
 ) {
-    // 3D Grid: x=width, y=height, z=camera_id
-    uint32_t x = blockIdx.x * blockDim.x + threadIdx.x;
-    uint32_t y = blockIdx.y * blockDim.y + threadIdx.y;
-    uint32_t cam_id = blockIdx.z;
+    // Sparse4DFP16 Grid Layout: 
+    // Grid: (num_cams, H_blocks, W_blocks)
+    // Block: (16, 16)
+    
+    const uint32_t cam_id = blockIdx.x;
+    // Sparse4DFP16: dst_y = blockIdx.y * blockDim.x + threadIdx.x
+    // blockDim.x = 16, blockDim.y = 16
+    const uint32_t y = blockIdx.y * blockDim.x + threadIdx.x;
+    // Sparse4DFP16: dst_x = blockIdx.z * blockDim.y + threadIdx.y
+    const uint32_t x = blockIdx.z * blockDim.y + threadIdx.y;
 
     if (x >= net_w || y >= net_h) return;
 
-    // Output index: [cam, c, h, w] (NCHW) or [cam, h, w, c] (NHWC)?
-    // Sparse4D typically expects NCHW (num_cams, 3, H, W)
-    // Destination offset
-    uint32_t dst_offset = cam_id * 3 * net_h * net_w + 
-                          0 * net_h * net_w + // C=0 (R)
-                          y * net_w + x;
-    uint32_t dst_stride = net_h * net_w; // Stride between channels
+    // Sparse4DFP16 Coordinate Mapping
+    const float resize_ratio_x = static_cast<float>(raw_w) / static_cast<float>(floor(raw_w * resize_ratio));
+    const float resize_ratio_y = static_cast<float>(raw_h) / static_cast<float>(floor(raw_h * resize_ratio));
 
-    // Coordinate mapping (Inverse mapping)
-    // dst(y, x) -> src(src_y, src_x)
-    // crop first, then resize
-    // effective_src_y = (y / resize_ratio) + crop_h
-    // effective_src_x = (x / resize_ratio) + crop_w
-    
-    float src_y_f = (float)y / resize_ratio + (float)crop_h;
-    float src_x_f = (float)x / resize_ratio + (float)crop_w;
+    const float src_x = (x + crop_w + 0.5F) * resize_ratio_x - 0.5F;
+    const float src_y = (y + crop_h + 0.5F) * resize_ratio_y - 0.5F;
 
-    // Bilinear Interpolation
-    int x0 = (int)src_y_f;
-    int y0 = (int)src_x_f; // Note: raw image storage usually HWC or CHW. 
-                           // Assuming Raw is HWC (OpenCV style) or CHW?
-                           // Most camera drivers give packed RGB/BGR (HWC).
-                           // Let's assume standard packed RGB HWC for raw input.
-                           
-    // Raw Offset helper: [cam, y, x, c]
-    // Raw stride
-    uint32_t raw_cam_stride = raw_h * raw_w * 3;
-    uint32_t raw_line_stride = raw_w * 3;
+    int32_t low_x = floor(src_x);
+    int32_t low_y = floor(src_y);
 
-    // Check bounds
-    if (x0 < 0 || x0 >= raw_h - 1 || y0 < 0 || y0 >= raw_w - 1) {
-        // Zero padding for out of bounds
+    int32_t high_x = min(low_x + 1, (int32_t)raw_w - 1);
+    int32_t high_y = min(low_y + 1, (int32_t)raw_h - 1);
+
+    low_x = max(0, low_x);
+    low_y = max(0, low_y);
+
+    // Boundary check
+    if (low_x >= raw_w || low_y >= raw_h || high_x >= raw_w || high_y >= raw_h) {
+        uint32_t dst_offset = cam_id * 3 * net_h * net_w + y * net_w + x;
+        uint32_t dst_stride = net_h * net_w;
         dst[dst_offset + 0 * dst_stride] = common::float_to_val<T>(0.0f);
         dst[dst_offset + 1 * dst_stride] = common::float_to_val<T>(0.0f);
         dst[dst_offset + 2 * dst_stride] = common::float_to_val<T>(0.0f);
         return;
     }
 
-    // Interpolation weights
-    float dy = src_y_f - x0;
-    float dx = src_x_f - y0;
-    float w00 = (1.0f - dx) * (1.0f - dy);
-    float w10 = dx * (1.0f - dy);
-    float w01 = (1.0f - dx) * dy;
-    float w11 = dx * dy;
+    const float ly = src_y - low_y;
+    const float lx = src_x - low_x;
+    const float hy = 1.0F - ly;
+    const float hx = 1.0F - lx;
 
-    // Mean and Std for normalization (typical ImageNet)
-    // mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375]
-    const float mean[3] = {123.675f, 116.28f, 103.53f};
-    const float std[3] = {58.395f, 57.12f, 57.375f};
+    const float w1 = hy * hx, w2 = hy * lx, w3 = ly * hx, w4 = ly * lx;
 
-    // Process 3 channels
+    // Output index: NCHW (num_cams, 3, H, W)
+    uint32_t dst_offset = cam_id * 3 * net_h * net_w + y * net_w + x;
+    uint32_t dst_stride = net_h * net_w;
+
+    // Process 3 channels (RGB)
+    // Raw Input Indices (CHW Planar)
+    // src is [N, C, H, W]
+    const uint8_t* cam_base = src + cam_id * (3 * raw_h * raw_w);
+    
+    const float means[3] = {R_MEAN, G_MEAN, B_MEAN};
+    const float stds[3] = {R_STD, G_STD, B_STD};
+
     for (int c = 0; c < 3; ++c) {
-        // Raw Input Indices (HWC)
-        // cam_offset + y*row_stride + x*3 + c
-        const uint8_t* cam_base = src + cam_id * raw_cam_stride;
+        uint32_t channel_offset = c * raw_h * raw_w;
         
-        uint8_t p00 = cam_base[x0 * raw_line_stride + y0 * 3 + c];
-        uint8_t p10 = cam_base[x0 * raw_line_stride + (y0 + 1) * 3 + c];
-        uint8_t p01 = cam_base[(x0 + 1) * raw_line_stride + y0 * 3 + c];
-        uint8_t p11 = cam_base[(x0 + 1) * raw_line_stride + (y0 + 1) * 3 + c];
+        // Value 1: low_y, low_x
+        float p00 = (float)cam_base[channel_offset + low_y * raw_w + low_x];
+        // Value 2: low_y, high_x
+        float p01 = (float)cam_base[channel_offset + low_y * raw_w + high_x];
+        // Value 3: high_y, low_x
+        float p10 = (float)cam_base[channel_offset + high_y * raw_w + low_x];
+        // Value 4: high_y, high_x
+        float p11 = (float)cam_base[channel_offset + high_y * raw_w + high_x];
 
-        float val = w00 * p00 + w10 * p10 + w01 * p01 + w11 * p11;
-        
-        // Normalize
-        val = (val - mean[c]) / std[c];
+        float val = p00 * w1 + p01 * w2 + p10 * w3 + p11 * w4;
 
-        // Store to dst (NCHW planar)
+        // Normalization: (val/255 - mean) / std
+        val = val / 255.0F;
+        val = (val - means[c]) / stds[c];
+
         dst[dst_offset + c * dst_stride] = common::float_to_val<T>(val);
     }
 }
@@ -105,11 +116,13 @@ void launch_img_preprocess(
     cudaStream_t stream,
     T* d_out
 ) {
-    dim3 block(32, 32);
+    // Sparse4DFP16 Block/Grid Config
+    const uint32_t thread_num = 16;
+    dim3 block(thread_num, thread_num);
     dim3 grid(
-        (net_w + block.x - 1) / block.x,
-        (net_h + block.y - 1) / block.y,
-        num_cams
+        num_cams, 
+        DIVUP(net_h, thread_num), 
+        DIVUP(net_w, thread_num)
     );
 
     img_preprocess_kernel<T><<<grid, block, 0, stream>>>(
@@ -133,4 +146,3 @@ template void launch_img_preprocess<half>(
 
 } // namespace bev
 } // namespace sparse4d
-

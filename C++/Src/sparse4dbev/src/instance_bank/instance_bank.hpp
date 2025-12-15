@@ -70,8 +70,17 @@ private:
     // Time interval tensor (shape [1])
     CudaWrapper<T> device_time_interval_;
     
-    // Default Anchors (K-Means)
-    std::vector<float> kmeans_anchors_;
+    // Default Anchors (K-Means) and Features
+    CudaWrapper<T> init_features_;
+    CudaWrapper<T> init_anchors_;
+    
+    // Helper for Track ID generation
+    CudaWrapper<int32_t> device_prev_id_; // Stores the max ID from previous frame
+    int32_t host_prev_id_ = 0;
+    
+public:
+    // Compute/Generate Track IDs
+    void compute_track_ids(CudaWrapper<int32_t>& pred_track_ids, cudaStream_t stream);
 };
 
 } // namespace bev

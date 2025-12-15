@@ -55,4 +55,3 @@ private:
 } // namespace sparse4d
 
 #endif // __SPARSE4D_BEV_PREPROCESSOR_HPP__
-

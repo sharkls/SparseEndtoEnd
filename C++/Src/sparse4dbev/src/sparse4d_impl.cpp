@@ -65,28 +65,44 @@ bool Sparse4DImpl<T>::init(const TaskConfig& config, const std::string& exe_path
 
     // 2. Initialize Engines
     LOG(INFO) << "Init Engines...";
-    std::vector<std::string> plugins;
     
-    // Load plugins from head1st_engine config (which usually contains all necessary plugins)
-    for (int i = 0; i < config.head1st_engine().plugin_paths_size(); ++i) {
-        plugins.push_back(config.head1st_engine().plugin_paths(i));
-    }
+    // Helper function to load plugins from config
+    auto load_plugins = [](const auto& engine_config) -> std::vector<std::string> {
+        std::vector<std::string> plugins;
+        for (int i = 0; i < engine_config.plugin_paths_size(); ++i) {
+            plugins.push_back(engine_config.plugin_paths(i));
+        }
+        return plugins;
+    };
 
+    // Initialize Backbone Engine with its own plugins
+    std::vector<std::string> backbone_plugins = load_plugins(config.backbone_engine());
     // Fallback: if empty, try model_cfg_params (legacy)
-    if (plugins.empty() && !config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path().empty()) {
-        plugins.push_back(config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path());
+    if (backbone_plugins.empty() && !config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path().empty()) {
+        backbone_plugins.push_back(config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path());
     }
-
     backbone_ = std::make_unique<EngineWrapper>();
-    if (!backbone_->init(config.backbone_engine().engine_path(), plugins)) return false;
+    if (!backbone_->init(config.backbone_engine().engine_path(), backbone_plugins)) return false;
     // // Check precision: T=float checks for FP32 engine, T=half checks for FP16
     // if (!backbone_->check_precision<T>()) return false;
 
+    // Initialize Head1 Engine with its own plugins
+    std::vector<std::string> head1_plugins = load_plugins(config.head1st_engine());
+    // Fallback: if empty, try model_cfg_params (legacy)
+    if (head1_plugins.empty() && !config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path().empty()) {
+        head1_plugins.push_back(config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path());
+    }
     head1_ = std::make_unique<EngineWrapper>();
-    if (!head1_->init(config.head1st_engine().engine_path(), plugins)) return false;
+    if (!head1_->init(config.head1st_engine().engine_path(), head1_plugins)) return false;
 
+    // Initialize Head2 Engine with its own plugins
+    std::vector<std::string> head2_plugins = load_plugins(config.head2nd_engine());
+    // Fallback: if empty, try model_cfg_params (legacy)
+    if (head2_plugins.empty() && !config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path().empty()) {
+        head2_plugins.push_back(config.model_cfg_params().multiview_multiscale_deformable_attention_aggregation_path());
+    }
     head2_ = std::make_unique<EngineWrapper>();
-    if (!head2_->init(config.head2nd_engine().engine_path(), plugins)) return false;
+    if (!head2_->init(config.head2nd_engine().engine_path(), head2_plugins)) return false;
 
     // 3. Load Aux Data (Allocates & Fills aux buffers like spatial_shapes)
     // NOTE: MUST be called BEFORE init_memory if init_memory relies on correct allocations,
@@ -229,7 +245,7 @@ bool Sparse4DImpl<T>::init_memory() {
     // spatial_shapes and level_start_index are handled in init_aux_data.
     // lidar2img and image_wh are dynamic but need initial allocation.
     lidar2img_.allocate(6 * 4 * 4);
-    image_wh_.allocate(6 * 2);
+    // image_wh_.allocate(6 * 2); // Moved to init_aux_data
 
     return true;
 }
@@ -350,17 +366,12 @@ bool Sparse4DImpl<T>::init_aux_data() {
     init_instance_feature_.allocate(num_queries * feat_dim);
     init_instance_feature_.cudaMemSetWrap(T(0.0f)); // Fixed T(0.0f) cast
 
-    return true;
-}
-
-template <typename T>
-void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& result) {
-    if (!src_data) return;
-
-    // 0. Update image_wh
+    // Init Image WH
     int w = config_.preprocessor_params().model_input_img_w();
     int h = config_.preprocessor_params().model_input_img_h();
-    int num_cams = config_.preprocessor_params().num_cams();
+    // num_cams is already defined in this function scope
+    
+    image_wh_.allocate(num_cams * 2);
     std::vector<T> img_wh_data(num_cams * 2);
     for(int i=0; i<num_cams; ++i) {
         if constexpr (std::is_same<T, float>::value) {
@@ -372,7 +383,14 @@ void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& res
             img_wh_data[i*2 + 1] = __float2half((float)h);
         }
     }
-    image_wh_.cudaMemUpdateWrapAsync(img_wh_data, stream_);
+    image_wh_.cudaMemUpdateWrap(img_wh_data);
+
+    return true;
+}
+
+template <typename T>
+void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& result) {
+    if (!src_data) return;
 
     // 1. Preprocessing
     if (!preprocessor_->forward(src_data, stream_, input_imgs_)) {
@@ -456,12 +474,19 @@ void Sparse4DImpl<T>::forward(const CTimeMatchSrcData* src_data, CAlgResult& res
          return;
     }
 
-    // Handle Track IDs for First Frame (Head1 doesn't output them)
+    // Handle Track IDs
+    // We compute/generate track IDs based on the model output and history.
+    // This fills the `pred_track_id_` buffer with valid IDs for all queries.
+    instance_bank_->compute_track_ids(pred_track_id_, stream_);
+
+    /* 
+    // Old logic removed:
     if (first_frame) {
         int num_queries = config_.instance_bank_params().num_querys();
         std::vector<int32_t> default_ids(num_queries, -1);
         pred_track_id_.cudaMemUpdateWrapAsync(default_ids, stream_);
     }
+    */
 
     // 4. Update Instance Bank
     instance_bank_->update(pred_instance_feature_, pred_anchor_, pred_class_score_, pred_track_id_, stream_);

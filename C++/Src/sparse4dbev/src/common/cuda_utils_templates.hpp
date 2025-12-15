@@ -50,7 +50,7 @@ __device__ __forceinline__ void atomic_add<float>(float* address, float val) {
 template <>
 __device__ __forceinline__ void atomic_add<half>(half* address, half val) {
 #if __CUDA_ARCH__ >= 700
-    atomicAdd(address, val);
+    atomicAdd(reinterpret_cast<half*>(address), val);
 #else
     // Fallback or error for older cards if needed, but modern auto-driving SOCs support it.
     // Simple CAS loop implementation if strictly necessary
