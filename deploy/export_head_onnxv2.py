@@ -16,7 +16,7 @@ import torch
 from torch import nn
 
 from modules.sparse4d_detector import *
-from modules.head.sparse4d_blocks.instance_bank import topk, topk_stable, topk_with_preprocessing, topk_for_onnx_export, verify_consistency
+from modules.head.sparse4d_blocks.instance_bank import topk, topk_for_onnx_export
 from modules.ops import deformable_aggregation_function as DAF
 
 from tool.utils.config import read_cfg
@@ -400,9 +400,6 @@ class Sparse4DHead2nd(nn.Module):
                         confidence, N, instance_feature, anchor
                     )
                     selected_feature, selected_anchor = outputs
-                    
-                    # # 验证一致性
-                    # verify_consistency(confidence, indices, N)
                     
                     # 融合历史实例和新实例
                     selected_feature = torch.cat([temp_instance_feature, selected_feature], dim=1)
