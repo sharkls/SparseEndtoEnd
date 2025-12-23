@@ -1,3 +1,11 @@
+# 重新编译所有插件
+bash ./build_plugin.sh
+
+# 生成插件的输入输出数据
+cd /share/Code/Sparse4dE2E
+/bin/python3 script/tutorial/012.export_plugin_io_real_data.py 
+    --samples 1 
+    --save-dir deploy/val_data_plugin/real_data
 
 # 生成e2e_fp32数据
 cd /share/Code/Sparse4dE2E

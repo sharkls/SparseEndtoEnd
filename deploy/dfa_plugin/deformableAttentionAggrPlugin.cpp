@@ -190,8 +190,8 @@ bool DeformableAttentionAggrPlugin::supportsFormatCombination(int32_t pos,
     if (pos == 0)
     {
         return ((inOut[pos].type == nvinfer1::DataType::kFLOAT) || 
-                (inOut[pos].type == nvinfer1::DataType::kHALF));
-                // (inOut[pos].type == nvinfer1::DataType::kINT8)); // 支持 INT8 输入
+                (inOut[pos].type == nvinfer1::DataType::kHALF) ||
+                (inOut[pos].type == nvinfer1::DataType::kINT8)); // 支持 INT8 输入
     }
     
     // 位置3是samplingLoc（关键点位置），位置4是attnWeight（注意力权重）
@@ -222,10 +222,10 @@ bool DeformableAttentionAggrPlugin::supportsFormatCombination(int32_t pos,
             return true;
         }
         // 4. INT8 模式：value=INT8 + keypoints=FP32 (Coords & Weights 保持高精度)
-        // else if (valueType == nvinfer1::DataType::kINT8 && keypointType == nvinfer1::DataType::kFLOAT)
-        // {
-        //     return true;
-        // }
+        else if (valueType == nvinfer1::DataType::kINT8 && keypointType == nvinfer1::DataType::kFLOAT)
+        {
+            return true;
+        }
         
         return false;
     }
@@ -238,10 +238,10 @@ bool DeformableAttentionAggrPlugin::supportsFormatCombination(int32_t pos,
         nvinfer1::DataType valueType = inOut[0].type;
         
         // 如果输入是 INT8，输出可以是 FP32 (反量化后处理)
-        // if (valueType == nvinfer1::DataType::kINT8)
-        // {
-        //     return (inOut[pos].type == nvinfer1::DataType::kFLOAT);
-        // }
+        if (valueType == nvinfer1::DataType::kINT8)
+        {
+            return (inOut[pos].type == nvinfer1::DataType::kFLOAT);
+        }
         
         // 否则输出与输入同类型
         if (valueType == nvinfer1::DataType::kFLOAT || valueType == nvinfer1::DataType::kHALF)
@@ -269,12 +269,12 @@ void DeformableAttentionAggrPlugin::configurePlugin(const nvinfer1::DynamicPlugi
     }
     
     // 提取 INT8 scale
-    // if (in[0].desc.type == nvinfer1::DataType::kINT8) {
-    //     mValueScale_ = in[0].desc.scale;
-    //     // printf("[DFA-PLUGIN] configurePlugin: INT8 mode detected, scale = %f\n", mValueScale_);
-    // } else {
+    if (in[0].desc.type == nvinfer1::DataType::kINT8) {
+        mValueScale_ = in[0].desc.scale;
+        // printf("[DFA-PLUGIN] configurePlugin: INT8 mode detected, scale = %f\n", mValueScale_);
+    } else {
         mValueScale_ = 1.0f;
-    // }
+    }
 
     // 安全提取inputs[0]的维度信息（batch和embeds）
     if (in[0].desc.dims.nbDims >= 3 && in[0].desc.dims.d != nullptr)
@@ -383,31 +383,29 @@ int32_t DeformableAttentionAggrPlugin::enqueue(const nvinfer1::PluginTensorDesc*
     if (dataType == nvinfer1::DataType::kINT8)
     {
         // INT8 模式：value=INT8, keypoints/weights=FP32, output=FP32
-        // // printf("[DFA-PLUGIN] Enqueue: INT8 Mode\n");
-        // const int8_t* value = static_cast<const int8_t*>(inputs[0]);
-        // const int32_t* spatialShapes = static_cast<const int32_t*>(inputs[1]);
-        // const int32_t* levelStartIndex = static_cast<const int32_t*>(inputs[2]);
-        // const float* samplingLoc = static_cast<const float*>(inputs[3]);
-        // const float* attnWeight = static_cast<const float*>(inputs[4]);
-        // float* output = static_cast<float*>(outputs[0]);
+        const int8_t* value = static_cast<const int8_t*>(inputs[0]);
+        const int32_t* spatialShapes = static_cast<const int32_t*>(inputs[1]);
+        const int32_t* levelStartIndex = static_cast<const int32_t*>(inputs[2]);
+        const float* samplingLoc = static_cast<const float*>(inputs[3]);
+        const float* attnWeight = static_cast<const float*>(inputs[4]);
+        float* output = static_cast<float*>(outputs[0]);
 
-        // rc = thomas_deform_attn_cuda_forward_int8(stream,
-        //                                           value,
-        //                                           mValueScale_,  // Use stored scale
-        //                                           spatialShapes,
-        //                                           levelStartIndex,
-        //                                           samplingLoc,
-        //                                           attnWeight,
-        //                                           output,
-        //                                           batch,
-        //                                           num_cams,
-        //                                           spatial_size,
-        //                                           channels,
-        //                                           num_levels,
-        //                                           num_query,
-        //                                           num_point,
-        //                                           num_groups);
-        return 1; // Not supported for now
+        rc = thomas_deform_attn_cuda_forward_int8(stream,
+                                                  value,
+                                                  mValueScale_,
+                                                  spatialShapes,
+                                                  levelStartIndex,
+                                                  samplingLoc,
+                                                  attnWeight,
+                                                  output,
+                                                  batch,
+                                                  num_cams,
+                                                  spatial_size,
+                                                  channels,
+                                                  num_levels,
+                                                  num_query,
+                                                  num_point,
+                                                  num_groups);
     }
     else if (isMixedPrecision)
     {
