@@ -61,6 +61,87 @@ __device__ float thomas_bilinear_sampling(const float*& bottom_data,
     return val;
 }
 
+// 3D 坐标投影辅助函数 (FP32)
+__device__ inline void project_point_3d_to_2d(
+    const float* key_points,    // [BS*Q, P, 3]
+    const float* lidar2img,     // [BS, C, 4, 4]
+    const float* image_wh,      // [BS, C, 2]
+    int batch_idx,
+    int global_anchor_idx,
+    int p,
+    int c,
+    int num_pts,
+    int num_cams,
+    float& loc_w,
+    float& loc_h)
+{
+    int pts_offset = (global_anchor_idx * num_pts + p) * 3;
+    float x = key_points[pts_offset];
+    float y = key_points[pts_offset + 1];
+    float z = key_points[pts_offset + 2];
+
+    int mat_offset = (batch_idx * num_cams + c) * 16;
+    const float* mat = lidar2img + mat_offset;
+
+    // 矩阵乘法 [4,4] * [x, y, z, 1]^T
+    float p_x = mat[0] * x + mat[1] * y + mat[2] * z + mat[3];
+    float p_y = mat[4] * x + mat[5] * y + mat[6] * z + mat[7];
+    float p_z = mat[8] * x + mat[9] * y + mat[10] * z + mat[11];
+
+    if (p_z > 1e-5f) {
+        float inv_z = 1.0f / p_z;
+        float u = p_x * inv_z;
+        float v = p_y * inv_z;
+
+        int wh_offset = (batch_idx * num_cams + c) * 2;
+        loc_w = u / image_wh[wh_offset];
+        loc_h = v / image_wh[wh_offset + 1];
+    } else {
+        loc_w = -1.0f;
+        loc_h = -1.0f;
+    }
+}
+
+// 3D 坐标投影辅助函数 (FP16)
+__device__ inline void project_point_3d_to_2d_half(
+    const __half* key_points,    // [BS*Q, P, 3]
+    const __half* lidar2img,     // [BS, C, 4, 4]
+    const __half* image_wh,      // [BS, C, 2]
+    int batch_idx,
+    int global_anchor_idx,
+    int p,
+    int c,
+    int num_pts,
+    int num_cams,
+    float& loc_w,
+    float& loc_h)
+{
+    int pts_offset = (global_anchor_idx * num_pts + p) * 3;
+    float x = __half2float(key_points[pts_offset]);
+    float y = __half2float(key_points[pts_offset + 1]);
+    float z = __half2float(key_points[pts_offset + 2]);
+
+    int mat_offset = (batch_idx * num_cams + c) * 16;
+    const __half* mat = lidar2img + mat_offset;
+
+    float p_x = __half2float(mat[0]) * x + __half2float(mat[1]) * y + __half2float(mat[2]) * z + __half2float(mat[3]);
+    float p_y = __half2float(mat[4]) * x + __half2float(mat[5]) * y + __half2float(mat[6]) * z + __half2float(mat[7]);
+    float p_z = __half2float(mat[8]) * x + __half2float(mat[9]) * y + __half2float(mat[10]) * z + __half2float(mat[11]);
+
+    if (p_z > 1e-5f) {
+        float inv_z = 1.0f / p_z;
+        float u = p_x * inv_z;
+        float v = p_y * inv_z;
+
+        int wh_offset = (batch_idx * num_cams + c) * 2;
+        loc_w = u / __half2float(image_wh[wh_offset]);
+        loc_h = v / __half2float(image_wh[wh_offset + 1]);
+    } else {
+        loc_w = -1.0f;
+        loc_h = -1.0f;
+    }
+}
+
 // INT8 版本的 bilinear 采样
 __device__ float thomas_bilinear_sampling_int8(const int8_t*& bottom_data,
                                               float scale,
@@ -185,7 +266,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather(
     const __half* mc_ms_feat,      // Input Features (FP16)
     const int* spatial_shape,
     const int* scale_start_index,
-    const __half* sample_location, // Sampling Locations (FP16)
+    const __half* key_points,      // 3D 采样点 [BS*Q, P, 3] (FP16)
+    const __half* lidar2img,       // 投影矩阵 [BS, C, 4, 4] (FP16)
+    const __half* image_wh,        // 图像宽高 [BS, C, 2] (FP16)
     const __half* weights,         // Attention Weights (FP16)
     int batch_size,
     int num_cams,
@@ -215,12 +298,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather(
     // 循环聚合 (Gather Loop)
     for (int p = 0; p < num_pts; ++p) {
         for (int c = 0; c < num_cams; ++c) {
-            // 计算 Location 偏移
-            // location layout: [batch, anchors, pts, cams, 2]
-            int loc_offset = ((global_anchor_idx * num_pts + p) * num_cams + c) << 1;
-            
-            float loc_w = __half2float(sample_location[loc_offset]);
-            float loc_h = __half2float(sample_location[loc_offset + 1]);
+            // 集成 3D 投影逻辑 (FP16)
+            float loc_w, loc_h;
+            project_point_3d_to_2d_half(key_points, lidar2img, image_wh, batch_idx, global_anchor_idx, p, c, num_pts, num_cams, loc_w, loc_h);
 
             // 边界检查优化：尽早剪枝
             if (loc_w > 0 && loc_w < 1 && loc_h > 0 && loc_h < 1) {
@@ -263,7 +343,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather_fp32(
     const float* mc_ms_feat,       // Input Features (FP32)
     const int* spatial_shape,
     const int* scale_start_index,
-    const float* sample_location,  // Sampling Locations (FP32)
+    const float* key_points,       // 3D 采样点 [BS*Q, P, 3]
+    const float* lidar2img,        // 投影矩阵 [BS, C, 4, 4]
+    const float* image_wh,         // 图像宽高 [BS, C, 2]
     const float* weights,          // Attention Weights (FP32)
     int batch_size,
     int num_cams,
@@ -293,11 +375,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather_fp32(
     // 循环聚合 (Gather Loop)
     for (int p = 0; p < num_pts; ++p) {
         for (int c = 0; c < num_cams; ++c) {
-            // 计算 Location 偏移
-            int loc_offset = ((global_anchor_idx * num_pts + p) * num_cams + c) << 1;
-            
-            float loc_w = sample_location[loc_offset];
-            float loc_h = sample_location[loc_offset + 1];
+            // 集成 3D 投影逻辑，直接计算 loc_w 和 loc_h
+            float loc_w, loc_h;
+            project_point_3d_to_2d(key_points, lidar2img, image_wh, batch_idx, global_anchor_idx, p, c, num_pts, num_cams, loc_w, loc_h);
 
             // 边界检查优化：尽早剪枝
             if (loc_w > 0 && loc_w < 1 && loc_h > 0 && loc_h < 1) {
@@ -340,7 +420,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather_int8(
     float value_scale,             // Dequantization scale
     const int* spatial_shape,
     const int* scale_start_index,
-    const float* sample_location,  // Sampling Locations (FP32)
+    const float* key_points,       // 3D 采样点 [BS*Q, P, 3]
+    const float* lidar2img,        // 投影矩阵 [BS, C, 4, 4]
+    const float* image_wh,         // 图像宽高 [BS, C, 2]
     const float* weights,          // Attention Weights (FP32)
     int batch_size,
     int num_cams,
@@ -370,11 +452,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather_int8(
     // 循环聚合 (Gather Loop)
     for (int p = 0; p < num_pts; ++p) {
         for (int c = 0; c < num_cams; ++c) {
-            // 计算 Location 偏移
-            int loc_offset = ((global_anchor_idx * num_pts + p) * num_cams + c) << 1;
-            
-            float loc_w = sample_location[loc_offset];
-            float loc_h = sample_location[loc_offset + 1];
+            // 集成 3D 投影逻辑 (FP32)
+            float loc_w, loc_h;
+            project_point_3d_to_2d(key_points, lidar2img, image_wh, batch_idx, global_anchor_idx, p, c, num_pts, num_cams, loc_w, loc_h);
 
             // 边界检查优化：尽早剪枝
             if (loc_w > 0 && loc_w < 1 && loc_h > 0 && loc_h < 1) {
@@ -416,7 +496,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather_mixed(
     const __half* mc_ms_feat,      // Input Features (FP16)
     const int* spatial_shape,
     const int* scale_start_index,
-    const float* sample_location,  // Sampling Locations (FP32)
+    const float* key_points,       // 3D 采样点 [BS*Q, P, 3] (FP32 input)
+    const float* lidar2img,        // 投影矩阵 [BS, C, 4, 4] (FP32 input)
+    const float* image_wh,         // 图像宽高 [BS, C, 2] (FP32 input)
     const float* weights,          // Attention Weights (FP32)
     int batch_size,
     int num_cams,
@@ -446,12 +528,9 @@ __global__ void thomas_deformable_aggregation_kernel_gather_mixed(
     // 循环聚合 (Gather Loop)
     for (int p = 0; p < num_pts; ++p) {
         for (int c = 0; c < num_cams; ++c) {
-            // 计算 Location 偏移
-            int loc_offset = ((global_anchor_idx * num_pts + p) * num_cams + c) << 1;
-            
-            // 使用FP32读取坐标
-            float loc_w = sample_location[loc_offset];
-            float loc_h = sample_location[loc_offset + 1];
+            // 集成 3D 投影逻辑 (FP32)
+            float loc_w, loc_h;
+            project_point_3d_to_2d(key_points, lidar2img, image_wh, batch_idx, global_anchor_idx, p, c, num_pts, num_cams, loc_w, loc_h);
 
             // 边界检查优化：尽早剪枝
             if (loc_w > 0 && loc_w < 1 && loc_h > 0 && loc_h < 1) {
@@ -858,7 +937,9 @@ int thomas_deform_attn_cuda_forward(cudaStream_t stream,
                                        const float* value,
                                        const int* spatialShapes,
                                        const int* levelStartIndex,
-                                       const float* samplingLoc,
+                                       const float* key_points,
+                                       const float* lidar2img,
+                                       const float* image_wh,
                                        const float* attnWeight,
                                        float* output,
                                        int batch_size,
@@ -874,10 +955,6 @@ int thomas_deform_attn_cuda_forward(cudaStream_t stream,
     const int num_outputs = batch_size * num_anchors * num_embeds;
     cudaError_t err = cudaSuccess;
 
-    // Gather模式直接覆盖output，不需要Memset清零
-    // err = cudaMemsetAsync(output, 0, output_size * sizeof(float), stream);
-    // if (err != cudaSuccess) return -1;
-
     const int threadsPerBlock = 256;
     const int blocks = (num_outputs + threadsPerBlock - 1) / threadsPerBlock;
 
@@ -887,7 +964,9 @@ int thomas_deform_attn_cuda_forward(cudaStream_t stream,
         value,
         spatialShapes,
         levelStartIndex,
-        samplingLoc,
+        key_points,
+        lidar2img,
+        image_wh,
         attnWeight,
         batch_size,
         num_cams,
@@ -908,7 +987,9 @@ int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
                                        const __half* value,
                                        const int* spatialShapes,
                                        const int* levelStartIndex,
-                                       const __half* samplingLoc,
+                                       const __half* key_points,
+                                       const __half* lidar2img,
+                                       const __half* image_wh,
                                        const __half* attnWeight,
                                        __half* output,
                                        float* workspace,
@@ -925,9 +1006,6 @@ int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
     const int num_outputs = batch_size * num_anchors * num_embeds;
     cudaError_t err = cudaSuccess;
 
-    // 无需清零 output (因为是覆盖写入)
-    // 无需清零 temp_output (不再使用)
-
     const int threadsPerBlock = 256;
     const int blocks = (num_outputs + threadsPerBlock - 1) / threadsPerBlock;
 
@@ -937,7 +1015,9 @@ int thomas_deform_attn_cuda_forward_half(cudaStream_t stream,
         value,
         spatialShapes,
         levelStartIndex,
-        samplingLoc,
+        key_points,
+        lidar2img,
+        image_wh,
         attnWeight,
         batch_size,
         num_cams,
@@ -958,7 +1038,9 @@ int thomas_deform_attn_cuda_forward_mixed(cudaStream_t stream,
                                          const __half* value,
                                          const int* spatialShapes,
                                          const int* levelStartIndex,
-                                         const float* samplingLoc,
+                                         const float* key_points,
+                                         const float* lidar2img,
+                                         const float* image_wh,
                                          const float* attnWeight,
                                          __half* output,
                                          float* workspace,
@@ -975,9 +1057,6 @@ int thomas_deform_attn_cuda_forward_mixed(cudaStream_t stream,
     const int num_outputs = batch_size * num_anchors * num_embeds;
     cudaError_t err = cudaSuccess;
 
-    // 移除 workspace 依赖 (不再需要 atomicAdd 的临时 buffer)
-    // 移除 convert_float_to_half_kernel
-
     const int threadsPerBlock = 256;
     const int blocks = (num_outputs + threadsPerBlock - 1) / threadsPerBlock;
 
@@ -987,7 +1066,9 @@ int thomas_deform_attn_cuda_forward_mixed(cudaStream_t stream,
         value,
         spatialShapes,
         levelStartIndex,
-        samplingLoc,
+        key_points,
+        lidar2img,
+        image_wh,
         attnWeight,
         batch_size,
         num_cams,
@@ -1009,7 +1090,9 @@ int thomas_deform_attn_cuda_forward_int8(cudaStream_t stream,
                                          float value_scale,
                                          const int* spatialShapes,
                                          const int* levelStartIndex,
-                                         const float* samplingLoc,
+                                         const float* key_points,
+                                         const float* lidar2img,
+                                         const float* image_wh,
                                          const float* attnWeight,
                                          float* output,
                                          int batch_size,
@@ -1025,7 +1108,6 @@ int thomas_deform_attn_cuda_forward_int8(cudaStream_t stream,
     const int num_outputs = batch_size * num_anchors * num_embeds;
     cudaError_t err = cudaSuccess;
 
-    // GATHER模式直接覆盖output，不需要Memset清零
     const int threadsPerBlock = 256;
     const int blocks = (num_outputs + threadsPerBlock - 1) / threadsPerBlock;
 
@@ -1036,7 +1118,9 @@ int thomas_deform_attn_cuda_forward_int8(cudaStream_t stream,
         value_scale,
         spatialShapes,
         levelStartIndex,
-        samplingLoc,
+        key_points,
+        lidar2img,
+        image_wh,
         attnWeight,
         batch_size,
         num_cams,

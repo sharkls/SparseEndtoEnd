@@ -193,28 +193,14 @@ class Sparse4DHead1st(nn.Module):
             elif op == "norm" or op == "ffn":
                 instance_feature = self.layers[i](instance_feature)
             elif op == "deformable":
-                # instance_feature = self.layers[i](
-                #     instance_feature,
-                #     anchor,
-                #     anchor_embed,
-                #     feature_maps,
-                #     metas,
-                # )
                 bs, num_anchor = instance_feature.shape[:2]
                 key_points = self.layers[i].kps_generator(anchor, instance_feature)
                 weights = self.layers[i]._get_weights(
                     instance_feature, anchor_embed, metas
                 )
-                points_2d = (
-                    self.layers[i]
-                    .project_points(
-                        key_points,
-                        metas["lidar2img"],  # lidar2img
-                        metas.get("image_wh"),
-                    )
-                    .permute(0, 2, 3, 1, 4)
-                    .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
-                )
+                
+                # 【Plan A 融合优化】
+                # 不再在此处调用 project_points，而是直接传递 3D 关键点
                 weights = (
                     weights.permute(0, 1, 4, 2, 3, 5)
                     .contiguous()
@@ -228,7 +214,15 @@ class Sparse4DHead1st(nn.Module):
                     )
                 )
 
-                features = DAF(*feature_maps, points_2d, weights)
+                # 调用 DAF，传入 3D 关键点和投影矩阵
+                features = DAF(
+                    *feature_maps, 
+                    key_points, 
+                    weights, 
+                    lidar2img=metas["lidar2img"], 
+                    image_wh=metas["image_wh"]
+                )
+                
                 features = features.reshape(bs, num_anchor, self.layers[i].embed_dims)
                 # DAF函数返回FP32，需要转换为与模型相同的精度
                 if features.dtype != instance_feature.dtype:
@@ -345,28 +339,14 @@ class Sparse4DHead2nd(nn.Module):
             elif op == "norm" or op == "ffn":
                 instance_feature = self.layers[i](instance_feature)
             elif op == "deformable":
-                # instance_feature = self.layers[i](
-                #     instance_feature,
-                #     anchor,
-                #     anchor_embed,
-                #     feature_maps,
-                #     metas,
-                # )
                 bs, num_anchor = instance_feature.shape[:2]
                 key_points = self.layers[i].kps_generator(anchor, instance_feature)
                 weights = self.layers[i]._get_weights(
                     instance_feature, anchor_embed, metas
                 )
-                points_2d = (
-                    self.layers[i]
-                    .project_points(
-                        key_points,
-                        metas["lidar2img"],  # lidar2img
-                        metas.get("image_wh"),
-                    )
-                    .permute(0, 2, 3, 1, 4)
-                    .reshape(bs, num_anchor, self.layers[i].num_pts, self.layers[i].num_cams, 2)
-                )
+                
+                # 【Plan A 融合优化】
+                # 不再在此处调用 project_points，而是直接传递 3D 关键点
                 weights = (
                     weights.permute(0, 1, 4, 2, 3, 5)
                     .contiguous()
@@ -380,7 +360,15 @@ class Sparse4DHead2nd(nn.Module):
                     )
                 )
 
-                features = DAF(*feature_maps, points_2d, weights)
+                # 调用 DAF，传入 3D 关键点和投影矩阵
+                features = DAF(
+                    *feature_maps, 
+                    key_points, 
+                    weights, 
+                    lidar2img=metas["lidar2img"], 
+                    image_wh=metas["image_wh"]
+                )
+                
                 features = features.reshape(bs, num_anchor, self.layers[i].embed_dims)
                 # DAF函数返回FP32，需要转换为与模型相同的精度
                 if features.dtype != instance_feature.dtype:

@@ -10,6 +10,8 @@ def deformable_aggregation_function(
     scale_start_index,
     sampling_location,
     weights,
+    lidar2img=None,
+    image_wh=None,
 ):
     return DeformableAggregationFunction.apply(
         feature_maps,
@@ -17,6 +19,8 @@ def deformable_aggregation_function(
         scale_start_index,
         sampling_location,
         weights,
+        lidar2img,
+        image_wh,
     )
 
 

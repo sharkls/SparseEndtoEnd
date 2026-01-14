@@ -23,8 +23,10 @@ class DeformableAttentionAggrPlugin : public nvinfer1::IPluginV2DynamicExt
     DeformableAttentionAggrPlugin() = default;
     
     // 带参数的构造函数：在插件创建时传入维度信息
-    DeformableAttentionAggrPlugin(int32_t batch, int32_t numAnchors, int32_t numEmbeds, float valueScale = 1.0f)
-        : mBatch_(batch), mNumAnchors_(numAnchors), mNumEmbeds_(numEmbeds), mValueScale_(valueScale) {}
+    DeformableAttentionAggrPlugin(int32_t batch, int32_t numAnchors, int32_t numEmbeds, 
+                                 int32_t numCams = 6, int32_t numPts = 13, float valueScale = 1.0f)
+        : mBatch_(batch), mNumAnchors_(numAnchors), mNumEmbeds_(numEmbeds), 
+          mNumCams_(numCams), mNumPts_(numPts), mValueScale_(valueScale) {}
     
     ~DeformableAttentionAggrPlugin() = default;
 
@@ -106,12 +108,16 @@ class DeformableAttentionAggrPlugin : public nvinfer1::IPluginV2DynamicExt
     int32_t mBatch_ = 1;           // batch size
     int32_t mNumAnchors_ = 900;    // number of anchors (从inputs[3]获取)
     int32_t mNumEmbeds_ = 256;     // embedding dimension (从inputs[0]获取)
+    int32_t mNumCams_ = 6;         // number of cameras
+    int32_t mNumPts_ = 13;         // number of points per anchor
     float mValueScale_ = 1.0f;     // INT8 scale for value input
     
     // 运行时缓存：在enqueue中安全获取后缓存，用于后续调用
     mutable int32_t mCachedBatch_ = -1;
     mutable int32_t mCachedNumAnchors_ = -1;
     mutable int32_t mCachedNumEmbeds_ = -1;
+    mutable int32_t mCachedNumCams_ = -1;
+    mutable int32_t mCachedNumPts_ = -1;
 };
 
 /// @brief Second define a PluginCreator Class.
