@@ -114,7 +114,7 @@ echo "STEP1: build sparse4dbackbone ${PRECISION} engine -> saving in ${ENV_BACKB
 # 设置性能分析的详细程度为详细模式
 # 将所有标准输出和错误输出重定向到日志文件，2>&1表示将标准错误也重定向到同一个文件
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
-    --memPoolSize=workspace:2048 \
+    --memPoolSize=workspace:4096 \
     --saveEngine=${ENV_BACKBONE_ENGINE} \
     --verbose \
     --warmUp=200 \
@@ -134,7 +134,7 @@ echo "STEP2: build 1st frame sparse4dhead ${PRECISION} engine -> saving in ${ENV
 sleep 2s
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD1_ONNX} \
     ${PLUGIN_ARGS} \
-    --memPoolSize=workspace:2048 \
+    --memPoolSize=workspace:4096 \
     --saveEngine=${ENV_HEAD1_ENGINE} \
     --verbose \
     --warmUp=200 \
@@ -165,7 +165,7 @@ fi
 ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_HEAD2_ONNX} \
     ${PLUGIN_ARGS} \
     ${LOAD_INPUTS_ARGS} \
-    --memPoolSize=workspace:2048 \
+    --memPoolSize=workspace:4096 \
     --saveEngine=${ENV_HEAD2_ENGINE} \
     --verbose \
     --warmUp=200 \

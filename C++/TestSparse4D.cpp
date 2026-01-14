@@ -827,9 +827,9 @@ void visualizeBEV(const std::vector<Point3D>& points,
 void main_sparse_4d() {
     try {
         // 设置路径
-        std::string deploy_path = "/share/Code/Sparse4dE2E/C++/Output/";
+        std::string deploy_path = "/home/nvidia/LS/Code/Sparse4dE2E/C++/Output/";
         sparse4d_test::g_save_dir = deploy_path + "vis/";
-        std::string asset_path = "/share/Code/Sparse4dE2E/script/tutorial/asset/";
+        std::string asset_path = "/home/nvidia/LS/Code/Sparse4dE2E/script/tutorial/asset/";
         std::string config_path = deploy_path + "Configs/Alg/Sparse4d.conf";
 
         // 创建保存目录
@@ -839,7 +839,7 @@ void main_sparse_4d() {
         }
 
         // 1/2. 通过导出接口创建 ICore，并用 exe 根路径初始化（内部自行加载配置与资源）
-        std::string exe_root = "/share/Code/Sparse4dE2E/C++"; // Export 接口内部拼接 /Output/Configs/Alg/Sparse4d.conf
+        std::string exe_root = "/home/nvidia/LS/Code/Sparse4dE2E/C++"; // Export 接口内部拼接 /Output/Configs/Alg/Sparse4d.conf
         ICore* core = CreateCoreObj(exe_root);
         if (!core) {
             LOG(ERROR) << "Failed to create Sparse4D ICore instance";

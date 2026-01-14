@@ -332,6 +332,83 @@ __global__ void thomas_deformable_aggregation_kernel_gather_fp32(
     output[idx] = res;
 }
 
+// 优化后的Gather模式Kernel（INT8 Value + FP32 Loc/Weights）
+__global__ void thomas_deformable_aggregation_kernel_gather_int8(
+    const int num_outputs,         // batch * num_anchors * num_embeds
+    float* output,                 // Output (FP32)
+    const int8_t* mc_ms_feat,      // Input Features (INT8)
+    float value_scale,             // Dequantization scale
+    const int* spatial_shape,
+    const int* scale_start_index,
+    const float* sample_location,  // Sampling Locations (FP32)
+    const float* weights,          // Attention Weights (FP32)
+    int batch_size,
+    int num_cams,
+    int num_feat,
+    int num_embeds,
+    int num_scale,
+    int num_anchors,
+    int num_pts,
+    int num_groups)
+{
+    // 每个线程处理一个 (Batch, Anchor, Channel)
+    int idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= num_outputs) return;
+
+    // 解析索引
+    int channel_idx = idx % num_embeds;
+    int tmp = idx / num_embeds;
+    int anchor_idx = tmp % num_anchors;
+    int batch_idx = tmp / num_anchors;
+
+    // 权重分组索引
+    int group_idx = channel_idx / (num_embeds / num_groups);
+    int global_anchor_idx = batch_idx * num_anchors + anchor_idx;
+
+    float res = 0.0f;
+
+    // 循环聚合 (Gather Loop)
+    for (int p = 0; p < num_pts; ++p) {
+        for (int c = 0; c < num_cams; ++c) {
+            // 计算 Location 偏移
+            int loc_offset = ((global_anchor_idx * num_pts + p) * num_cams + c) << 1;
+            
+            float loc_w = sample_location[loc_offset];
+            float loc_h = sample_location[loc_offset + 1];
+
+            // 边界检查优化：尽早剪枝
+            if (loc_w > 0 && loc_w < 1 && loc_h > 0 && loc_h < 1) {
+                for (int s = 0; s < num_scale; ++s) {
+                    // 权重读取
+                    int weight_offset = ((((global_anchor_idx * num_pts + p) * num_cams + c) * num_scale + s) * num_groups + group_idx);
+                    float weight = weights[weight_offset];
+                    
+                    if (fabsf(weight) < 1e-6f) continue; // 权重极小时跳过采样
+
+                    // 空间尺寸
+                    int cam_scale_idx = c * num_scale + s;
+                    int h = spatial_shape[cam_scale_idx << 1];
+                    int w = spatial_shape[(cam_scale_idx << 1) + 1];
+
+                    // 坐标转换
+                    float h_im = loc_h * h - 0.5f;
+                    float w_im = loc_w * w - 0.5f;
+
+                    // 特征值偏移
+                    int value_offset = (batch_idx * num_feat + scale_start_index[cam_scale_idx]) * num_embeds + channel_idx;
+
+                    // 双线性采样 (INT8 with dequantization)
+                    float sampled_val = thomas_bilinear_sampling_int8(mc_ms_feat, value_scale, h, w, num_embeds, h_im, w_im, value_offset);
+                    
+                    res += sampled_val * weight;
+                }
+            }
+        }
+    }
+
+    output[idx] = res;
+}
+
 // 优化后的Gather模式Kernel（混合精度：FP16 Value + FP32 Loc/Weights）
 __global__ void thomas_deformable_aggregation_kernel_gather_mixed(
     const int num_outputs,         // batch * num_anchors * num_embeds
@@ -944,44 +1021,16 @@ int thomas_deform_attn_cuda_forward_int8(cudaStream_t stream,
                                          int num_pts,
                                          int num_groups)
 {
-    // // 线程总数变为输出尺寸（Gather）
-    // const int  num_outputs = batch_size * num_anchors * num_embeds;
-    // cudaError_t err = cudaSuccess;
-
-    // const int threadsPerBlock = 256;
-    // const int blocks = (num_outputs + threadsPerBlock - 1) / threadsPerBlock;
-
-    // deformable_aggregation_kernel_gather_int8<<<blocks, threadsPerBlock, 0, stream>>>(
-    //     num_outputs,
-    //     output,
-    //     value,
-    //     spatialShapes,
-    //     levelStartIndex,
-    //     samplingLoc,
-    //     attnWeight,
-    //     batch_size,
-    //     num_cams,
-    //     num_feat,
-    //     num_embeds,
-    //     num_scale,
-    //     num_anchors,
-    //     num_pts,
-    //     num_groups
-    // );
-
-    // err = cudaGetLastError();
-    // if (err != cudaSuccess) return -1;
-
-    // return 0;
-    const int num_kernels = batch_size * num_pts * num_embeds * num_anchors * num_cams * num_scale;
-    const int output_size = batch_size * num_anchors * num_embeds;
+    // 使用GATHER模式：线程数为输出元素个数
+    const int num_outputs = batch_size * num_anchors * num_embeds;
     cudaError_t err = cudaSuccess;
 
-    err = cudaMemsetAsync(output, 0, output_size * sizeof(float), stream);
-    if (err != cudaSuccess) return -1;
+    // GATHER模式直接覆盖output，不需要Memset清零
+    const int threadsPerBlock = 256;
+    const int blocks = (num_outputs + threadsPerBlock - 1) / threadsPerBlock;
 
-    thomas_deformable_aggregation_kernel_int8<<<(int)ceil(((double)num_kernels / 128)), 128, 0, stream>>>(
-        num_kernels,
+    thomas_deformable_aggregation_kernel_gather_int8<<<blocks, threadsPerBlock, 0, stream>>>(
+        num_outputs,
         output,
         value,
         value_scale,
@@ -997,7 +1046,7 @@ int thomas_deform_attn_cuda_forward_int8(cudaStream_t stream,
         num_anchors,
         num_pts,
         num_groups);
-        
+
     err = cudaGetLastError();
     if (err != cudaSuccess) return -1;
 

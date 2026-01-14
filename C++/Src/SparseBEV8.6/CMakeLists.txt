@@ -13,22 +13,27 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fvisibility=hidden -fPIC -shared -fext-numeric-literals")
 
 # C++编译选项（不适用于CUDA）
-find_package(CUDA 11 REQUIRED)
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_86,code=sm_86")
-# 添加CUDA编译器标志来解决GCC兼容性问题
-set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin=/usr/bin/gcc-9")
+# 注意：Jetson Orin 使用 CUDA 12.2 和 sm_87 架构
+find_package(CUDA 12 REQUIRED)
+set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -gencode arch=compute_87,code=sm_87")
+# 添加CUDA编译器标志来解决GCC兼容性问题（Orin 上通常使用系统 GCC）
+# set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -ccbin=/usr/bin/gcc-9")
 include_directories(${CUDA_INCLUDE_DIRS})
 link_directories(${CUDA_TOOLKIT_ROOT_DIR}/lib64)
 
-# TensorRT 8.6 配置
-set(TENSORRT_VERSION "8.5.1.7")
-set(TENSORRT_ROOT "/mnt/env/tensorrt/TensorRT-${TENSORRT_VERSION}")
-if(NOT EXISTS ${TENSORRT_ROOT})
-    message(FATAL_ERROR "TensorRT ${TENSORRT_VERSION} not found at ${TENSORRT_ROOT}")
-endif()
+# TensorRT 8.6.2.3 配置 (Jetson Orin 系统安装)
+set(TENSORRT_VERSION "8.6.2.3")
+# Orin 上 TensorRT 通过系统包管理器安装，路径固定
+set(TENSORRT_INCLUDE_DIR "/usr/include/aarch64-linux-gnu")
+set(TENSORRT_LIB_DIR "/usr/lib/aarch64-linux-gnu")
 
-set(TENSORRT_INCLUDE_DIR "${TENSORRT_ROOT}/include")
-set(TENSORRT_LIB_DIR "${TENSORRT_ROOT}/lib")
+# 验证 TensorRT 头文件和库文件是否存在
+if(NOT EXISTS "${TENSORRT_INCLUDE_DIR}/NvInfer.h")
+    message(FATAL_ERROR "TensorRT headers not found at ${TENSORRT_INCLUDE_DIR}")
+endif()
+if(NOT EXISTS "${TENSORRT_LIB_DIR}/libnvinfer.so")
+    message(FATAL_ERROR "TensorRT libraries not found at ${TENSORRT_LIB_DIR}")
+endif()
 
 # 包含目录
 include_directories(
@@ -40,9 +45,10 @@ include_directories(
     ${CMAKE_SOURCE_DIR}/Include/Common/Factory
     ${CMAKE_SOURCE_DIR}/Include/Common/Interface
     ${CMAKE_SOURCE_DIR}/Include/Common/TensorRT
-    ${CMAKE_SOURCE_DIR}/Include/Thirdpart/av_opencv
-    ${CMAKE_SOURCE_DIR}/Include/Thirdpart/glog
-    ${CMAKE_SOURCE_DIR}/Include/Thirdpart/fastdds
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/opencv/include  # OpenCV 头文件路径
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/glog/include  # glog 头文件路径
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/fastdds/include
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/eigen/include/eigen3  # Eigen 头文件路径（代码中使用 #include <Eigen/Dense>）
     ${CMAKE_SOURCE_DIR}/Src/Common
     ${CMAKE_SOURCE_DIR}/Src/Common/Core
     # ${CMAKE_SOURCE_DIR}/Src/Common/ErrorHandler
@@ -82,11 +88,10 @@ list(APPEND HW_SRC_FILES "${CMAKE_SOURCE_DIR}/Src/SparseBEV8.6/data/RawInference
 # 链接库路径
 link_directories(
     ${CMAKE_SOURCE_DIR}/Output/Lib
-    ${CMAKE_SOURCE_DIR}/Submodules/TPL
-    ${CMAKE_SOURCE_DIR}/Submodules/TPL/fastdds
-    ${CMAKE_SOURCE_DIR}/Submodules/TPL/protobuf
-    ${CMAKE_SOURCE_DIR}/Submodules/TPL/av_opencv
-    ${CMAKE_SOURCE_DIR}/Submodules/TPL/glog
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/fastdds/lib
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/protobuf/lib
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/opencv/lib  # OpenCV 库文件路径
+    ${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/glog/lib
     ${TENSORRT_LIB_DIR}
     ${CUDA_TOOLKIT_ROOT_DIR}/lib64
 )
@@ -97,7 +102,7 @@ add_library(${PROJECT_NAME} SHARED ${HW_SRC_FILES} ${CUDA_SOURCES} ${TENSORRT_SO
 # 设置CUDA编译选项
 set_target_properties(${PROJECT_NAME} PROPERTIES
     CUDA_SEPARABLE_COMPILATION ON
-    CUDA_ARCHITECTURES 86
+    CUDA_ARCHITECTURES 87  # Jetson Orin 使用 sm_87
     POSITION_INDEPENDENT_CODE ON
 )
 

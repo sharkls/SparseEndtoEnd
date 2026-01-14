@@ -42,24 +42,26 @@ include_directories(${CMAKE_SOURCE_DIR}/Include/Common/TensorRT)
 include_directories(${CMAKE_SOURCE_DIR}/Src)
 
 # 优先使用项目自带的第三方库，避免系统库冲突
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/protobuf/include)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/fastdds/include)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/av_opencv/include)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/tinyxml2/include)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/googletest/include)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/gflags/include)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/eigen/include)
-include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/glog/include)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/protobuf/include)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/fastdds/include)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/fastcdr/include)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/opencv/include)  # OpenCV 头文件路径
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/tinyxml2/include)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/googletest/include)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/gflags/include)
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/eigen/include/eigen3)  # Eigen 头文件路径（代码中使用 #include <Eigen/Dense>）
+include_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/glog/include)
 
 # 链接动态库的路径
 link_directories(${CMAKE_SOURCE_DIR}/Output/Lib)
-link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/protobuf/lib)
-link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/fastdds/lib)
-link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/av_opencv/lib)
-link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/googletest/lib)
-link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/gflags/lib)
-link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/tinyxml2/lib)
-link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/glog/lib)
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/protobuf/lib)
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/fastcdr/lib)
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/fastdds/lib)
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/opencv/lib)  # OpenCV 库文件路径
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/googletest/lib)
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/gflags/lib)
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/tinyxml2/lib)
+link_directories(${CMAKE_SOURCE_DIR}/Submodules/ThirdParty/aarch64/glog/lib)
 
 # 子目录的路径
 add_subdirectory(Submodules/Fastddsser)

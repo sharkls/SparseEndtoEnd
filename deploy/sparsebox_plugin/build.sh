@@ -17,10 +17,16 @@ else
     exit 1
 fi
 
-# 如果 CUDASM 未设置，设置默认值
+# 如果 CUDASM 未设置，设置默认值（Jetson Orin 使用 sm_87）
 if [ -z "${CUDASM}" ]; then
-    CUDASM=86
-    echo "[WARNING] CUDASM not set, using default: ${CUDASM}"
+    # 检测平台架构
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "aarch64" ]; then
+        CUDASM=87  # Jetson Orin 使用 sm_87
+    else
+        CUDASM=86  # x86_64 平台使用 sm_86
+    fi
+    echo "[WARNING] CUDASM not set, using default for ${ARCH}: ${CUDASM}"
     export CUDASM
 fi
 
@@ -39,10 +45,17 @@ fi
 echo "[INFO] Building SparseBox3DKeyPointsPlugin..."
 echo "[INFO] CUDA_BIN: ${ENV_CUDA_BIN}"
 echo "[INFO] TensorRT_INC: ${ENV_TensorRT_INC}"
-echo "[INFO] CUDASM: ${CUDASM:-86}"
+echo "[INFO] CUDASM: ${CUDASM:-87}"
 
-# 切换到插件目录并运行 make
+# 切换到插件目录
 cd "${SCRIPT_DIR}"
+
+# 清理旧的构建文件（确保重新编译）
+echo "[INFO] Cleaning previous build artifacts..."
+make clean 2>/dev/null || true
+rm -rf build/*.o 2>/dev/null || true
+
+# 运行 make
 make
 
 if [ $? -eq 0 ]; then

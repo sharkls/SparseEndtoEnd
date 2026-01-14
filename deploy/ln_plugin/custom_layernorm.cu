@@ -280,8 +280,7 @@ public:
     }
 
     virtual AsciiChar const* getPluginType() const noexcept{
-        // return "CustomLayerNormalization";
-        return "LayerNormalization"; 
+        return "LayerNormPlugin"; 
     }
 
     virtual AsciiChar const* getPluginVersion() const noexcept{
@@ -313,8 +312,7 @@ public:
     }
 
     virtual AsciiChar const* getPluginName() const noexcept{
-        // return "CustomLayerNormalization";
-        return "LayerNormalization"; 
+        return "LayerNormPlugin"; 
     }
 
     virtual AsciiChar const* getPluginVersion() const noexcept{

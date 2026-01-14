@@ -1,0 +1,23 @@
+# Cursor AI Rules for Sparse4dE2E Project
+
+## File Creation Rules
+
+### DO NOT Create These Files Unless Explicitly Requested:
+- **Test files** (*_test.py, test_*.py, *_test.ts, etc.)
+- **Markdown documentation files** (*.md) - Only create when user explicitly asks for documentation
+
+### Markdown Files Exception:
+- Only create `.md` files when the user explicitly requests documentation or summary files
+- Do not proactively create README, documentation, or summary markdown files
+- If you need to provide information, use code comments or inline documentation instead
+
+### Test Files Exception:
+- Only create test files when the user explicitly asks for tests
+- Do not suggest or create test files as part of code improvements or refactoring
+
+## General Guidelines
+
+- Focus on code implementation and fixes
+- Use code comments for documentation instead of separate markdown files
+- Only create documentation files when explicitly requested by the user
+- Prefer inline documentation over separate documentation files

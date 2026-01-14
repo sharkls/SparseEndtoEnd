@@ -10,7 +10,10 @@ os.environ['CUBLAS_WORKSPACE_CONFIG'] = ':4096:8'
 os.environ['PYTHONHASHSEED'] = '100'  # 与训练保持一致
 
 import onnx
-from onnxsim import simplify
+try:
+    from onnxsim import simplify
+except ImportError:
+    simplify = None
 
 import torch
 from torch import nn
@@ -37,11 +40,30 @@ except ImportError as e:
 
 # 导入 ln_plugin 替换函数
 try:
-    from deploy.ln_plugin.replace_layernorm import replace_layernorm_with_plugin
+    from deploy.ln_plugin.replace_layernorm import (
+        replace_layernorm_with_plugin,
+        LayerNormPluginWrapper
+    )
     LN_PLUGIN_AVAILABLE = True
 except ImportError as e:
     LN_PLUGIN_AVAILABLE = False
     print(f"[WARNING] LayerNormPlugin not available: {e}")
+
+def optimize_model_for_orin(model, logger):
+    """针对 Orin AGX 的特定优化"""
+    logger.info("Applying Orin-specific optimizations...")
+    
+    # 1. 深度替换 LayerNorm 为 Plugin
+    if LN_PLUGIN_AVAILABLE:
+        logger.info("Replacing all LayerNorm instances with Plugin version...")
+        count = replace_layernorm_with_plugin(model, verbose=True)
+        logger.info(f"Successfully replaced {count} LayerNorm(s).")
+    
+    # 2. 检查并处理可能导致 Transpose 的 Linear 层
+    # 注意：这里我们不直接替换为 Conv1d，因为那需要改变 forward 逻辑。
+    # 我们主要依赖 LayerNorm 插件来吸收 Transpose。
+    
+    return model
 
 # 设置PyTorch确定性
 torch.backends.cudnn.deterministic = True
@@ -708,7 +730,10 @@ if __name__ == "__main__":
     if not args.o2:
         first_frame_head = Sparse4DHead1st(copy.deepcopy(model))
         
-        # 1. 替换 kps_generator 为 Plugin 版本
+        # 1. 应用针对 Orin 的优化 (包含 LayerNorm 替换)
+        optimize_model_for_orin(first_frame_head.model.head, logger)
+        
+        # 2. 替换 kps_generator 为 Plugin 版本
         if SPARSEBOX_PLUGIN_AVAILABLE:
             logger.info("Replacing kps_generator with SparseBox3DKeyPointsPlugin...")
             replaced_count = replace_kps_generator_with_plugin(
@@ -719,16 +744,7 @@ if __name__ == "__main__":
         else:
             logger.warning("SparseBox3DKeyPointsPlugin not available, using original kps_generator")
             
-        # 2. 替换 LayerNorm 为 Plugin 版本
-        if LN_PLUGIN_AVAILABLE:
-            logger.info("Replacing LayerNorm with LayerNormPlugin...")
-            replaced_ln_count = replace_layernorm_with_plugin(
-                first_frame_head.model.head, 
-                verbose=True
-            )
-            logger.info(f"Replaced {replaced_ln_count} LayerNorm(s) with Plugin version")
-        else:
-            logger.warning("LayerNormPlugin not available, using original LayerNorm")
+        # 注意：不再重复调用 replace_layernorm_with_plugin，它已经在 optimize_model_for_orin 中执行过了
         
         # Save validation data if requested
         if args.save_val_data and not args.o2:
@@ -819,19 +835,41 @@ if __name__ == "__main__":
 
             # 
             onnx_orig = onnx.load(args.save_onnx1)
-            # FP16模式下，ONNX简化可能会失败（某些操作符如Range不支持FP16）
-            # 如果简化失败，直接使用原始模型
-            try:
-                onnx_simp, check = simplify(onnx_orig)
-                if check:
-                    onnx.save(onnx_simp, args.save_onnx1)
-                    logger.info("ONNX model simplified successfully.")
-                else:
-                    logger.warning("ONNX simplification failed validation, using original model.")
-                    onnx.save(onnx_orig, args.save_onnx1)
-            except Exception as e:
-                logger.warning(f"ONNX simplification failed: {e}, using original model.")
+            
+            # 检查是否包含自定义操作（Plugin 操作）
+            custom_ops = []
+            for node in onnx_orig.graph.node:
+                # 检查方式 1: op_type 以 'custom::' 开头
+                if node.op_type.startswith('custom::'):
+                    custom_ops.append(node.op_type)
+                # 检查方式 2: domain 是 'custom'
+                elif node.domain == 'custom':
+                    custom_ops.append(f"custom::{node.op_type}")
+                # 检查方式 3: 包含 'Plugin' 关键词的非标准操作
+                elif 'Plugin' in node.op_type and node.domain == '':
+                    custom_ops.append(f"implicit_custom::{node.op_type}")
+            
+            has_custom_ops = len(custom_ops) > 0
+            
+            if has_custom_ops:
+                from collections import Counter
+                custom_op_counts = Counter(custom_ops)
+                logger.warning(f"ONNX model contains {len(custom_ops)} custom operators. Skipping simplification to preserve them.")
+                logger.info(f"Custom operator summary: {dict(custom_op_counts)}")
                 onnx.save(onnx_orig, args.save_onnx1)
+            else:
+                logger.info("No custom operators found. Proceeding with simplification...")
+                try:
+                    onnx_simp, check = simplify(onnx_orig)
+                    if check:
+                        onnx.save(onnx_simp, args.save_onnx1)
+                        logger.info("ONNX model simplified successfully.")
+                    else:
+                        logger.warning("ONNX simplification failed validation, using original model.")
+                        onnx.save(onnx_orig, args.save_onnx1)
+                except Exception as e:
+                    logger.warning(f"ONNX simplification failed: {e}, using original model.")
+                    onnx.save(onnx_orig, args.save_onnx1)
             
             # 验证 ONNX 模型的精度
             verify_onnx_precision(args.save_onnx1, use_fp16, logger)
@@ -842,7 +880,10 @@ if __name__ == "__main__":
 
     head = Sparse4DHead2nd(copy.deepcopy(model))
     
-    # 1. 替换 kps_generator 为 Plugin 版本
+    # 1. 应用针对 Orin 的优化 (包含 LayerNorm 替换)
+    optimize_model_for_orin(head.model.head, logger)
+    
+    # 2. 替换 kps_generator 为 Plugin 版本
     if SPARSEBOX_PLUGIN_AVAILABLE:
         logger.info("Replacing kps_generator with SparseBox3DKeyPointsPlugin...")
         replaced_count = replace_kps_generator_with_plugin(
@@ -853,16 +894,7 @@ if __name__ == "__main__":
     else:
         logger.warning("SparseBox3DKeyPointsPlugin not available, using original kps_generator")
         
-    # 2. 替换 LayerNorm 为 Plugin 版本
-    if LN_PLUGIN_AVAILABLE:
-        logger.info("Replacing LayerNorm with LayerNormPlugin...")
-        replaced_ln_count = replace_layernorm_with_plugin(
-            head.model.head, 
-            verbose=True
-        )
-        logger.info(f"Replaced {replaced_ln_count} LayerNorm(s) with Plugin version")
-    else:
-        logger.warning("LayerNormPlugin not available, using original LayerNorm")
+    # 注意：不再重复调用 replace_layernorm_with_plugin，它已经在 optimize_model_for_orin 中执行过了
     
     # Save validation data for 2nd head
     if args.save_val_data:
@@ -970,19 +1002,41 @@ if __name__ == "__main__":
         )
 
         onnx_orig = onnx.load(args.save_onnx2)
-        # FP16模式下，ONNX简化可能会失败（某些操作符如Range不支持FP16）
-        # 如果简化失败，直接使用原始模型
-        try:
-            onnx_simp, check = simplify(onnx_orig)
-            if check:
-                onnx.save(onnx_simp, args.save_onnx2)
-                logger.info("ONNX model simplified successfully.")
-            else:
-                logger.warning("ONNX simplification failed validation, using original model.")
-                onnx.save(onnx_orig, args.save_onnx2)
-        except Exception as e:
-            logger.warning(f"ONNX simplification failed: {e}, using original model.")
+        
+        # 检查是否包含自定义操作（Plugin 操作）
+        custom_ops = []
+        for node in onnx_orig.graph.node:
+            # 检查方式 1: op_type 以 'custom::' 开头
+            if node.op_type.startswith('custom::'):
+                custom_ops.append(node.op_type)
+            # 检查方式 2: domain 是 'custom'
+            elif node.domain == 'custom':
+                custom_ops.append(f"custom::{node.op_type}")
+            # 检查方式 3: 包含 'Plugin' 关键词的非标准操作
+            elif 'Plugin' in node.op_type and node.domain == '':
+                custom_ops.append(f"implicit_custom::{node.op_type}")
+        
+        has_custom_ops = len(custom_ops) > 0
+        
+        if has_custom_ops:
+            from collections import Counter
+            custom_op_counts = Counter(custom_ops)
+            logger.warning(f"ONNX model contains {len(custom_ops)} custom operators. Skipping simplification to preserve them.")
+            logger.info(f"Custom operator summary: {dict(custom_op_counts)}")
             onnx.save(onnx_orig, args.save_onnx2)
+        else:
+            logger.info("No custom operators found. Proceeding with simplification...")
+            try:
+                onnx_simp, check = simplify(onnx_orig)
+                if check:
+                    onnx.save(onnx_simp, args.save_onnx2)
+                    logger.info("ONNX model simplified successfully.")
+                else:
+                    logger.warning("ONNX simplification failed validation, using original model.")
+                    onnx.save(onnx_orig, args.save_onnx2)
+            except Exception as e:
+                logger.warning(f"ONNX simplification failed: {e}, using original model.")
+                onnx.save(onnx_orig, args.save_onnx2)
         
         # 验证 ONNX 模型的精度
         verify_onnx_precision(args.save_onnx2, use_fp16, logger)

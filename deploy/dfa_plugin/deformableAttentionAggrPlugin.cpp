@@ -522,11 +522,11 @@ nvinfer1::DataType DeformableAttentionAggrPlugin::getOutputDataType(int32_t inde
 {
     if (!inputTypes || nbInputs < 1) return nvinfer1::DataType::kFLOAT;
     
-    // 如果输入是 INT8，输出为 FP32
-    // if (inputTypes[0] == nvinfer1::DataType::kINT8)
-    // {
-    //     return nvinfer1::DataType::kFLOAT;
-    // }
+    // 如果输入是 INT8，输出为 FP32 (反量化后处理)
+    if (inputTypes[0] == nvinfer1::DataType::kINT8)
+    {
+        return nvinfer1::DataType::kFLOAT;
+    }
     
     return inputTypes[0];
 }

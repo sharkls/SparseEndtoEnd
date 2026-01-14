@@ -9,7 +9,7 @@ class LayerNormPluginFunction(Function):
         # The plugin expects inputs: input, weight, bias
         # And attributes: epsilon, axis
         return g.op(
-            "custom::LayerNormalization",
+            "custom::LayerNormPlugin",
             input,
             weight,
             bias,
@@ -43,8 +43,12 @@ def replace_layernorm_with_plugin(model, verbose=False):
     """
     Recursively replace nn.LayerNorm with LayerNormPluginWrapper
     Only replaces LayerNorm if it normalizes over the last dimension (1D normalized_shape).
+    
+    Returns:
+        int: Number of LayerNorm modules replaced
     """
     replaced_count = 0
+    skipped_count = 0
     for name, module in model.named_children():
         if isinstance(module, nn.LayerNorm):
             # Check if it matches our assumption (normalization over last dim)
@@ -55,13 +59,18 @@ def replace_layernorm_with_plugin(model, verbose=False):
                 setattr(model, name, new_module)
                 replaced_count += 1
                 if verbose:
-                    pass # Reduce verbosity for individual layers
+                    print(f"Replaced LayerNorm: {name} (normalized_shape={module.normalized_shape}, eps={module.eps})")
             else:
+                skipped_count += 1
                 if verbose:
                     print(f"Skipping {name}: normalized_shape={module.normalized_shape} (only 1D supported)")
         else:
             # Recurse
-            replaced_count += replace_layernorm_with_plugin(module, verbose)
-            
+            child_replaced = replace_layernorm_with_plugin(module, verbose)
+            replaced_count += child_replaced
+    
+    if verbose and (replaced_count > 0 or skipped_count > 0):
+        print(f"LayerNorm replacement summary: {replaced_count} replaced, {skipped_count} skipped")
+    
     return replaced_count
 
