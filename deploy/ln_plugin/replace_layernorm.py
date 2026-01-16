@@ -9,7 +9,7 @@ class LayerNormPluginFunction(Function):
         # The plugin expects inputs: input, weight, bias
         # And attributes: epsilon, axis
         return g.op(
-            "custom::LayerNormalization",
+            "custom::CustomLayerNormalization",
             input,
             weight,
             bias,

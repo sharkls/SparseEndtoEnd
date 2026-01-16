@@ -16,7 +16,7 @@ class LayerNormPluginFunction(Function):
     @staticmethod
     def symbolic(g, input, weight, bias, epsilon, axis):
         return g.op(
-            "custom::LayerNormalization",
+            "custom::CustomLayerNormalization",
             input,
             weight,
             bias,

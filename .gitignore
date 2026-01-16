@@ -69,3 +69,5 @@ C++/Submodules/ThirdParty
 *.shape
 
 deploy/j5
+
+*.cache
