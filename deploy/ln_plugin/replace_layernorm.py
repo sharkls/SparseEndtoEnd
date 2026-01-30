@@ -5,16 +5,14 @@ from torch.autograd.function import Function
 class LayerNormPluginFunction(Function):
     @staticmethod
     def symbolic(g, input, weight, bias, epsilon, axis):
-        # Register the custom op for ONNX
-        # The plugin expects inputs: input, weight, bias
-        # And attributes: epsilon, axis
         return g.op(
             "custom::CustomLayerNormalization",
             input,
             weight,
             bias,
             epsilon_f=epsilon,
-            axis_i=axis
+            axis_i=axis,
+            outputs=1
         )
 
     @staticmethod

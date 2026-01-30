@@ -70,4 +70,7 @@ C++/Submodules/ThirdParty
 
 deploy/j5
 
+*.npz
 *.cache
+deploy-ls/
+deploy/sparsebox3dencoder_plugin/

@@ -125,11 +125,55 @@ static void __global__ layernorm_kernel_int8(const int8_t* x, float in_scale, co
     }
 }
 
+// INT8 Kernel: Supports INT8 input, INT8 output (dequantization + normalization + quantization)
+static void __global__ layernorm_kernel_int8_io(const int8_t* x, float in_scale, float out_scale, const float* weight, const float* bias, int8_t* y, int N, int C, float epsilon){
+    int idx = blockIdx.y * blockDim.y + threadIdx.y;
+    if(idx >= N) return;
+
+    const int8_t* px = x + idx * C;
+    int8_t*       py = y + idx * C;
+
+    // reduce sum
+    float sq = 0.0f;
+    float s  = 0.0f;
+    float diver = 1.0f / C;
+    
+    // Pass 1: Dequantize and compute stats
+    for(int ic = threadIdx.x; ic < C; ic += warpSize){
+        float val = static_cast<float>(px[ic]) * in_scale;
+        s += val;
+        sq = fmaf(val, val * diver, sq);
+    }
+
+    for (int mask = 16; mask > 0; mask /= 2)
+        s += __shfl_xor_sync(0xffffffff, s, mask);
+
+    for (int mask = 16; mask > 0; mask /= 2)
+        sq += __shfl_xor_sync(0xffffffff, sq, mask);
+
+    float mean = s / C;
+    float var = sq - mean * mean;
+    float rstd = rsqrtf(fmaxf(var, 0.0f) + epsilon);
+    
+    // Pass 2: Normalize and write output (Quantized)
+    float inv_out_scale = 1.0f / out_scale;
+    for(int ic = threadIdx.x; ic < C; ic += warpSize) {
+        float val = static_cast<float>(px[ic]) * in_scale;
+        float norm = (val - mean) * weight[ic] * rstd + bias[ic];
+        
+        // Quantize
+        float q_val = norm * inv_out_scale;
+        q_val = fminf(fmaxf(q_val, -127.0f), 127.0f);
+        py[ic] = static_cast<int8_t>(roundf(q_val));
+    }
+}
+
 class LayerNormPlugin : public IPluginV2DynamicExt{
 public:
     float epsilon;
     int axis;
     float mInputScale = 1.0f; // Scale for INT8 input
+    float mOutputScale = 1.0f; // Scale for INT8 output
 
     // construct by creatation
     LayerNormPlugin(float epsilon, int axis){
@@ -143,15 +187,20 @@ public:
         this->epsilon = *(float*)pdata;  pdata += sizeof(this->epsilon);
         this->axis    = *((int*)pdata);  pdata += sizeof(this->axis);
         
-        // Check if there is more data for scale (backward compatibility)
+        // Check if there is more data for input scale
         if (pdata < (const unsigned char*)data + size) {
             this->mInputScale = *(float*)pdata; pdata += sizeof(this->mInputScale);
+        }
+        // Check if there is more data for output scale
+        if (pdata < (const unsigned char*)data + size) {
+            this->mOutputScale = *(float*)pdata; pdata += sizeof(this->mOutputScale);
         }
     }
 
     IPluginV2DynamicExt* clone() const noexcept override{
         LayerNormPlugin* p = new LayerNormPlugin(this->epsilon, this->axis);
         p->mInputScale = this->mInputScale;
+        p->mOutputScale = this->mOutputScale;
         return p;
     }
 
@@ -184,9 +233,11 @@ public:
 
         // Output 0: Y
         if (pos == 3) {
-            // If input is INT8, output can be FLOAT or HALF (dequantizing layer norm)
+            // If input is INT8, output can be FLOAT, HALF or INT8
             if (inOut[0].type == DataType::kINT8) {
-                return inOut[pos].type == DataType::kFLOAT || inOut[pos].type == DataType::kHALF;
+                return inOut[pos].type == DataType::kFLOAT || 
+                       inOut[pos].type == DataType::kHALF ||
+                       inOut[pos].type == DataType::kINT8;
             }
             return inOut[pos].type == inOut[0].type;
         }
@@ -202,6 +253,13 @@ public:
             mInputScale = in[0].desc.scale;
         } else {
             mInputScale = 1.0f;
+        }
+
+        // Capture output scale for INT8
+        if (out[0].desc.type == DataType::kINT8) {
+            mOutputScale = out[0].desc.scale;
+        } else {
+            mOutputScale = 1.0f;
         }
     } 
 
@@ -234,6 +292,8 @@ public:
                  layernorm_kernel_int8<float><<<grid, block, 0, stream>>>((int8_t*)x, mInputScale, (float*)weight, (float*)bias, (float*)y, N, C, this->epsilon);
             } else if (outputDesc[0].type == DataType::kHALF) {
                  layernorm_kernel_int8<half><<<grid, block, 0, stream>>>((int8_t*)x, mInputScale, (float*)weight, (float*)bias, (half*)y, N, C, this->epsilon);
+            } else if (outputDesc[0].type == DataType::kINT8) {
+                 layernorm_kernel_int8_io<<<grid, block, 0, stream>>>((int8_t*)x, mInputScale, mOutputScale, (float*)weight, (float*)bias, (int8_t*)y, N, C, this->epsilon);
             } else {
                 return 1; // Unsupported output type for Int8 input
             }
@@ -247,8 +307,10 @@ public:
     virtual nvinfer1::DataType getOutputDataType(
         int32_t index, nvinfer1::DataType const* inputTypes, int32_t nbInputs) const noexcept{
         if (inputTypes[0] == DataType::kINT8) {
-            return DataType::kFLOAT; // Default to FLOAT output for INT8 input (safer)
-            // Or return kHALF if preferred. TensorRT will cast if needed.
+            // OPTIMIZATION: Default to INT8 output if input is INT8.
+            // This allows INT8 -> INT8 pass-through without Reformatting CopyNode.
+            // The kernel 'layernorm_kernel_int8_io' handles this.
+            return DataType::kINT8; 
         }
         return inputTypes[0];
     }
@@ -266,6 +328,7 @@ public:
         *(float*)pdata = this->epsilon;  pdata += sizeof(this->epsilon);
         *(int*)pdata   = this->axis;     pdata += sizeof(this->axis);
         *(float*)pdata = this->mInputScale; pdata += sizeof(this->mInputScale);
+        *(float*)pdata = this->mOutputScale; pdata += sizeof(this->mOutputScale);
     }
 
     virtual void destroy() noexcept{
@@ -293,7 +356,7 @@ public:
     }
 
     virtual size_t getSerializationSize() const noexcept{
-        return sizeof(this->epsilon) + sizeof(this->axis) + sizeof(this->mInputScale);
+        return sizeof(this->epsilon) + sizeof(this->axis) + sizeof(this->mInputScale) + sizeof(this->mOutputScale);
     }
 };
 

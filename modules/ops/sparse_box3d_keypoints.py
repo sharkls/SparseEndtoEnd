@@ -116,8 +116,7 @@ class SparseBox3DKeyPointsFunction(Function):
             node_kwargs["fc_weight_f"] = fc_weight_list  # FLOAT32 array
             node_kwargs["fc_bias_f"] = fc_bias_list  # FLOAT32 array
         
-        node = g.op("custom::SparseBox3DKeyPointsPlugin", *inputs, **node_kwargs)
-        
+        node = g.op("custom::SparseBox3DKeyPointsPlugin", *inputs, outputs=1, **node_kwargs)
         return node
     
     @staticmethod

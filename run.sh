@@ -38,3 +38,57 @@ python3 -u script/tutorial/040.visualize_inference_result.py \
     --data_dir /share/Code/Sparse4dE2E/deploy/val_data_e2e_fp32 \
     --plugin_dir /share/Code/Sparse4dE2E/deploy
 
+# 生成calibration data（用于Head1和Head2的INT8 calibration）
+python3 script/tutorial/051.generate_calibration_data.py           #生成head2和backbone的校准数据
+python3 script/tutorial/057.generate_calibration_data_head1.py     # 生成head1的校准数据
+
+#生成指定的FP32精度的onnx模型供INT8 calibration使用
+python3 deploy/export_head_onnxv3.py --fp32 --save_onnx1 deploy/onnx/sparse4dhead1st_v3_fp32.onnx --save_onnx2 deploy/onnx/sparse4dhead2nd_v3_fp32.onnx
+
+# 测试INT8引擎的性能
+python3 deploy/tools/test_int8_engine.py --engine deploy/engine/sparse4dhead1st_v3.engine --profile > deploy/engine/log/profile_head1_0122_LayerNorm_INT8_Outputs.txt
+python3 deploy/tools/test_int8_engine.py --engine deploy/engine/sparse4dhead2nd_v3.engine --profile > deploy/engine/log/profile_head2_0122_LayerNorm_INT8_Outputs.txt
+
+# 生成int8的calibration data
+
+
+# int8 onnx导出
+python3 deploy/export_backbone_onnx_quant.py     --cfg dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py     --ckpt ckpt/sparse4dv3_r50.pth     --int8     --calib_data deploy/calibration_data
+python3 deploy/export_head_onnx_quant.py     --cfg dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py     --ckpt ckpt/sparse4dv3_r50.pth     --int8     --calib_data deploy/calibration_data
+
+# 查看engine的耗时情况
+/mnt/env/tensorrt/TensorRT-8.5.1.7/bin/trtexec     --loadEngine=deploy/engine/sparse4dbackbone_int8.engine     --warmUp=200     --iterations=100     --duration=10     --useSpinWait
+/mnt/env/tensorrt/TensorRT-8.5.1.7/bin/trtexec     --loadEngine=deploy/engine/sparse4dhead1st_int8.engine     --warmUp=200     --iterations=100     --duration=10     --useSpinWait
+/mnt/env/tensorrt/TensorRT-8.5.1.7/bin/trtexec     --loadEngine=deploy/engine/sparse4dhead2nd_int8.engine     --warmUp=200     --iterations=100     --duration=10     --useSpinWait
+
+/mnt/env/tensorrt/TensorRT-8.5.1.7/bin/trtexec \
+    --loadEngine=deploy/engine/sparse4dhead1st_int8.engine \
+    --plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so \
+    --plugins=deploy/ln_plugin/lib/customLayerNorm.so \
+    --plugins=deploy/sparsebox_plugin/lib/SparseBox3DKeyPointsPlugin.so \
+    --warmUp=1000 \
+    --duration=10 \
+    --useSpinWait \
+    --noDataTransfers \
+    --idleTime=0
+/mnt/env/tensorrt/TensorRT-8.5.1.7/bin/trtexec \
+    --loadEngine=deploy/engine/sparse4dbackbone_int8.engine \
+    --warmUp=1000 \
+    --duration=10 \
+    --useSpinWait \
+    --noDataTransfers \
+    --idleTime=0
+
+# 验证int8 engine的推理精度
+python3 script/tutorial/053.benchmark_quantization_error_backbone.py # 测试所有校准数据（默认）
+python3 script/tutorial/054.benchmark_quantization_error_head1.py
+python3 script/tutorial/055.benchmark_quantization_error_head2.py
+
+# 可视化int8 engine推理和pytorch推理结果
+python3 script/tutorial/041.visualize_int8_vs_pytorch.py  \
+    --data_dir deploy/val_data_e2e_fp32 \
+    --plugin_dir deploy \
+    --backbone deploy/engine/sparse4dbackbone_int8.engine \
+    --head1 deploy/engine/sparse4dhead1st_int8.engine \
+    --head2 deploy/engine/sparse4dhead2nd_int8.engine \
+    --output_dir visualize/int8_result
