@@ -21,7 +21,7 @@ from modules.sparse4d_detector import *
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train E2E detector")
-    parser.add_argument("--config", default="dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py", help="train config file path")
+    parser.add_argument("--config", default="dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704.py", help="train config file path")
     parser.add_argument(
         "--checkpoint", default="ckpt/sparse4dv3_r50.pth", help="checkpoint file"
     )

@@ -19,12 +19,15 @@ def get_kmeans_anchor(
     for ann in ann_file:
         data += json.load(open(ann, "r"))
     gt_boxes_list = list()
+    empty_count = 0
     for x in tqdm(data, desc="Process Samples:"):
         if len(x["gt_boxes"]) != 0:
             gt_boxes_list.append(x["gt_boxes"])
         else:
-            print("[WARNING] Gt boxes is empty!")
+            empty_count += 1
+            # print("[WARNING] Gt boxes is empty!")
             continue
+    print(f"Total samples: {len(data)}, Empty samples: {empty_count} ({empty_count/len(data):.2%})")
     gt_boxes = np.concatenate(gt_boxes_list, axis=0)
     distance = np.linalg.norm(gt_boxes[:, :3], axis=-1, ord=2)
     mask = distance <= detection_range

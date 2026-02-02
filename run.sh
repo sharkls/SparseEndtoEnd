@@ -92,3 +92,14 @@ python3 script/tutorial/041.visualize_int8_vs_pytorch.py  \
     --head1 deploy/engine/sparse4dhead1st_int8.engine \
     --head2 deploy/engine/sparse4dhead2nd_int8.engine \
     --output_dir visualize/int8_result
+
+# 测试int8 engine的推理精度
+python3 script/test_engine.py \
+    --config dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704.py \
+    --checkpoint ckpt/sparse4dv3_r50.pth \
+    --engine_head1 deploy/engine/sparse4dhead1st_int8.engine \
+    --engine_head2 deploy/engine/sparse4dhead2nd_int8.engine \
+    --plugins deploy/dfa_plugin/lib/deformableAttentionAggr.so \
+              deploy/ln_plugin/lib/customLayerNorm.so \
+              deploy/sparsebox_plugin/lib/SparseBox3DKeyPointsPlugin.so \
+    --eval bbox
