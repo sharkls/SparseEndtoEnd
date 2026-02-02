@@ -1,0 +1,1 @@
+/usr/src/tensorrt/bin/trtexec --loadEngine=deploy/engine/sparse4dhead1st.engine --plugins=deploy/dfa_plugin/lib/deformableAttentionAggr.so --plugins=deploy/ln_plugin/lib/customLayerNorm.so --plugins=deploy/sparsebox_plugin/lib/SparseBox3DKeyPointsPlugin.so --dumpProfile > deploy/engine/log/trtexec_profile_head1.log 2>&1

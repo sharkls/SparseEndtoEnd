@@ -5,16 +5,14 @@ from torch.autograd.function import Function
 class LayerNormPluginFunction(Function):
     @staticmethod
     def symbolic(g, input, weight, bias, epsilon, axis):
-        # Register the custom op for ONNX
-        # The plugin expects inputs: input, weight, bias
-        # And attributes: epsilon, axis
         return g.op(
-            "custom::LayerNormPlugin",
+            "custom::CustomLayerNormalization",
             input,
             weight,
             bias,
             epsilon_f=epsilon,
-            axis_i=axis
+            axis_i=axis,
+            outputs=1
         )
 
     @staticmethod
@@ -43,12 +41,8 @@ def replace_layernorm_with_plugin(model, verbose=False):
     """
     Recursively replace nn.LayerNorm with LayerNormPluginWrapper
     Only replaces LayerNorm if it normalizes over the last dimension (1D normalized_shape).
-    
-    Returns:
-        int: Number of LayerNorm modules replaced
     """
     replaced_count = 0
-    skipped_count = 0
     for name, module in model.named_children():
         if isinstance(module, nn.LayerNorm):
             # Check if it matches our assumption (normalization over last dim)
@@ -59,18 +53,13 @@ def replace_layernorm_with_plugin(model, verbose=False):
                 setattr(model, name, new_module)
                 replaced_count += 1
                 if verbose:
-                    print(f"Replaced LayerNorm: {name} (normalized_shape={module.normalized_shape}, eps={module.eps})")
+                    pass # Reduce verbosity for individual layers
             else:
-                skipped_count += 1
                 if verbose:
                     print(f"Skipping {name}: normalized_shape={module.normalized_shape} (only 1D supported)")
         else:
             # Recurse
-            child_replaced = replace_layernorm_with_plugin(module, verbose)
-            replaced_count += child_replaced
-    
-    if verbose and (replaced_count > 0 or skipped_count > 0):
-        print(f"LayerNorm replacement summary: {replaced_count} replaced, {skipped_count} skipped")
-    
+            replaced_count += replace_layernorm_with_plugin(module, verbose)
+            
     return replaced_count
 

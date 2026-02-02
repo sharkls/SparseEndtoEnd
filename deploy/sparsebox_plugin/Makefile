@@ -15,13 +15,7 @@ ifeq ($(strip $(ENV_CUDA_BIN)),)
 endif
 
 ifeq ($(strip $(CUDASM)),)
-  # 检测平台架构，设置默认 CUDASM
-  ARCH := $(shell uname -m)
-  ifeq ($(ARCH),aarch64)
-    CUDASM := 87  # Jetson Orin 使用 sm_87
-  else
-    CUDASM := 86  # x86_64 平台使用 sm_86
-  endif
+  CUDASM := 86
 endif
 
 # 检查 nvcc 是否存在
