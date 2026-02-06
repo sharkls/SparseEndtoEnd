@@ -147,13 +147,14 @@ class CoreImplement : public ICore{
         cudaStream_t stream_head_ = nullptr;
         cudaEvent_t event_prev_cache_done_ = nullptr; // 上一帧Cache完成事件（用于InstanceBank依赖）
 
-        // 5. 线程句柄 (Step 2 使用)
-        std::thread preprocess_thread_;
+        // 5. 线程句柄
+        std::thread inference_thread_;
         bool stop_flag_ = false;
         
         // 内部辅助函数
         std::shared_ptr<FrameContext> get_free_context();
         void release_context(std::shared_ptr<FrameContext> context);
+        void inference_loop(); // 推理线程循环
 };
     
 }  // namespace core

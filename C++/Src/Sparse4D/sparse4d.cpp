@@ -103,10 +103,11 @@ CoreImplement::~CoreImplement() {
     // 实际上 context_pool_ 里的对象会被销毁。
     // 让我们假设 FrameContext 没有析构函数。
     
-    // 停止线程（Step 2）
+    // 停止线程
     stop_flag_ = true;
-    if (preprocess_thread_.joinable()) {
-        preprocess_thread_.join();
+    queue_cv_.notify_all(); // 唤醒推理线程
+    if (inference_thread_.joinable()) {
+        inference_thread_.join();
     }
 
     // 销毁 Streams
@@ -177,21 +178,120 @@ void CoreImplement::runAlgorithm(void* p_pSrcData)
     if (p_pSrcData == nullptr) return;
     const CTimeMatchSrcData* raw_data = reinterpret_cast<const CTimeMatchSrcData*>(p_pSrcData);
     
-    // 使用固定的 CUDA Stream（而不是 nullptr/默认流）
-    // 固定的 stream + 固定的缓冲区地址 = CUDA Graph 自动启用
-    // TensorRT 8.0+ 会自动检测并启用 CUDA Graph，显著降低 Enqueue Time（从 ~120ms 到 ~0.8ms）
-    // 注意：双流模式下，runAlgorithm 的行为需要调整
-    // 原始接口 runAlgorithm 假设同步执行。
-    // 如果我们使用双流，这里需要等待结果吗？
-    // 目前 forward 实现是同步等待结果的（get_free_context -> forward -> release -> return result）
-    // 所以我们可以使用 stream_head_ 或者 stream_backbone_ 
-    // 但 forward 内部会使用自己的 stream。
-    // 这里传入 stream_head_ 作为一个默认流，但 forward 内部会强制转换并使用成员变量 stream_backbone_ / stream_head_
-    // 实际上 forward 的 stream 参数在双流模式下可能不再被完全遵循，或者仅用于某些同步。
-    // 让我们传入 stream_head_，保持一致性。
-    CAlgResult result = forward(raw_data, stream_head_);
-    if (alg_cb_) {
-        alg_cb_(result, user_handle_);
+    // 1. 获取空闲 Context
+    auto context = get_free_context();
+    if (!context) {
+        LOG(WARNING) << "[WARNING] No free context available, dropping frame!";
+        return;
+    }
+
+    // 2. 在主线程执行预处理 (Host->Device 拷贝)
+    // 必须在这里做，因为 raw_data 指针可能在函数返回后失效
+    // 使用 stream_backbone_ 进行预处理，与 InstanceBank::get (stream_head_) 并行
+    
+    // 计时预处理
+    if (enable_timer_) {
+        // 简单计时，或者使用 EventTimer 如果需要更精确
+        // 这里为了简化，直接调用 forward_only 的预处理部分
+        // 但 forward_only 包含了所有步骤。我们需要拆分。
+    }
+
+    // 我们需要手动执行预处理部分
+    Status status = preprocessor_->forward(raw_data, stream_backbone_, context->pipeline_context);
+    if (status != Status::kSuccess) {
+        LOG(ERROR) << "[ERROR] Preprocessor forward failed!";
+        release_context(context);
+        return;
+    }
+
+    // 2.5 执行 InstanceBank::get (因为需要 raw_data)
+    // 注意：InstanceBank::get 可能需要使用 stream，这里使用 stream_head_
+    // 并且它可能修改 pipeline_context
+    status = instance_bank_->get(raw_data, is_first_frame_, stream_head_, context->pipeline_context);
+    if (status != Status::kSuccess) {
+        LOG(ERROR) << "[ERROR] Instance bank get failed!";
+        release_context(context);
+        return;
+    }
+    
+    // 3. 将准备好的 Context 推入 Ready Queue
+    {
+        std::unique_lock<std::mutex> lock(queue_mutex_);
+        ready_queue_.push(context);
+    }
+    queue_cv_.notify_one();
+    LOG(INFO) << "[DEBUG] Pushed to queue, returning from runAlgorithm";
+
+    // 4. 立即返回，不等待推理完成
+    // 结果将通过 alg_cb_ 在 inference_loop 中返回
+    // 临时：为了调试，我们在这里等待一下，确保不是因为主线程退出太快
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+}
+
+void CoreImplement::inference_loop() {
+    LOG(INFO) << "[DEBUG] Inference loop started";
+    while (!stop_flag_) {
+        std::shared_ptr<FrameContext> context;
+        {
+            std::unique_lock<std::mutex> lock(queue_mutex_);
+            queue_cv_.wait(lock, [this] { return !ready_queue_.empty() || stop_flag_; });
+            
+            if (stop_flag_ && ready_queue_.empty()) break;
+            
+            context = ready_queue_.front();
+            ready_queue_.pop();
+        }
+        LOG(INFO) << "[DEBUG] Inference loop got context";
+
+        // 执行推理 (Backbone + Head + Postprocess)
+        CAlgResult result;
+        cudaStream_t stream = stream_head_; // 主推理流
+
+        LOG(INFO) << "[DEBUG] Starting Backbone forward. Stream: " << stream_backbone_;
+        // 3. Backbone (on stream_backbone_)
+        Status status = backbone_->forward(context->pipeline_context, stream_backbone_);
+        if (status != Status::kSuccess) {
+            LOG(ERROR) << "[ERROR] Backbone forward failed!";
+            release_context(context);
+            continue;
+        }
+        
+        // Record event
+        cudaEventRecord(context->event_backbone_done, stream_backbone_);
+        LOG(INFO) << "[DEBUG] Backbone done, event recorded";
+
+        // 4. Head (on stream_head_)
+        // Wait for Backbone
+        cudaStreamWaitEvent(stream_head_, context->event_backbone_done, 0);
+
+        if(is_first_frame_){
+             status = head1_->forward(context->pipeline_context, stream, context->head_output);
+        } else {
+             status = head2_->forward(context->pipeline_context, stream, context->head_output);
+        }
+        if (status != Status::kSuccess) {
+            LOG(ERROR) << "[ERROR] Head forward failed!";
+            release_context(context);
+            continue;
+        }
+
+        // 5. Cache
+        status = instance_bank_->cache(context->head_output, is_first_frame_, stream);
+        
+        // 6. TrackId
+        status = instance_bank_->getTrackId(context->head_output, is_first_frame_, stream);
+        
+        if(is_first_frame_) is_first_frame_ = false; // 注意线程安全，如果多线程同时访问
+
+        // 7. Postprocess
+        status = postprocessor_->forward(context->head_output, stream, result);
+        
+        // Callback
+        if (alg_cb_) {
+            alg_cb_(result, user_handle_);
+        }
+        
+        release_context(context);
     }
 }
 
@@ -272,6 +372,10 @@ bool CoreImplement::init(const TaskConfig &param)
         LOG(WARNING) << "[WARNING] Warmup inference failed, but continuing...";
     }
     LOG(INFO) << "[INFO] Warmup inference completed";
+
+    // 启动推理线程
+    stop_flag_ = false;
+    inference_thread_ = std::thread(&CoreImplement::inference_loop, this);
 
     return true;
 }
