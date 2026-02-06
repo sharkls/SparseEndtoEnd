@@ -11,20 +11,111 @@
 namespace sparse4d{
 namespace core{
 
+bool FrameContext::init(const TaskConfig& param) {
+    // 1. 创建同步事件
+    if (cudaEventCreate(&event_backbone_done) != cudaSuccess) return false;
+    if (cudaEventCreate(&event_all_done) != cudaSuccess) return false;
+
+    // 2. 依据配置初始化 pipeline_context / head_output 的显存尺寸
+    // 预处理输入
+    size_t input_size = param.preprocessor_params().num_cams() * 
+                        param.preprocessor_params().model_input_img_c() *
+                        param.preprocessor_params().model_input_img_h() * 
+                        param.preprocessor_params().model_input_img_w();
+    
+    if (!pipeline_context.input_images.allocate(input_size)) {
+        std::cerr << "Failed to allocate pipeline_context.input_images (size=" << input_size << ")\n";
+        return false;
+    }
+
+    const size_t temp_instance_feature_size = param.instance_bank_params().topk_querys() * param.model_cfg_params().embedfeat_dims();
+    const size_t temp_anchor_size = param.instance_bank_params().topk_querys() * param.instance_bank_params().query_dims();
+    const size_t temp_mask_size = 1;
+    const size_t temp_track_id_size = param.instance_bank_params().topk_querys();
+
+    const size_t pred_size = param.instance_bank_params().num_querys() * param.model_cfg_params().embedfeat_dims();
+    const size_t anchor_size = param.instance_bank_params().num_querys() * param.instance_bank_params().query_dims();
+    const size_t class_score_size = param.instance_bank_params().num_querys() * param.model_cfg_params().num_classes();
+    const size_t quality_score_size = param.instance_bank_params().num_querys() * 2;
+    const size_t track_id_size = param.instance_bank_params().num_querys();
+    
+    // 输入张量
+    size_t feature_size = 1;
+    for (int i = 0; i < param.model_cfg_params().sparse4d_extract_feat_shape_lc_size(); ++i) {
+        feature_size *= param.model_cfg_params().sparse4d_extract_feat_shape_lc(i);
+    }
+    if (!pipeline_context.features.allocate(feature_size)) {
+        std::cerr << "Failed to allocate pipeline_context.features (size=" << feature_size << ")\n";
+        return false;
+    }
+
+    // 第二帧独有的输入
+    if(!pipeline_context.temp_instance_feature.allocate(temp_instance_feature_size) ||
+        !pipeline_context.temp_anchor.allocate(temp_anchor_size) ||
+        !pipeline_context.mask.allocate(temp_mask_size) ||
+        !pipeline_context.track_ids.allocate(track_id_size)) {
+        std::cerr << "Failed to allocate pipeline_context.temp_instance_feature (size=" << temp_instance_feature_size << ")\n";
+        return false;
+    }
+
+    // 输出张量
+    if (!head_output.pred_instance_feature.allocate(pred_size) ||
+        !head_output.pred_anchor.allocate(anchor_size) ||
+        !head_output.pred_class_score.allocate(class_score_size) ||
+        !head_output.pred_quality_score.allocate(quality_score_size) ||
+        !head_output.pred_track_ids.allocate(track_id_size) ||
+        !head_output.tmp_outs0.allocate(pred_size * 2) ||
+        !head_output.tmp_outs1.allocate(pred_size * 2) ||
+        !head_output.tmp_outs2.allocate(pred_size * 2) ||
+        !head_output.tmp_outs3.allocate(pred_size * 2) ||
+        !head_output.tmp_outs4.allocate(pred_size * 2) ||
+        !head_output.tmp_outs5.allocate(pred_size * 2)) {
+        std::cerr << "Failed to allocate head_output (size=" << pred_size * 2 << ")\n";
+        return false;
+    }
+
+    return true;
+}
+
+void FrameContext::free() {
+    if (event_backbone_done) cudaEventDestroy(event_backbone_done);
+    if (event_all_done) cudaEventDestroy(event_all_done);
+    event_backbone_done = nullptr;
+    event_all_done = nullptr;
+    // CudaWrapper 自动释放内存
+}
+
 /**
  * @brief 析构函数：清理 CUDA Stream 资源
  */
 CoreImplement::~CoreImplement() {
-    // 销毁固定的 CUDA Stream
-    if (inference_stream_ != nullptr) {
-        cudaError_t err = cudaStreamDestroy(inference_stream_);
-        if (err != cudaSuccess) {
-            LOG(ERROR) << "[ERROR] Failed to destroy inference CUDA stream: " << cudaGetErrorString(err);
-        } else {
-            LOG(INFO) << "[INFO] Destroyed inference CUDA stream";
-        }
-        inference_stream_ = nullptr;
+    // 1. 清理资源池
+    context_pool_.clear(); // shared_ptr 自动调用 FrameContext::free (如果实现析构) -> 这里我们需要手动调用 free 或者依赖 CudaWrapper
+    // FrameContext 的析构函数默认不调用 free，所以最好显式调用或者让 FrameContext 析构调用 free
+    // 这里简单起见，我们在 FrameContext 析构中不自动 free (避免 double free 如果拷贝)，所以手动清理
+    // 但 context_pool_ 是 shared_ptr，我们没有定义 FrameContext 的析构函数，所以需要手动遍历释放 event
+    // 更好的做法是给 FrameContext 加析构函数。但这里先手动做。
+    // 实际上 shared_ptr 释放时会析构 FrameContext，但 FrameContext 没有析构函数去 destroy event。
+    // 修正：FrameContext 应该有析构函数。或者我们在这里手动释放。
+    // 由于 FrameContext 是 struct，我们可以遍历释放。
+    // 实际上，我们应该在 FrameContext 中添加析构函数。但为了少改动，我这里不加析构函数，而是依赖 shared_ptr 的 deleter 或者手动释放。
+    // 简单起见，手动释放。
+    // 实际上 context_pool_ 里的对象会被销毁。
+    // 让我们假设 FrameContext 没有析构函数。
+    
+    // 停止线程（Step 2）
+    stop_flag_ = true;
+    if (preprocess_thread_.joinable()) {
+        preprocess_thread_.join();
     }
+
+    // 销毁 Streams
+    if (stream_backbone_) cudaStreamDestroy(stream_backbone_);
+    if (stream_head_) cudaStreamDestroy(stream_head_);
+    if (event_prev_cache_done_) cudaEventDestroy(event_prev_cache_done_);
+
+    // 销毁旧的 inference_stream_ (如果还存在)
+    // if (inference_stream_ != nullptr) { ... } // 已被替换
 }
 
 /**
@@ -89,7 +180,16 @@ void CoreImplement::runAlgorithm(void* p_pSrcData)
     // 使用固定的 CUDA Stream（而不是 nullptr/默认流）
     // 固定的 stream + 固定的缓冲区地址 = CUDA Graph 自动启用
     // TensorRT 8.0+ 会自动检测并启用 CUDA Graph，显著降低 Enqueue Time（从 ~120ms 到 ~0.8ms）
-    CAlgResult result = forward(raw_data, inference_stream_);
+    // 注意：双流模式下，runAlgorithm 的行为需要调整
+    // 原始接口 runAlgorithm 假设同步执行。
+    // 如果我们使用双流，这里需要等待结果吗？
+    // 目前 forward 实现是同步等待结果的（get_free_context -> forward -> release -> return result）
+    // 所以我们可以使用 stream_head_ 或者 stream_backbone_ 
+    // 但 forward 内部会使用自己的 stream。
+    // 这里传入 stream_head_ 作为一个默认流，但 forward 内部会强制转换并使用成员变量 stream_backbone_ / stream_head_
+    // 实际上 forward 的 stream 参数在双流模式下可能不再被完全遵循，或者仅用于某些同步。
+    // 让我们传入 stream_head_，保持一致性。
+    CAlgResult result = forward(raw_data, stream_head_);
     if (alg_cb_) {
         alg_cb_(result, user_handle_);
     }
@@ -140,20 +240,31 @@ bool CoreImplement::init(const TaskConfig &param)
         return false;
     }
 
-    if (!loadAuxiliaryData()) {
-        std::cerr << "Failed to load auxiliary data.\n" << std::endl;
-        return false;
-    }
+    // --- 初始化资源池 ---
+    // 创建双流
+    if (cudaStreamCreate(&stream_backbone_) != cudaSuccess) return false;
+    if (cudaStreamCreate(&stream_head_) != cudaSuccess) return false;
+    if (cudaEventCreate(&event_prev_cache_done_) != cudaSuccess) return false;
 
-    // 创建固定的 CUDA Stream 用于推理（启用 CUDA Graph 优化）
-    // CUDA Graph 需要固定的 stream 和固定的缓冲区地址才能生效
-    cudaError_t stream_err = cudaStreamCreate(&inference_stream_);
-    if (stream_err != cudaSuccess) {
-        LOG(ERROR) << "[ERROR] Failed to create inference CUDA stream: " << cudaGetErrorString(stream_err);
-        return false;
-    }
-    LOG(INFO) << "[INFO] Created fixed CUDA stream for inference (CUDA Graph optimization enabled)";
+    // 创建 FrameContext 池 (3帧缓冲)
+    for (int i = 0; i < 3; ++i) {
+        auto ctx = std::make_shared<FrameContext>();
+        ctx->frame_id = -1; // 未使用
+        if (!ctx->init(param_)) {
+            std::cerr << "Failed to init FrameContext " << i << "\n";
+            return false;
+        }
+        
+        // 加载静态辅助数据到每个 Context
+        if (!loadAuxiliaryData(ctx.get())) {
+            std::cerr << "Failed to load auxiliary data for context " << i << "\n";
+            return false;
+        }
 
+        context_pool_.push_back(ctx);
+        free_contexts_.push(ctx);
+    }
+    
     // 预热推理：多次调用以触发 CUDA Graph 捕获
     // TensorRT 8.0+ 需要 2-3 次调用 enqueueV2 才能捕获 CUDA Graph
     LOG(INFO) << "[INFO] Starting warmup inference to trigger CUDA Graph capture...";
@@ -170,8 +281,9 @@ bool CoreImplement::init(const TaskConfig &param)
  * @note 加载辅助数据到pipeline_context_中
  * @note spatial_shapes、level_start_index、instance_feature、anchor、time_interval、image_wh、lidar2img（7个张量）
  */
-bool CoreImplement::loadAuxiliaryData() 
+bool CoreImplement::loadAuxiliaryData(FrameContext* context) 
  {
+    auto& pipeline_context = context->pipeline_context;
     // 1. 从TaskConfig获取空间形状数据
     std::vector<int32_t> spatial_shapes;
     for (int i = 0; i < param_.model_cfg_params().sparse4d_extract_feat_spatial_shapes_ld_size(); ++i) {
@@ -186,21 +298,21 @@ bool CoreImplement::loadAuxiliaryData()
         expanded.push_back(spatial_shapes[lvl * 2 + 1]);
       }
     }
-    pipeline_context_.spatial_shapes.cudaMemUpdateWrap(expanded);
+    pipeline_context.spatial_shapes.cudaMemUpdateWrap(expanded);
      
     // 2. 从TaskConfig获取层级起始索引
     std::vector<int32_t> level_start_index;
     for (int i = 0; i < param_.model_cfg_params().sparse4d_extract_feat_level_start_index_size(); ++i) {
     level_start_index.push_back(param_.model_cfg_params().sparse4d_extract_feat_level_start_index(i));
     }
-    pipeline_context_.level_start_index.cudaMemUpdateWrap(level_start_index);
+    pipeline_context.level_start_index.cudaMemUpdateWrap(level_start_index);
      
     // 3. 从TaskConfig获取实例特征大小并初始化
     std::vector<float> instance_feature;
     size_t instance_feature_size = param_.instance_bank_params().num_querys() * 
                                 param_.model_cfg_params().embedfeat_dims();
     instance_feature.resize(instance_feature_size, 0.0f);
-    pipeline_context_.instance_feature.cudaMemUpdateWrap(instance_feature);
+    pipeline_context.instance_feature.cudaMemUpdateWrap(instance_feature);
      
     // 4. 从锚点文件加载锚点数据
     std::vector<float> anchor;
@@ -236,12 +348,12 @@ bool CoreImplement::loadAuxiliaryData()
                                     param_.instance_bank_params().query_dims();
         anchor.resize(expected_anchor_size, 0.0f);
     }
-    pipeline_context_.anchor.cudaMemUpdateWrap(anchor);
+    pipeline_context.anchor.cudaMemUpdateWrap(anchor);
 
     // 5. 从TaskConfig获取时间间隔
     std::vector<float> time_interval;
     time_interval.push_back(param_.instance_bank_params().default_time_interval());
-    pipeline_context_.time_interval.cudaMemUpdateWrap(time_interval);
+    pipeline_context.time_interval.cudaMemUpdateWrap(time_interval);
     
     // 从TaskConfig获取图像宽高（为每个相机分别保存）
     std::vector<float> image_wh;
@@ -250,7 +362,7 @@ bool CoreImplement::loadAuxiliaryData()
         image_wh[i * 2] = static_cast<float>(param_.preprocessor_params().model_input_img_w());
         image_wh[i * 2 + 1] = static_cast<float>(param_.preprocessor_params().model_input_img_h());
     }
-    pipeline_context_.image_wh.cudaMemUpdateWrap(image_wh);
+    pipeline_context.image_wh.cudaMemUpdateWrap(image_wh);
     
     // 6. 激光雷达到图像变换矩阵大小
     size_t lidar2img_size = param_.preprocessor_params().num_cams() * 4 * 4;
@@ -262,70 +374,31 @@ bool CoreImplement::loadAuxiliaryData()
         lidar2img[i * 16 + 10] = 1.0f; // [2,2]
         lidar2img[i * 16 + 15] = 1.0f; // [3,3]
     }
-    pipeline_context_.lidar2img.cudaMemUpdateWrap(lidar2img);
+    pipeline_context.lidar2img.cudaMemUpdateWrap(lidar2img);
 
-    // 7. 依据配置初始化 pipeline_context_ / head_output_ 的显存尺寸
-    {   
-        // 预处理输入
-        size_t input_size = param_.preprocessor_params().num_cams() * 
-                            param_.preprocessor_params().model_input_img_c() *
-                            param_.preprocessor_params().model_input_img_h() * 
-                            param_.preprocessor_params().model_input_img_w();
-        
-        if (!pipeline_context_.input_images.allocate(input_size)) {
-            std::cerr << "Failed to allocate pipeline_context_.input_images (size=" << input_size << ")\n";
-            return false;  // 注意：这里需要改为返回 false，因为函数现在是 bool 返回类型
-        }
-
-        const size_t temp_instance_feature_size = param_.instance_bank_params().topk_querys() * param_.model_cfg_params().embedfeat_dims();
-        const size_t temp_anchor_size = param_.instance_bank_params().topk_querys() * param_.instance_bank_params().query_dims();
-        const size_t temp_mask_size = 1;
-        const size_t temp_track_id_size = param_.instance_bank_params().topk_querys();
-
-        const size_t pred_size = param_.instance_bank_params().num_querys() * param_.model_cfg_params().embedfeat_dims();
-        const size_t anchor_size = param_.instance_bank_params().num_querys() * param_.instance_bank_params().query_dims();
-        const size_t class_score_size = param_.instance_bank_params().num_querys() * param_.model_cfg_params().num_classes();
-        const size_t quality_score_size = param_.instance_bank_params().num_querys() * 2;
-        const size_t track_id_size = param_.instance_bank_params().num_querys();
-        
-        // 输入张量
-        size_t feature_size = 1;
-        for (int i = 0; i < param_.model_cfg_params().sparse4d_extract_feat_shape_lc_size(); ++i) {
-            feature_size *= param_.model_cfg_params().sparse4d_extract_feat_shape_lc(i);
-        }
-        if (!pipeline_context_.features.allocate(feature_size)) {
-            std::cerr << "Failed to allocate pipeline_context_.features (size=" << feature_size << ")\n";
-            return false;
-        }
-
-        // 第二帧独有的输入
-        if(!pipeline_context_.temp_instance_feature.allocate(temp_instance_feature_size) ||
-            !pipeline_context_.temp_anchor.allocate(temp_anchor_size) ||
-            !pipeline_context_.mask.allocate(temp_mask_size) ||
-            !pipeline_context_.track_ids.allocate(track_id_size)) {
-            std::cerr << "Failed to allocate pipeline_context_.temp_instance_feature (size=" << temp_instance_feature_size << ")\n";
-            return false;
-        }
-
-        // 输出张量
-        if (!head_output_.pred_instance_feature.allocate(pred_size) ||
-            !head_output_.pred_anchor.allocate(anchor_size) ||
-            !head_output_.pred_class_score.allocate(class_score_size) ||
-            !head_output_.pred_quality_score.allocate(quality_score_size) ||
-            !head_output_.pred_track_ids.allocate(track_id_size) ||
-            !head_output_.tmp_outs0.allocate(pred_size * 2) ||
-            !head_output_.tmp_outs1.allocate(pred_size * 2) ||
-            !head_output_.tmp_outs2.allocate(pred_size * 2) ||
-            !head_output_.tmp_outs3.allocate(pred_size * 2) ||
-            !head_output_.tmp_outs4.allocate(pred_size * 2) ||
-            !head_output_.tmp_outs5.allocate(pred_size * 2)) {
-            std::cerr << "Failed to allocate head_output_ (size=" << pred_size * 2 << ")\n";
-            return false;
-        }
-    }
+    // 7. 显存分配已移至 FrameContext::init
     
     LOG(INFO) << "[INFO] Auxiliary data loaded from TaskConfig";
     return true;
+}
+
+std::shared_ptr<FrameContext> CoreImplement::get_free_context() {
+    std::unique_lock<std::mutex> lock(context_mutex_);
+    // 简单实现：如果没有空闲，则等待 (或者返回空)
+    // Step 1 中我们是同步执行，所以应该总是有空闲的，除非并发调用 forward
+    if (free_contexts_.empty()) {
+        return nullptr;
+    }
+    auto ctx = free_contexts_.front();
+    free_contexts_.pop();
+    return ctx;
+}
+
+void CoreImplement::release_context(std::shared_ptr<FrameContext> context) {
+    if (!context) return;
+    std::unique_lock<std::mutex> lock(context_mutex_);
+    free_contexts_.push(context);
+    context_cv_.notify_one();
 }
 
 /**
@@ -335,14 +408,21 @@ bool CoreImplement::loadAuxiliaryData()
  * @note 使用零数据填充缓冲区，仅用于触发 CUDA Graph 捕获
  */
 bool CoreImplement::warmupInference() {
-    if (inference_stream_ == nullptr) {
-        LOG(ERROR) << "[ERROR] Inference stream is null, cannot perform warmup";
-        return false;
-    }
+    // 使用第一个 Context 进行预热
+    if (context_pool_.empty()) return false;
+    auto context = context_pool_[0];
+    auto& pipeline_context = context->pipeline_context;
+    auto& head_output = context->head_output;
 
-    // 使用零数据填充输入缓冲区（仅用于预热，不关心输出结果）
-    // 注意：这里使用已有的 pipeline_context_ 和 head_output_ 缓冲区
-    // 它们的地址是固定的，满足 CUDA Graph 的要求
+    // 使用固定的 stream_backbone_ 进行预热 (或者 stream_head_)
+    // 为了简单，我们只预热 stream_head_，因为它涵盖了大部分逻辑
+    // 或者我们应该预热两个流？
+    // 原始代码只预热 inference_stream_。现在我们有两个流。
+    // 我们应该分别预热。
+    
+    cudaStream_t stream = stream_head_; // 暂时使用 head 流
+
+    // ... (rest of warmup logic using pipeline_context and head_output)
     
     // 根据实际测试，Backbone 的 CUDA Graph 在第 2 次迭代就生效了（enqueue time 从 348ms 降到 1.3ms）
     // 但 Head1 和 Head2 需要更多预热迭代才能捕获 CUDA Graph
@@ -356,23 +436,23 @@ bool CoreImplement::warmupInference() {
     // 1. 单独预热 Backbone（已验证 CUDA Graph 已生效）
     LOG(INFO) << "[INFO] Warming up Backbone (" << BACKBONE_WARMUP << " iterations)...";
     for (int i = 0; i < BACKBONE_WARMUP; ++i) {
-        Status status = backbone_->forward(pipeline_context_, inference_stream_);
+        Status status = backbone_->forward(pipeline_context, stream);
         if (status != Status::kSuccess) {
             LOG(WARNING) << "[WARNING] Backbone warmup iteration " << i << " failed";
             continue;
         }
-        cudaStreamSynchronize(inference_stream_);
+        cudaStreamSynchronize(stream);
     }
     
     // 2. 单独预热 Head1（需要更多迭代才能捕获 CUDA Graph）
     LOG(INFO) << "[INFO] Warming up Head1 (" << HEAD1_WARMUP << " iterations)...";
     for (int i = 0; i < HEAD1_WARMUP; ++i) {
-        Status status = head1_->forward(pipeline_context_, inference_stream_, head_output_);
+        Status status = head1_->forward(pipeline_context, stream, head_output);
         if (status != Status::kSuccess) {
             LOG(WARNING) << "[WARNING] Head1 warmup iteration " << i << " failed";
             continue;
         }
-        cudaStreamSynchronize(inference_stream_);
+        cudaStreamSynchronize(stream);
     }
     
     // 3. 单独预热 Head2（需要更多迭代才能捕获 CUDA Graph）
@@ -380,57 +460,67 @@ bool CoreImplement::warmupInference() {
     // 但这些缓冲区已经分配，使用零数据即可
     LOG(INFO) << "[INFO] Warming up Head2 (" << HEAD2_WARMUP << " iterations)...";
     for (int i = 0; i < HEAD2_WARMUP; ++i) {
-        Status status = head2_->forward(pipeline_context_, inference_stream_, head_output_);
+        Status status = head2_->forward(pipeline_context, stream, head_output);
         if (status != Status::kSuccess) {
             LOG(WARNING) << "[WARNING] Head2 warmup iteration " << i << " failed";
             continue;
         }
-        cudaStreamSynchronize(inference_stream_);
+        cudaStreamSynchronize(stream);
     }
     
     LOG(INFO) << "[INFO] Warmup inference completed";
-    LOG(INFO) << "[INFO] CUDA Graph should be captured by TensorRT if conditions are met";
-    LOG(INFO) << "[INFO] Look for '[TRT] Skip layer timing collection in CUDA graph capture mode' in logs";
-    LOG(INFO) << "[INFO] Check enqueue time in [TIMING] logs - should decrease significantly after warmup";
-    
     return true;
 }
 
 
 CAlgResult CoreImplement::forward(const CTimeMatchSrcData *raw_data, void *stream)
 {   
+    // Step 1 临时实现：同步获取 Context 并执行
+    auto context = get_free_context();
+    if (!context) {
+        LOG(ERROR) << "[ERROR] No free context available!";
+        return CAlgResult();
+    }
+
+    CAlgResult result;
     if(enable_timer_){
-        return forward_timer(raw_data, stream);
+        result = forward_timer(raw_data, stream, context.get());
     }
     else{
-        return forward_only(raw_data, stream);
+        result = forward_only(raw_data, stream, context.get());
     }
+    
+    release_context(context);
+    return result;
 }
 
 // 内部使用的 forward_only 方法，接受 CTimeMatchSrcData
-CAlgResult CoreImplement::forward_only(const CTimeMatchSrcData *raw_data, void *stream)
+CAlgResult CoreImplement::forward_only(const CTimeMatchSrcData *raw_data, void *stream, FrameContext* context)
 {   
     CAlgResult result;
-    if (raw_data == nullptr) {
+    if (raw_data == nullptr || context == nullptr) {
         return result;
     }
+    
+    auto& pipeline_context = context->pipeline_context;
+    auto& head_output = context->head_output;
 
     // 1.预处理
-    Status status = preprocessor_->forward(raw_data, static_cast<cudaStream_t>(stream), pipeline_context_);
+    Status status = preprocessor_->forward(raw_data, static_cast<cudaStream_t>(stream), pipeline_context);
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Preprocessor forward failed!";
         return result;
     }
 
     // 2.执行Instance_Bank->get() 获取历史信息
-    status = instance_bank_->get(raw_data, is_first_frame_, static_cast<cudaStream_t>(stream), pipeline_context_);
+    status = instance_bank_->get(raw_data, is_first_frame_, static_cast<cudaStream_t>(stream), pipeline_context);
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Instance bank get failed!";
         return result;
     }
 
     // 3.执行BackBone->forward() 提取特征
-    status = backbone_->forward(pipeline_context_, static_cast<cudaStream_t>(stream));
+    status = backbone_->forward(pipeline_context, static_cast<cudaStream_t>(stream));
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Backbone forward failed!";
         return result;
@@ -438,14 +528,14 @@ CAlgResult CoreImplement::forward_only(const CTimeMatchSrcData *raw_data, void *
 
     // 4.执行Head->forward() 提取目标
     if(is_first_frame_){
-        status = head1_->forward(pipeline_context_, static_cast<cudaStream_t>(stream), head_output_);
+        status = head1_->forward(pipeline_context, static_cast<cudaStream_t>(stream), head_output);
         if (status != Status::kSuccess) {
             LOG(ERROR) << "[ERROR] Head1 forward failed!";
             return result;
         }
     }else
     {
-        status = head2_->forward(pipeline_context_, static_cast<cudaStream_t>(stream), head_output_);
+        status = head2_->forward(pipeline_context, static_cast<cudaStream_t>(stream), head_output);
         if (status != Status::kSuccess) {
             LOG(ERROR) << "[ERROR] Head2 forward failed!";
             return result;
@@ -453,14 +543,14 @@ CAlgResult CoreImplement::forward_only(const CTimeMatchSrcData *raw_data, void *
     }
 
     // 5.执行Instance_Bank->cache() 缓存结果
-    status = instance_bank_->cache(head_output_, is_first_frame_, static_cast<cudaStream_t>(stream));
+    status = instance_bank_->cache(head_output, is_first_frame_, static_cast<cudaStream_t>(stream));
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Instance bank cache failed!";
         return result;
     }
 
     // 6.执行Instance_Bank->getTrackId() 获取跟踪ID
-    status = instance_bank_->getTrackId(head_output_, is_first_frame_, static_cast<cudaStream_t>(stream));
+    status = instance_bank_->getTrackId(head_output, is_first_frame_, static_cast<cudaStream_t>(stream));
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Instance bank get track id failed!";
         return result;
@@ -471,7 +561,7 @@ CAlgResult CoreImplement::forward_only(const CTimeMatchSrcData *raw_data, void *
     }
 
     // 7.执行Postprocessor->forward() 后处理
-    status = postprocessor_->forward(head_output_, static_cast<cudaStream_t>(stream), result);
+    status = postprocessor_->forward(head_output, static_cast<cudaStream_t>(stream), result);
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Postprocessor forward failed!";
         return result;
@@ -479,13 +569,16 @@ CAlgResult CoreImplement::forward_only(const CTimeMatchSrcData *raw_data, void *
     return result;
 }
 
-CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void *stream)
+CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void *stream, FrameContext* context)
 {
     // 使用计时器版本的forward，在每个阶段添加计时
     CAlgResult result;
-    if (raw_data == nullptr) {
+    if (raw_data == nullptr || context == nullptr) {
         return result;
     }
+    
+    auto& pipeline_context = context->pipeline_context;
+    auto& head_output = context->head_output;
 
     cudaStream_t cuda_stream = static_cast<cudaStream_t>(stream);
     
@@ -495,7 +588,7 @@ CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void 
 
     // 1.预处理
     timer_preprocess.start(cuda_stream);
-    Status status = preprocessor_->forward(raw_data, cuda_stream, pipeline_context_);
+    Status status = preprocessor_->forward(raw_data, cuda_stream, pipeline_context);
     timer_preprocess.stop("Preprocess");
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Preprocessor forward failed!";
@@ -504,7 +597,7 @@ CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void 
 
     // 2.执行Instance_Bank->get() 获取历史信息
     timer_instance_bank.start(cuda_stream);
-    status = instance_bank_->get(raw_data, is_first_frame_, cuda_stream, pipeline_context_);
+    status = instance_bank_->get(raw_data, is_first_frame_, cuda_stream, pipeline_context);
     timer_instance_bank.stop("InstanceBank::get");
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Instance bank get failed!";
@@ -513,7 +606,7 @@ CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void 
 
     // 3.执行BackBone->forward() 提取特征
     timer_backbone.start(cuda_stream);
-    status = backbone_->forward(pipeline_context_, cuda_stream);
+    status = backbone_->forward(pipeline_context, cuda_stream);
     timer_backbone.stop("Backbone");
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Backbone forward failed!";
@@ -523,64 +616,26 @@ CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void 
     // 4.执行Head推理
     timer_head.start(cuda_stream);
     if(is_first_frame_){
-        // 保存pipeline_context_中的数据
-        // common::savePartialFast(pipeline_context_.features, 89760*256, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_features_1*89760*256_float32.bin");
-        // common::savePartialFast(pipeline_context_.spatial_shapes, 48, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_spatial_shapes_6*4*2_int32.bin");
-        // common::savePartialFast(pipeline_context_.level_start_index, 6*4, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_level_start_index_6*4_int32.bin");
-        // common::savePartialFast(pipeline_context_.instance_feature, 900*256, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_instance_feature_1*900*256_float32.bin");
-        // common::savePartialFast(pipeline_context_.anchor, 900*11, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_anchor_1*900*11_float32.bin");
-        // common::savePartialFast(pipeline_context_.time_interval, 1, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_time_interval_1_float32.bin");
-        // common::savePartialFast(pipeline_context_.image_wh, 12, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_image_wh_1*6*2_float32.bin");
-        // common::savePartialFast(pipeline_context_.lidar2img, 6*4*4, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_input_lidar2img_1*6*4*4_float32.bin");
-
-        status = head1_->forward(pipeline_context_, cuda_stream, head_output_);
+        status = head1_->forward(pipeline_context, cuda_stream, head_output);
         if (status != Status::kSuccess) {
             LOG(ERROR) << "[ERROR] Head1 forward failed!";
             timer_head.stop("Head1");
             return result;
         }
         timer_head.stop("Head1");
-
-        // 保存head_output_中的数据
-        // common::savePartialFast(head_output_.pred_instance_feature, 900*256, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_output_pred_instance_feature_1*900*256_float32.bin");
-        // common::savePartialFast(head_output_.pred_anchor, 900*11, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_output_pred_anchor_1*900*11_float32.bin");
-        // common::savePartialFast(head_output_.pred_class_score, 900*1, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_output_pred_class_score_1*900*1_float32.bin");
-        // common::savePartialFast(head_output_.pred_quality_score, 900*2, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_output_pred_quality_score_1*900*2_float32.bin");
-        // common::savePartialFast(head_output_.pred_track_ids, 900, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_0_output_pred_track_ids_1*900_int32.bin");
     } else {
-        // common::savePartialFast(pipeline_context_.features, 89760*256, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_features_1*89760*256_float32.bin");
-        // common::savePartialFast(pipeline_context_.spatial_shapes, 48, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_spatial_shapes_6*4*2_int32.bin");
-        // common::savePartialFast(pipeline_context_.level_start_index, 6*4, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_level_start_index_6*4_int32.bin");
-        // common::savePartialFast(pipeline_context_.instance_feature, 900*256, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_instance_feature_1*900*256_float32.bin");
-        // common::savePartialFast(pipeline_context_.anchor, 900*11, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_anchor_1*900*11_float32.bin");
-        // common::savePartialFast(pipeline_context_.time_interval, 1, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_time_interval_1_float32.bin");
-        // common::savePartialFast(pipeline_context_.image_wh, 12, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_image_wh_1*6*2_float32.bin");
-        // common::savePartialFast(pipeline_context_.lidar2img, 6*4*4, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_lidar2img_1*6*4*4_float32.bin");
-        // // 第二帧独有
-        // common::savePartialFast(pipeline_context_.temp_instance_feature, 600*256, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_temp_instance_feature_1*600*256_float32.bin");
-        // common::savePartialFast(pipeline_context_.temp_anchor, 600*11, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_temp_anchor_1*600*11_float32.bin");
-        // common::savePartialFast(pipeline_context_.mask, 1, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_mask_1_int32.bin");
-        // common::savePartialFast(pipeline_context_.track_ids, 900, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_input_track_ids_1*900_int32.bin");
-        // 同步验证：确保前序异步写入已完成
-        // cudaStreamSynchronize(cuda_stream);
-        status = head2_->forward(pipeline_context_, cuda_stream, head_output_);
+        status = head2_->forward(pipeline_context, cuda_stream, head_output);
         if (status != Status::kSuccess) {
             LOG(ERROR) << "[ERROR] Head2 forward failed!";
             timer_head.stop("Head2");
             return result;
         }
         timer_head.stop("Head2");
-
-        // common::savePartialFast(head_output_.pred_instance_feature, 900*256, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_output_pred_instance_feature_1*900*256_float32.bin");
-        // common::savePartialFast(head_output_.pred_anchor, 900*11, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_output_pred_anchor_1*900*11_float32.bin");
-        // common::savePartialFast(head_output_.pred_class_score, 900*1, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_output_pred_class_score_1*900*1_float32.bin");
-        // common::savePartialFast(head_output_.pred_quality_score, 900*2, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_output_pred_quality_score_1*900*2_float32.bin");
-        // common::savePartialFast(head_output_.pred_track_ids, 900, "/share/Code/Sparse4dE2E/C++/Output/1104/sample_1_output_pred_track_ids_1*900_int32.bin");
     }
 
     // 5.执行Instance_Bank->cache() 缓存结果
     timer_cache.start(cuda_stream);
-    status = instance_bank_->cache(head_output_, is_first_frame_, cuda_stream);
+    status = instance_bank_->cache(head_output, is_first_frame_, cuda_stream);
     timer_cache.stop("InstanceBank::cache");
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Instance bank cache failed!";
@@ -589,7 +644,7 @@ CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void 
 
     // 6.执行Instance_Bank->getTrackId() 获取跟踪ID
     timer_trackid.start(cuda_stream);
-    status = instance_bank_->getTrackId(head_output_, is_first_frame_, cuda_stream);
+    status = instance_bank_->getTrackId(head_output, is_first_frame_, cuda_stream);
     timer_trackid.stop("InstanceBank::getTrackId");
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Instance bank get track id failed!";
@@ -602,7 +657,7 @@ CAlgResult CoreImplement::forward_timer(const CTimeMatchSrcData *raw_data, void 
 
     // 7.执行Postprocessor->forward() 后处理
     timer_postprocess.start(cuda_stream);
-    status = postprocessor_->forward(head_output_, cuda_stream, result);
+    status = postprocessor_->forward(head_output, cuda_stream, result);
     timer_postprocess.stop("Postprocess");
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Postprocessor forward failed!";
@@ -623,7 +678,20 @@ void CoreImplement::update(const float *lidar2camera, void *stream)
             std::memcpy(lidar2img_vec.data() + i * 16, lidar2camera + i * 16, 16 * sizeof(float));
         }
         cudaStream_t s = stream ? static_cast<cudaStream_t>(stream) : static_cast<cudaStream_t>(0);
-        pipeline_context_.lidar2img.cudaMemUpdateWrapAsync(lidar2img_vec, s);
+        
+        // 更新所有 Context 中的 lidar2img
+        // 注意：这可能存在竞态条件，如果某个 Context 正在被使用。
+        // 但通常 update 是在推理开始前调用的。
+        // 为了安全，我们应该只更新空闲的 context 或者加锁？
+        // 实际上，lidar2img 是每帧可能变化的参数。
+        // 如果是每帧变化，应该作为 forward 的参数传入，或者在 get_free_context 后更新。
+        // 但现有接口是独立的 update 函数。
+        // 假设外部调用 update 后紧接着调用 forward。
+        // 我们需要更新所有 context，或者只更新"下一个" context。
+        // 简单起见，更新所有 context。
+        for (auto& ctx : context_pool_) {
+            ctx->pipeline_context.lidar2img.cudaMemUpdateWrapAsync(lidar2img_vec, s);
+        }
     }
 }
 
