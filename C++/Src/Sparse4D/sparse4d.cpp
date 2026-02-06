@@ -16,6 +16,13 @@ bool FrameContext::init(const TaskConfig& param) {
     if (cudaEventCreate(&event_backbone_done) != cudaSuccess) return false;
     if (cudaEventCreate(&event_all_done) != cudaSuccess) return false;
 
+    // 创建性能统计事件
+    cudaEventCreate(&start_preprocess); cudaEventCreate(&stop_preprocess);
+    cudaEventCreate(&start_instance_bank); cudaEventCreate(&stop_instance_bank);
+    cudaEventCreate(&start_backbone); cudaEventCreate(&stop_backbone);
+    cudaEventCreate(&start_head); cudaEventCreate(&stop_head);
+    cudaEventCreate(&start_post); cudaEventCreate(&stop_post);
+
     // 2. 依据配置初始化 pipeline_context / head_output 的显存尺寸
     // 预处理输入
     size_t input_size = param.preprocessor_params().num_cams() * 
@@ -80,6 +87,18 @@ bool FrameContext::init(const TaskConfig& param) {
 void FrameContext::free() {
     if (event_backbone_done) cudaEventDestroy(event_backbone_done);
     if (event_all_done) cudaEventDestroy(event_all_done);
+    
+    if (start_preprocess) cudaEventDestroy(start_preprocess);
+    if (stop_preprocess) cudaEventDestroy(stop_preprocess);
+    if (start_instance_bank) cudaEventDestroy(start_instance_bank);
+    if (stop_instance_bank) cudaEventDestroy(stop_instance_bank);
+    if (start_backbone) cudaEventDestroy(start_backbone);
+    if (stop_backbone) cudaEventDestroy(stop_backbone);
+    if (start_head) cudaEventDestroy(start_head);
+    if (stop_head) cudaEventDestroy(stop_head);
+    if (start_post) cudaEventDestroy(start_post);
+    if (stop_post) cudaEventDestroy(stop_post);
+
     event_backbone_done = nullptr;
     event_all_done = nullptr;
     // CudaWrapper 自动释放内存
@@ -196,8 +215,14 @@ void CoreImplement::runAlgorithm(void* p_pSrcData)
         // 但 forward_only 包含了所有步骤。我们需要拆分。
     }
 
+    // 记录推理开始时间（用于计算纯推理吞吐量）
+    context->inference_start_time = std::chrono::high_resolution_clock::now();
+    
     // 我们需要手动执行预处理部分
+    cudaEventRecord(context->start_preprocess, stream_backbone_);
     Status status = preprocessor_->forward(raw_data, stream_backbone_, context->pipeline_context);
+    cudaEventRecord(context->stop_preprocess, stream_backbone_);
+    
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Preprocessor forward failed!";
         release_context(context);
@@ -207,7 +232,9 @@ void CoreImplement::runAlgorithm(void* p_pSrcData)
     // 2.5 执行 InstanceBank::get (因为需要 raw_data)
     // 注意：InstanceBank::get 可能需要使用 stream，这里使用 stream_head_
     // 并且它可能修改 pipeline_context
+    cudaEventRecord(context->start_instance_bank, stream_head_);
     status = instance_bank_->get(raw_data, is_first_frame_, stream_head_, context->pipeline_context);
+    cudaEventRecord(context->stop_instance_bank, stream_head_);
     if (status != Status::kSuccess) {
         LOG(ERROR) << "[ERROR] Instance bank get failed!";
         release_context(context);
@@ -249,7 +276,10 @@ void CoreImplement::inference_loop() {
 
         LOG(INFO) << "[DEBUG] Starting Backbone forward. Stream: " << stream_backbone_;
         // 3. Backbone (on stream_backbone_)
+        cudaEventRecord(context->start_backbone, stream_backbone_);
         Status status = backbone_->forward(context->pipeline_context, stream_backbone_);
+        cudaEventRecord(context->stop_backbone, stream_backbone_);
+        
         if (status != Status::kSuccess) {
             LOG(ERROR) << "[ERROR] Backbone forward failed!";
             release_context(context);
@@ -264,6 +294,7 @@ void CoreImplement::inference_loop() {
         // Wait for Backbone
         cudaStreamWaitEvent(stream_head_, context->event_backbone_done, 0);
 
+        cudaEventRecord(context->start_head, stream_head_);
         if(is_first_frame_){
              status = head1_->forward(context->pipeline_context, stream, context->head_output);
         } else {
@@ -282,15 +313,93 @@ void CoreImplement::inference_loop() {
         status = instance_bank_->getTrackId(context->head_output, is_first_frame_, stream);
         
         if(is_first_frame_) is_first_frame_ = false; // 注意线程安全，如果多线程同时访问
+        cudaEventRecord(context->stop_head, stream_head_);
 
         // 7. Postprocess
+        cudaEventRecord(context->start_post, stream_head_);
         status = postprocessor_->forward(context->head_output, stream, result);
+        cudaEventRecord(context->stop_post, stream_head_);
+        
+        LOG(INFO) << "[DEBUG] Postprocess done, calling callback";
         
         // Callback
         if (alg_cb_) {
             alg_cb_(result, user_handle_);
         }
+        LOG(INFO) << "[DEBUG] Callback done";
         
+        // 记录推理结束时间（postprocess 完成后）
+        auto inference_end_time = std::chrono::high_resolution_clock::now();
+        
+        // 统计耗时
+        static int frame_count = 0;
+        static int total_processed_count = 0;
+        static float total_preprocess = 0, total_instance_bank = 0, total_backbone = 0, total_head = 0, total_post = 0;
+        static float total_inference_time = 0; // 纯推理总时间（CPU时间）
+        static auto last_print_time = std::chrono::high_resolution_clock::now();
+        
+        float t_pre = 0, t_ib = 0, t_back = 0, t_head = 0, t_post = 0;
+        // 注意：这里不阻塞等待，让 GPU 异步执行，实现帧间并行
+        // 但为了统计准确，我们仍然需要同步（或者使用异步方式统计）
+        cudaEventSynchronize(context->stop_post); // 确保所有事件完成（用于统计）
+        cudaEventElapsedTime(&t_pre, context->start_preprocess, context->stop_preprocess);
+        cudaEventElapsedTime(&t_ib, context->start_instance_bank, context->stop_instance_bank);
+        cudaEventElapsedTime(&t_back, context->start_backbone, context->stop_backbone);
+        cudaEventElapsedTime(&t_head, context->start_head, context->stop_head);
+        cudaEventElapsedTime(&t_post, context->start_post, context->stop_post);
+        
+        // 计算纯推理时间（从预处理开始到 postprocess 结束）
+        float inference_time_ms = std::chrono::duration_cast<std::chrono::microseconds>(
+            inference_end_time - context->inference_start_time).count() / 1000.0f;
+        
+        total_processed_count++;
+
+        if (total_processed_count > 1) {
+            total_preprocess += t_pre;
+            total_instance_bank += t_ib;
+            total_backbone += t_back;
+            total_head += t_head;
+            total_post += t_post;
+            total_inference_time += inference_time_ms;
+            frame_count++;
+            
+            if (frame_count % 9 == 0) {
+                auto now = std::chrono::high_resolution_clock::now();
+                double duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_print_time).count();
+                float end_to_end_fps = 1000.0f * 9.0f / duration; // 端到端吞吐量（包含数据加载、可视化等）
+                float pure_inference_fps = 1000.0f * 9.0f / total_inference_time; // 纯推理吞吐量
+                
+                // 计算理论最大吞吐量（基于瓶颈模块）
+                float bottleneck_time = std::max(total_backbone / 9.0f, total_head / 9.0f);
+                float theoretical_max_fps = 1000.0f / bottleneck_time;
+                
+                std::cout << "\n=== Performance Report (Avg over 9 frames) ===" << std::endl;
+                std::cout << "Pure Inference Throughput: " << pure_inference_fps << " FPS" << std::endl;
+                std::cout << "End-to-End Throughput: " << end_to_end_fps << " FPS (includes data loading, visualization, etc.)" << std::endl;
+                std::cout << "Pure Inference Latency: " << total_inference_time / 9.0f << " ms" << std::endl;
+                std::cout << "\nTheoretical Max Throughput (Pipeline): " << theoretical_max_fps << " FPS" << std::endl;
+                std::cout << "  (Based on bottleneck: " << bottleneck_time << " ms)" << std::endl;
+                std::cout << "Current Efficiency: " << (pure_inference_fps / theoretical_max_fps * 100.0f) << "%" << std::endl;
+                std::cout << "\nLatency Breakdown (GPU time):" << std::endl;
+                std::cout << "  Preprocess: " << total_preprocess / 9.0f << " ms" << std::endl;
+                std::cout << "  InstanceBank::get: " << total_instance_bank / 9.0f << " ms" << std::endl;
+                std::cout << "  Backbone: " << total_backbone / 9.0f << " ms" << std::endl;
+                std::cout << "  Head (incl. Cache/Track): " << total_head / 9.0f << " ms" << std::endl;
+                std::cout << "  Postprocess: " << total_post / 9.0f << " ms" << std::endl;
+                std::cout << "\nNote: Current implementation is sequential (not pipeline parallel)." << std::endl;
+                std::cout << "      To achieve theoretical max, need frame-level pipeline parallelism." << std::endl;
+                std::cout << "================================================" << std::endl;
+                
+                total_preprocess = total_instance_bank = total_backbone = total_head = total_post = 0;
+                total_inference_time = 0;
+                last_print_time = now;
+            }
+        } else {
+            // 第一帧耗时通常较高（Warmup），丢弃不计入统计，并重置起始时间
+            last_print_time = std::chrono::high_resolution_clock::now();
+            LOG(INFO) << "[INFO] First frame statistics discarded for performance report.";
+        }
+
         release_context(context);
     }
 }

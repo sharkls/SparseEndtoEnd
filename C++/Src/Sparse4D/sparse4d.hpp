@@ -33,6 +33,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <chrono>
 
 namespace sparse4d{
 namespace core{
@@ -47,6 +48,16 @@ struct FrameContext {
     cudaEvent_t event_backbone_done = nullptr; // 标记 Backbone 完成
     cudaEvent_t event_all_done = nullptr;      // 标记整帧完成
     
+    // 性能统计事件
+    cudaEvent_t start_preprocess = nullptr, stop_preprocess = nullptr;
+    cudaEvent_t start_instance_bank = nullptr, stop_instance_bank = nullptr;
+    cudaEvent_t start_backbone = nullptr, stop_backbone = nullptr;
+    cudaEvent_t start_head = nullptr, stop_head = nullptr;
+    cudaEvent_t start_post = nullptr, stop_post = nullptr;
+    
+    // CPU 时间戳（用于计算纯推理吞吐量）
+    std::chrono::high_resolution_clock::time_point inference_start_time;
+
     // 构造/析构中分配和释放显存及Event
     bool init(const TaskConfig& param);
     void free();
