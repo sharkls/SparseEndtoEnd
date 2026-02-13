@@ -669,7 +669,7 @@ if __name__ == "__main__":
             logger.info("[Quant] Replacing modules with QuantLinear...")
             # [Optimization] Remove "layers", "fc_before", "fc_after", "output_proj" to enable INT8 speedup.
             # Only keep sensitive coordinate/regression related layers in FP16.
-            sensitive_layers = ["anchor_encoder", "kps_generator", "project_points", "refine", "norm"]
+            sensitive_layers = ["anchor_encoder", "output_proj", "kps_generator", "project_points", "layers", "fc_before", "fc_after"]
             replace_to_quantization_module(first_frame_head.model.head, ignore_layers=sensitive_layers)
 
             logger.info("[Quant] Calibrating Head 1st...")
@@ -741,7 +741,7 @@ if __name__ == "__main__":
     if args.int8:
         logger.info("[Quant] Replacing modules with QuantLinear (Head 2)...")
         # [Optimization] Apply same optimization for Head 2
-        sensitive_layers = ["anchor_encoder", "kps_generator", "project_points", "refine", "norm"]
+        sensitive_layers = ["anchor_encoder", "output_proj", "kps_generator", "project_points", "layers", "fc_before", "fc_after"]    
         replace_to_quantization_module(head2.model.head, ignore_layers=sensitive_layers)
 
         logger.info("[Quant] Calibrating Head 2nd...")

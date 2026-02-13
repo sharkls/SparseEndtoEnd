@@ -111,17 +111,17 @@ fi
 
 # Backbone 不需要 Head 的插件，为了稳健性不加载 PLUGIN_ARGS
 # 使用 --shapes 指定真实输入维度 (1x6x3x256x704)
-${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
-    --shapes=img:1x6x3x256x704 \
-    --memPoolSize=workspace:2048 \
-    --saveEngine=${ENV_BACKBONE_ENGINE} \
-    --exportProfile=${ENVTRTDIR}/log/backbone_int8_profile.json \
-    --exportLayerInfo=${ENVTRTDIR}/log/backbone_int8_layer_info.json \
-    --verbose \
-    --warmUp=200 \
-    --iterations=50 \
-    ${INT8_ARGS} \
-    >${ENVTRTDIR}/log/build_backbone_int8.log 2>&1
+# ${ENV_TensorRT_BIN}/trtexec --onnx=${ENV_BACKBONE_ONNX} \
+#     --shapes=img:1x6x3x256x704 \
+#     --memPoolSize=workspace:2048 \
+#     --saveEngine=${ENV_BACKBONE_ENGINE} \
+#     --exportProfile=${ENVTRTDIR}/log/backbone_int8_profile.json \
+#     --exportLayerInfo=${ENVTRTDIR}/log/backbone_int8_layer_info.json \
+#     --verbose \
+#     --warmUp=200 \
+#     --iterations=50 \
+#     ${INT8_ARGS} \
+#     >${ENVTRTDIR}/log/build_backbone_int8.log 2>&1
 # --dumpProfile 
 
 if [ $? -ne 0 ]; then

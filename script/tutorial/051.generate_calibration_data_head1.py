@@ -27,11 +27,11 @@ def build_module(cfg, default_args: Optional[Dict] = None) -> Any:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate Calibration Data specifically for Head1")
-    parser.add_argument("--config", default="dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py")
+    parser.add_argument("--config", default="dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704.py")
     parser.add_argument("--checkpoint", default="ckpt/sparse4dv3_r50.pth")
     parser.add_argument("--log", type=str, default="script/tutorial/generate_head1_calibration_data.log")
     parser.add_argument("--save-dir", type=str, default="deploy/calibration_data")
-    parser.add_argument("--num-samples", type=int, default=100)
+    parser.add_argument("--num-samples", type=int, default=500)
     args = parser.parse_args()
     return args
 

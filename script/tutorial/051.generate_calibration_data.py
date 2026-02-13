@@ -29,11 +29,11 @@ def build_module(cfg, default_args: Optional[Dict] = None) -> Any:
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Generate Calibration Data for INT8 Quantization")
-    parser.add_argument("--config", default="dataset/config/sparse4d_temporal_r50_1x1_bs1_256x704_mini.py")
+    parser.add_argument("--config", default="dataset/config/sparse4d_temporal_r50_1x4_bs22_256x704.py")
     parser.add_argument("--checkpoint", default="ckpt/sparse4dv3_r50.pth")
     parser.add_argument("--log", type=str, default="script/tutorial/generate_calibration_data.log")
     parser.add_argument("--save-dir", type=str, default="deploy/calibration_data")
-    parser.add_argument("--num-samples", type=int, default=100)
+    parser.add_argument("--num-samples", type=int, default=500)
     parser.add_argument("--head", type=str, default="both", choices=["head1", "head2", "both", "backbone", "all"])
     args = parser.parse_args()
     return args
@@ -110,17 +110,33 @@ class Sparse4D_head(nn.Module):
         self._lidar2img = None
 
     def save_calibration_data(self, save_dir, sample_idx, head_mode="both"):
-        # head1_dir is no longer managed by this script for primary calibration
+        head1_dir = os.path.join(save_dir, "head1")
         head2_dir = os.path.join(save_dir, "head2")
+        os.makedirs(head1_dir, exist_ok=True)
         os.makedirs(head2_dir, exist_ok=True)
 
         def to_numpy(x):
+            if x is None: return None
             if isinstance(x, torch.Tensor): return x.detach().cpu().numpy()
             if isinstance(x, np.ndarray): return x
             return np.array(x)
 
+        # 无论是否为第一帧，都可以作为 Head1 的校准数据（模拟冷启动情况）
+        if head_mode in ["head1", "both", "all"]:
+            head1_data = {
+                "feature": to_numpy(self._feature), 
+                "spatial_shapes": to_numpy(self._spatial_shapes),
+                "level_start_index": to_numpy(self._level_start_index),
+                "instance_feature": to_numpy(self._instance_feature),
+                "anchor": to_numpy(self._anchor),
+                "time_interval": to_numpy(self._time_interval),
+                "image_wh": to_numpy(self._image_wh),
+                "lidar2img": to_numpy(self._lidar2img),
+            }
+            np.savez(os.path.join(head1_dir, f"{sample_idx:06d}.npz"), **head1_data)
+
         # Head2 inference happens at frames > 0, utilizing temporal history.
-        if not self._first_frame and head_mode in ["head2", "both", "all"]:
+        if not self._first_frame and self._temp_instance_feature is not None and head_mode in ["head2", "both", "all"]:
             head2_data = {
                 "feature": to_numpy(self._feature), 
                 "spatial_shapes": to_numpy(self._spatial_shapes),
@@ -132,10 +148,11 @@ class Sparse4D_head(nn.Module):
                 "lidar2img": to_numpy(self._lidar2img),
                 "temp_instance_feature": to_numpy(self._temp_instance_feature),
                 "temp_anchor": to_numpy(self._temp_anchor),
-                "mask": to_numpy(self._mask.int()), 
-                "track_id": to_numpy(self._track_id.int()),
+                "mask": to_numpy(self._mask.int() if self._mask is not None else None), 
+                "track_id": to_numpy(self._track_id.int() if self._track_id is not None else None),
             }
-            np.savez(os.path.join(head2_dir, f"{sample_idx:06d}.npz"), **head2_data)
+            if head2_data["mask"] is not None:
+                np.savez(os.path.join(head2_dir, f"{sample_idx:06d}.npz"), **head2_data)
 
     def forward(self, feature_maps, metas):
         if isinstance(feature_maps, torch.Tensor):
@@ -294,6 +311,7 @@ def main():
         pbar = tqdm(total=args.num_samples)
     except: pbar = None
 
+    last_scene_token = None
     for i, data in enumerate(loader):
         if i >= args.num_samples: break
         
@@ -301,6 +319,13 @@ def main():
             data = scatter(data, [0])[0]
             img = data["img"]
             img_metas = data["img_metas"]
+            
+            # --- 核心修改：场景切换检测 ---
+            current_scene_token = img_metas[0].get("scene_token", None)
+            if current_scene_token != last_scene_token:
+                model.head.instance_bank.reset()
+                head_wrapper._first_frame = True
+                last_scene_token = current_scene_token
             
             # Ensure img has batch dim [1, N, C, H, W]
             if img.dim() == 4: img = img.unsqueeze(0)
@@ -378,8 +403,8 @@ def main():
             # 3. Save Data
             head_wrapper.save_calibration_data(args.save_dir, i, args.head)
             
-            if head_wrapper._first_frame:
-                head_wrapper._first_frame = False
+            # 推理完一帧后，下一帧就不再是第一帧
+            head_wrapper._first_frame = False
             
             if pbar: pbar.update(1)
 
